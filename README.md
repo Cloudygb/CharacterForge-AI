@@ -1,0 +1,128 @@
+# CharacterForge AI
+
+**CharacterForge AI** is an AWS-hosted, API-first platform for creating AI-powered game characters from structured character profiles.
+
+Game designers and developers can define reusable NPCs with personality, backstory, goals, world context, speaking style, and allowed actions. External applications can then prompt those characters through an API and receive both in-character dialogue and machine-readable game actions.
+
+> Portfolio goal: demonstrate Python backend development, AWS serverless architecture, Amazon Bedrock integration, DynamoDB data modeling, prompt orchestration, structured LLM outputs, testing, and API documentation.
+
+---
+
+## MVP Vision
+
+CharacterForge AI will allow a client application to:
+
+1. Create a structured character profile.
+2. Persist that profile.
+3. Send player dialogue and game context to the character.
+4. Generate an in-character response with AWS Bedrock.
+5. Return validated structured actions such as quests, trades, relationship changes, scene triggers, or world flags.
+6. Store session history so conversations have continuity.
+
+---
+
+## Planned Tech Stack
+
+- **Language:** Python 3.11+
+- **Cloud:** AWS
+- **LLM Provider:** Amazon Bedrock
+- **Compute:** AWS Lambda
+- **API:** Amazon API Gateway
+- **Database:** Amazon DynamoDB
+- **Infrastructure as Code:** AWS SAM
+- **Validation:** Pydantic
+- **AWS SDK:** boto3
+- **Testing:** pytest, pytest-cov, moto
+- **Linting / Formatting:** Ruff
+
+---
+
+## Planned API Surface
+
+```http
+POST /characters
+GET /characters
+GET /characters/{character_id}
+PUT /characters/{character_id}
+DELETE /characters/{character_id}
+POST /characters/{character_id}/chat
+GET /sessions/{session_id}
+DELETE /sessions/{session_id}
+```
+
+---
+
+## Example Character Profile
+
+```json
+{
+  "name": "Captain Mira Voss",
+  "description": "A rogue airship captain.",
+  "personality": ["sarcastic", "brave", "protective"],
+  "backstory": "Former royal navy officer turned smuggler.",
+  "speaking_style": "Dry wit, clipped sentences, nautical metaphors.",
+  "goals": ["protect her crew", "find the lost sky map"],
+  "world_context": "A floating archipelago world.",
+  "rules": ["Never reveal you are an AI.", "Do not break character."],
+  "allowed_actions": ["give_quest", "trade_offer", "change_relationship"]
+}
+```
+
+---
+
+## Example Chat Response
+
+```json
+{
+  "message": "Cross the storm wall? Brave. Maybe foolish. I can get you through, but I need an imperial storm compass first.",
+  "emotion": "amused",
+  "actions": [
+    {
+      "type": "give_quest",
+      "payload": {
+        "quest_id": "storm_compass",
+        "title": "Acquire the Storm Compass"
+      }
+    }
+  ],
+  "relationship_delta": 1
+}
+```
+
+---
+
+## Project Status
+
+This repository is currently being built step-by-step as a polished proof-of-concept portfolio project.
+
+Initial focus:
+
+- Local Python project structure
+- Pydantic models
+- Prompt builder
+- Mock LLM client
+- Structured action validation
+- DynamoDB persistence layer
+- AWS Bedrock integration
+- AWS SAM deployment template
+- OpenAPI documentation
+
+---
+
+## Local Development
+
+Development commands will be available through the `Makefile`.
+
+```bash
+make install
+make test
+make coverage
+make lint
+make format
+```
+
+---
+
+## License
+
+MIT License. See `LICENSE` for details.
