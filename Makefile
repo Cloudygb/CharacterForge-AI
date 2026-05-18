@@ -17,3 +17,4 @@ format:
 
 clean:
 	rm -rf .pytest_cache .ruff_cache .coverage htmlcov build dist *.egg-info
+
