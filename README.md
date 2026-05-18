@@ -25,7 +25,7 @@ CharacterForge AI will allow a client application to:
 
 - **Language:** Python 3.11+
 - **Cloud:** AWS
-- **LLM Provider:** Amazon Bedrock
+- **LLM Provider:** Amazon Bedrock w/ ChatGPT 5.5
 - **Compute:** AWS Lambda
 - **API:** Amazon API Gateway
 - **Database:** Amazon DynamoDB
