@@ -1,0 +1,206 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: >
+  CharacterForge AI MVP serverless stack. Defines the API Lambda, HTTP API,
+  DynamoDB persistence tables, and least-privilege access to DynamoDB and
+  Amazon Bedrock Runtime.
+
+Parameters:
+  EnvironmentName:
+    Type: String
+    Default: dev
+    Description: Short environment suffix used in resource names.
+    AllowedPattern: '^[a-zA-Z0-9-]+$'
+    ConstraintDescription: Use only letters, numbers, and hyphens.
+
+  BedrockModelId:
+    Type: String
+    Default: amazon.nova-micro-v1:0
+    Description: Bedrock model ID used by the CharacterForge runtime client.
+
+  BedrockRegion:
+    Type: String
+    Default: us-east-1
+    Description: AWS region where the selected Bedrock model is available.
+
+  RecentHistoryLimit:
+    Type: Number
+    Default: 20
+    MinValue: 1
+    MaxValue: 100
+    Description: Maximum number of recent session messages to load for prompt context.
+
+Globals:
+  Function:
+    Runtime: python3.12
+    Architectures:
+      - x86_64
+    Timeout: 30
+    MemorySize: 512
+    Tracing: Active
+    Environment:
+      Variables:
+        LOG_LEVEL: INFO
+        ENVIRONMENT_NAME: !Ref EnvironmentName
+
+Resources:
+  CharacterForgeApi:
+    Type: AWS::Serverless::HttpApi
+    Properties:
+      Description: HTTP API for CharacterForge AI MVP endpoints.
+      StageName: !Ref EnvironmentName
+      CorsConfiguration:
+        AllowMethods:
+          - GET
+          - POST
+          - PUT
+          - DELETE
+          - OPTIONS
+        AllowHeaders:
+          - Content-Type
+          - Authorization
+        AllowOrigins:
+          - '*'
+
+  CharacterForgeFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Description: Handles CharacterForge character, chat, and session API requests.
+      CodeUri: ../src
+      Handler: characterforge.api.lambda_handler.handler
+      Environment:
+        Variables:
+          CHARACTERS_TABLE_NAME: !Ref CharactersTable
+          MESSAGES_TABLE_NAME: !Ref MessagesTable
+          CHARACTERFORGE_BEDROCK_MODEL_ID: !Ref BedrockModelId
+          CHARACTERFORGE_BEDROCK_REGION: !Ref BedrockRegion
+          CHARACTERFORGE_RECENT_HISTORY_LIMIT: !Ref RecentHistoryLimit
+      Policies:
+        # CRUD access is scoped to the two DynamoDB tables owned by this stack.
+        - DynamoDBCrudPolicy:
+            TableName: !Ref CharactersTable
+        - DynamoDBCrudPolicy:
+            TableName: !Ref MessagesTable
+        # Bedrock model invocation is required for real character responses.
+        # Foundation models do not include an account ID in their ARNs.
+        - Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Action:
+                - bedrock:InvokeModel
+                - bedrock:InvokeModelWithResponseStream
+              Resource:
+                - !Sub arn:${AWS::Partition}:bedrock:${BedrockRegion}::foundation-model/*
+                - !Sub arn:${AWS::Partition}:bedrock:${BedrockRegion}:${AWS::AccountId}:inference-profile/*
+      Events:
+        CreateCharacter:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref CharacterForgeApi
+            Path: /characters
+            Method: POST
+        ListCharacters:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref CharacterForgeApi
+            Path: /characters
+            Method: GET
+        GetCharacter:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref CharacterForgeApi
+            Path: /characters/{character_id}
+            Method: GET
+        UpdateCharacter:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref CharacterForgeApi
+            Path: /characters/{character_id}
+            Method: PUT
+        DeleteCharacter:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref CharacterForgeApi
+            Path: /characters/{character_id}
+            Method: DELETE
+        ChatWithCharacter:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref CharacterForgeApi
+            Path: /characters/{character_id}/chat
+            Method: POST
+        GetSession:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref CharacterForgeApi
+            Path: /sessions/{session_id}
+            Method: GET
+        DeleteSession:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref CharacterForgeApi
+            Path: /sessions/{session_id}
+            Method: DELETE
+
+  CharactersTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub CharacterForgeCharacters-${EnvironmentName}
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: character_id
+          AttributeType: S
+      KeySchema:
+        - AttributeName: character_id
+          KeyType: HASH
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
+      SSESpecification:
+        SSEEnabled: true
+      Tags:
+        - Key: Application
+          Value: CharacterForgeAI
+        - Key: Environment
+          Value: !Ref EnvironmentName
+
+  MessagesTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub CharacterForgeMessages-${EnvironmentName}
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: session_id
+          AttributeType: S
+        - AttributeName: created_at_message_id
+          AttributeType: S
+      KeySchema:
+        - AttributeName: session_id
+          KeyType: HASH
+        - AttributeName: created_at_message_id
+          KeyType: RANGE
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
+      SSESpecification:
+        SSEEnabled: true
+      Tags:
+        - Key: Application
+          Value: CharacterForgeAI
+        - Key: Environment
+          Value: !Ref EnvironmentName
+
+Outputs:
+  ApiUrl:
+    Description: Base URL for the deployed CharacterForge HTTP API stage.
+    Value: !Sub https://${CharacterForgeApi}.execute-api.${AWS::Region}.${AWS::URLSuffix}/${EnvironmentName}
+
+  FunctionName:
+    Description: Name of the CharacterForge Lambda function.
+    Value: !Ref CharacterForgeFunction
+
+  CharactersTableName:
+    Description: DynamoDB table storing character profiles.
+    Value: !Ref CharactersTable
+
+  MessagesTableName:
+    Description: DynamoDB table storing session message history.
+    Value: !Ref MessagesTable
