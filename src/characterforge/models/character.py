@@ -3,6 +3,8 @@ from typing import Self
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from characterforge.models.action import CharacterActionRule
+
 
 class CharacterBase(BaseModel):
     """Shared editable fields for a CharacterForge AI character."""
@@ -19,6 +21,10 @@ class CharacterBase(BaseModel):
     rules: list[str] = Field(..., description="Roleplay and safety constraints for the character.")
     allowed_actions: list[str] = Field(
         ..., description="Machine-readable game actions this character may emit."
+    )
+    action_rules: list[CharacterActionRule] = Field(
+        default_factory=list,
+        description="Designer-authored rules for when enabled actions should trigger.",
     )
 
     @field_validator("name", "description", "backstory", "speaking_style", "world_context")
@@ -56,6 +62,7 @@ class UpdateCharacterRequest(BaseModel):
     world_context: str | None = None
     rules: list[str] | None = None
     allowed_actions: list[str] | None = None
+    action_rules: list[CharacterActionRule] | None = None
 
     @field_validator("name", "description", "backstory", "speaking_style", "world_context")
     @classmethod
