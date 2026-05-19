@@ -164,6 +164,32 @@ The demo uses the deterministic `MockLLMClient`, so it is safe to run offline an
 
 ---
 
+## Bedrock Smoke Test
+
+A manual Bedrock smoke test is available at:
+
+```text
+scripts/bedrock_smoke_test.py
+```
+
+It is intentionally not part of the normal test suite. Run it only when you explicitly want to make a tiny real AWS Bedrock call using your configured AWS credentials:
+
+```bash
+CHARACTERFORGE_BEDROCK_MODEL_ID=amazon.nova-micro-v1:0 \
+AWS_REGION=us-east-1 \
+PYTHONPATH=src python3 scripts/bedrock_smoke_test.py
+```
+
+Optional environment variables:
+
+- `CHARACTERFORGE_BEDROCK_MODEL_ID` defaults to `amazon.nova-micro-v1:0`
+- `AWS_REGION` or `AWS_DEFAULT_REGION` defaults to `us-east-1`
+- `CHARACTERFORGE_BEDROCK_SMOKE_PROMPT` defaults to `Reply with exactly: ok`
+
+The script prints the model, region, and a short result. It should not be run from automated tests because it calls the real Bedrock Runtime API.
+
+---
+
 ## License
 
 CharacterForge AI is licensed under the **PolyForm Noncommercial License 1.0.0**. See `LICENSE` for the full license text.
