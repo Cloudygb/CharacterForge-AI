@@ -123,6 +123,32 @@ make format
 
 ---
 
+## Local Game Client Demo
+
+A local Python demo client is available at:
+
+```text
+examples/game-client-python/demo_client.py
+```
+
+It demonstrates the current API-style flow without requiring AWS or a running web server:
+
+1. Load a sample character profile.
+2. Create the character through the local character handler.
+3. Send a player chat message through the local chat handler.
+4. Print the returned in-character dialogue.
+5. Print the structured actions a game client could consume.
+
+Run it from the repository root with `src` on `PYTHONPATH`:
+
+```bash
+PYTHONPATH=src python examples/game-client-python/demo_client.py
+```
+
+The demo uses the deterministic `MockLLMClient`, so it is safe to run offline and does not call Amazon Bedrock.
+
+---
+
 ## License
 
 CharacterForge AI is licensed under the **PolyForm Noncommercial License 1.0.0**. See `LICENSE` for the full license text.
