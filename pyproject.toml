@@ -64,7 +64,7 @@ pythonpath = ["src"]
 [tool.ruff]
 line-length = 100
 target-version = "py311"
-src = ["src", "tests", "examples"]
+src = ["src", "tests", "examples", "scripts"]
 
 [tool.ruff.lint]
 select = [

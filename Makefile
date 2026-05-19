@@ -1,6 +1,7 @@
 .PHONY: install test coverage lint format clean
 
 PYTHON ?= python3
+RUFF_PATHS ?= src tests examples scripts
 
 install:
 	$(PYTHON) -m pip install -e ".[dev]"
@@ -12,10 +13,10 @@ coverage:
 	$(PYTHON) -m pytest --cov=characterforge --cov-report=term-missing
 
 lint:
-	ruff check src tests examples
+	ruff check $(RUFF_PATHS)
 
 format:
-	ruff format src tests examples
+	ruff format $(RUFF_PATHS)
 
 clean:
 	rm -rf .pytest_cache .ruff_cache .coverage htmlcov build dist *.egg-info

@@ -1,8 +1,10 @@
+from importlib import import_module
 from pathlib import Path
 
 import yaml
 
-TEMPLATE_PATH = Path(__file__).resolve().parents[1] / "infra" / "template.yaml"
+REPO_ROOT = Path(__file__).resolve().parents[1]
+TEMPLATE_PATH = REPO_ROOT / "infra" / "template.yaml"
 
 
 class CloudFormationLoader(yaml.SafeLoader):
@@ -53,7 +55,12 @@ def test_sam_template_configures_lambda_environment_and_routes() -> None:
     function_properties = resources["CharacterForgeFunction"]["Properties"]
 
     assert template["Globals"]["Function"]["Runtime"] == "python3.12"
-    assert function_properties["Handler"] == "characterforge.api.lambda_handler.handler"
+    assert function_properties["CodeUri"] == "../src"
+    assert (REPO_ROOT / "src" / "requirements.txt").is_file()
+
+    handler_module_name, handler_function_name = function_properties["Handler"].rsplit(".", 1)
+    handler_module = import_module(handler_module_name)
+    assert callable(getattr(handler_module, handler_function_name))
 
     environment = function_properties["Environment"]["Variables"]
     assert environment["CHARACTERS_TABLE_NAME"] == {"Ref": "CharactersTable"}
