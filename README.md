@@ -125,4 +125,25 @@ make format
 
 ## License
 
-MIT License. See `LICENSE` for details.
+CharacterForge AI is licensed under the **PolyForm Noncommercial License 1.0.0**. See `LICENSE` for the full license text.
+
+This allows noncommercial use, including:
+
+- Personal study
+- Hobby projects
+- Research
+- Educational institution use
+
+Business or commercial use is not permitted unless a separate commercial license is granted.
+
+For commercial licensing inquiries, contact:
+
+```text
+evan.computerloft@gmail.com
+```
+
+Website:
+
+```text
+
+```
