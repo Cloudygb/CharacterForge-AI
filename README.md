@@ -25,7 +25,7 @@ CharacterForge AI will allow a client application to:
 
 - **Language:** Python 3.11+
 - **Cloud:** AWS
-- **LLM Provider:** Amazon Bedrock w/ ChatGPT 5.5
+- **LLM Provider:** Amazon Bedrock with OpenAI GPT-5.5, configurable via `BEDROCK_MODEL_ID`
 - **Compute:** AWS Lambda
 - **API:** Amazon API Gateway
 - **Database:** Amazon DynamoDB
@@ -111,7 +111,22 @@ Initial focus:
 
 ## Local Development
 
-Development commands will be available through the `Makefile`.
+Create and activate a local virtual environment, then install the project with development dependencies:
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+python3 -m pip install -e ".[dev]"
+```
+
+On Ubuntu/WSL, if virtual environment creation fails because `ensurepip` is missing, install the venv package first:
+
+```bash
+sudo apt update
+sudo apt install python3.12-venv
+```
+
+Common development commands are available through the `Makefile`:
 
 ```bash
 make install
@@ -142,7 +157,7 @@ It demonstrates the current API-style flow without requiring AWS or a running we
 Run it from the repository root with `src` on `PYTHONPATH`:
 
 ```bash
-PYTHONPATH=src python examples/game-client-python/demo_client.py
+PYTHONPATH=src python3 examples/game-client-python/demo_client.py
 ```
 
 The demo uses the deterministic `MockLLMClient`, so it is safe to run offline and does not call Amazon Bedrock.

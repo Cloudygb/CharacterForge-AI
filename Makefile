@@ -1,19 +1,21 @@
 .PHONY: install test coverage lint format clean
 
+PYTHON ?= python3
+
 install:
-	python -m pip install -e ".[dev]"
+	$(PYTHON) -m pip install -e ".[dev]"
 
 test:
-	pytest -v
+	$(PYTHON) -m pytest -v
 
 coverage:
-	pytest --cov=characterforge --cov-report=term-missing
+	$(PYTHON) -m pytest --cov=characterforge --cov-report=term-missing
 
 lint:
-	ruff check src tests
+	ruff check src tests examples
 
 format:
-	ruff format src tests
+	ruff format src tests examples
 
 clean:
 	rm -rf .pytest_cache .ruff_cache .coverage htmlcov build dist *.egg-info

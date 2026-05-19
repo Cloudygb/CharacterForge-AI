@@ -8,7 +8,7 @@ version = "0.1.0"
 description = "AWS-hosted Python API platform for AI-driven game characters with Bedrock, DynamoDB, structured actions, and session memory."
 readme = "README.md"
 requires-python = ">=3.11"
-license = { text = "MIT" }
+license = { text = "PolyForm Noncommercial License 1.0.0" }
 authors = [
     { name = "Evan" }
 ]
@@ -28,13 +28,14 @@ keywords = [
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",
-    "License :: OSI Approved :: MIT License",
+    "License :: Other/Proprietary License",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
 ]
 dependencies = [
     "boto3>=1.34.0",
+    "botocore[crt]>=1.34.0",
     "pydantic>=2.7.0",
     "python-dotenv>=1.0.0",
 ]
@@ -63,7 +64,7 @@ pythonpath = ["src"]
 [tool.ruff]
 line-length = 100
 target-version = "py311"
-src = ["src", "tests"]
+src = ["src", "tests", "examples"]
 
 [tool.ruff.lint]
 select = [
