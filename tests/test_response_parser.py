@@ -104,3 +104,17 @@ def test_parse_chat_response_rejects_missing_required_fields() -> None:
         )
 
     assert "required" in str(error.value).lower()
+
+
+@pytest.mark.parametrize(
+    "raw_text, match",
+    [
+        ('["not", "an", "object"]', "JSON must be an object"),
+        ('{"message": "Done.", "actions": null}', "actions"),
+        ('{"message": "Done.", "actions": {"type": "give_quest"}}', "actions"),
+        ('{"message": "Done.", "actions": ["give_quest"]}', "actions"),
+    ],
+)
+def test_parse_chat_response_rejects_malformed_action_shapes(raw_text: str, match: str) -> None:
+    with pytest.raises(LLMResponseParseError, match=match):
+        parse_chat_response(raw_text=raw_text, character=make_character_profile())

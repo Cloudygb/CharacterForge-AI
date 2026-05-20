@@ -1,3 +1,4 @@
+import base64
 import json
 from collections.abc import Mapping
 from typing import Any
@@ -191,3 +192,61 @@ def test_app_returns_api_gateway_errors_for_bad_requests() -> None:
     assert response_body(missing_route_response)["error"]["code"] == "not_found"
     assert bad_limit_response["statusCode"] == 400
     assert response_body(bad_limit_response)["error"]["code"] == "bad_request"
+
+
+def test_app_accepts_api_gateway_v1_events_and_base64_bodies() -> None:
+    from characterforge import app
+
+    body = json.dumps(character_payload()).encode("utf-8")
+    response = app.handler(
+        {
+            "httpMethod": "POST",
+            "path": "/characters/",
+            "body": base64.b64encode(body).decode("ascii"),
+            "isBase64Encoded": True,
+        },
+        None,
+    )
+
+    assert response["statusCode"] == 201
+    assert response_body(response)["name"] == "Captain Mira Voss"
+
+
+def test_app_returns_bad_request_for_malformed_api_gateway_events() -> None:
+    from characterforge import app
+
+    missing_method_response = app.handler({"rawPath": "/characters"}, None)
+    missing_path_response = app.handler(
+        {"requestContext": {"http": {"method": "GET"}}},
+        None,
+    )
+    non_object_body_response = app.handler(
+        {
+            "version": "2.0",
+            "rawPath": "/characters",
+            "requestContext": {"http": {"method": "POST", "path": "/characters"}},
+            "body": json.dumps(["not", "an", "object"]),
+            "isBase64Encoded": False,
+        },
+        None,
+    )
+
+    assert missing_method_response["statusCode"] == 400
+    assert response_body(missing_method_response)["error"]["code"] == "bad_request"
+    assert missing_path_response["statusCode"] == 400
+    assert response_body(missing_path_response)["error"]["code"] == "bad_request"
+    assert non_object_body_response["statusCode"] == 400
+    assert response_body(non_object_body_response)["error"]["code"] == "bad_request"
+
+
+def test_app_lazy_mock_dependencies_are_reused_when_not_injected() -> None:
+    from characterforge import app
+
+    reset = app.configure_dependencies_for_testing()
+    try:
+        created = create_character()
+        list_response = app.handler(api_event("GET", "/characters"), None)
+    finally:
+        reset()
+
+    assert response_body(list_response)["characters"][0]["character_id"] == created["character_id"]

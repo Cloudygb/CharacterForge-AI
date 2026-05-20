@@ -218,3 +218,20 @@ def test_message_record_rejects_blank_content() -> None:
             content="   ",
             created_at=datetime(2026, 5, 18, 21, 33, tzinfo=UTC),
         )
+
+
+def test_chat_response_and_message_record_reject_blank_emotions() -> None:
+    with pytest.raises(ValidationError):
+        ChatResponse(message="Fine.", emotion="   ")
+
+    with pytest.raises(ValidationError):
+        MessageRecord(
+            message_id="msg_005",
+            session_id="session_stormwall_001",
+            character_id="char_mira_voss",
+            player_id="player_123",
+            role="assistant",
+            content="Fine.",
+            emotion="   ",
+            created_at=datetime(2026, 5, 18, 21, 34, tzinfo=UTC),
+        )

@@ -1,3 +1,6 @@
+from datetime import UTC, datetime
+from decimal import Decimal
+
 import boto3
 from moto import mock_aws
 
@@ -181,3 +184,148 @@ def test_dynamodb_session_store_clear_session_removes_only_that_session() -> Non
     assert store.get_recent_history("session_001") == []
     assert store.get_recent_history("session_other") == [kept]
     assert store.clear_session("missing-session") == 0
+
+
+class FakeBatchWriter:
+    def __init__(self) -> None:
+        self.deleted_keys: list[dict[str, str]] = []
+
+    def __enter__(self) -> "FakeBatchWriter":
+        return self
+
+    def __exit__(self, exc_type: object, exc: object, traceback: object) -> None:
+        return None
+
+    def delete_item(self, *, Key: dict[str, str]) -> None:
+        self.deleted_keys.append(Key)
+
+
+class PaginatedMessagesTable:
+    def __init__(self) -> None:
+        self.batch_writer_instance = FakeBatchWriter()
+        self.history_pages = [
+            {
+                "Items": [
+                    message_item(
+                        "msg_001",
+                        "First",
+                        "2026-05-18T21:00:00Z#msg_001",
+                        payload_score=Decimal("2"),
+                    )
+                ],
+                "LastEvaluatedKey": {
+                    "session_id": "session_001",
+                    "created_at_message_id": "page_2",
+                },
+            },
+            {
+                "Items": [
+                    message_item(
+                        "msg_002",
+                        "Second",
+                        "2026-05-18T21:01:00Z#msg_002",
+                        payload_score=Decimal("2.5"),
+                    )
+                ]
+            },
+        ]
+        self.clear_pages = [
+            {
+                "Items": [{"session_id": "session_001", "created_at_message_id": "page_1_key"}],
+                "LastEvaluatedKey": {
+                    "session_id": "session_001",
+                    "created_at_message_id": "page_2",
+                },
+            },
+            {"Items": [{"session_id": "session_001", "created_at_message_id": "page_2_key"}]},
+        ]
+        self.history_query_count = 0
+        self.clear_query_count = 0
+        self.history_query_kwargs: list[dict[str, object]] = []
+        self.clear_query_kwargs: list[dict[str, object]] = []
+
+    def query(self, **kwargs: object) -> dict[str, object]:
+        if "ProjectionExpression" in kwargs:
+            self.clear_query_kwargs.append(kwargs)
+            page = self.clear_pages[self.clear_query_count]
+            self.clear_query_count += 1
+            return page
+
+        self.history_query_kwargs.append(kwargs)
+        page = self.history_pages[self.history_query_count]
+        self.history_query_count += 1
+        return page
+
+    def batch_writer(self) -> FakeBatchWriter:
+        return self.batch_writer_instance
+
+
+class FakeDynamoDBResource:
+    def __init__(self, table: PaginatedMessagesTable) -> None:
+        self.table = table
+
+    def Table(self, table_name: str) -> PaginatedMessagesTable:  # noqa: N802 - boto3 API name
+        assert table_name == MESSAGES_TABLE
+        return self.table
+
+
+def message_item(
+    message_id: str,
+    content: str,
+    sort_key: str,
+    *,
+    payload_score: Decimal,
+) -> dict[str, object]:
+    return {
+        "message_id": message_id,
+        "session_id": "session_001",
+        "character_id": "char_mira",
+        "player_id": "player_42",
+        "role": "assistant",
+        "content": content,
+        "created_at": datetime(2026, 5, 18, 21, 0, tzinfo=UTC).isoformat(),
+        "actions": [{"type": "set_flag", "payload": {"score": payload_score}}],
+        "created_at_message_id": sort_key,
+    }
+
+
+def test_dynamodb_session_store_handles_paginated_history_and_decimal_payloads() -> None:
+    table = PaginatedMessagesTable()
+    store = DynamoDBSessionStore(
+        MESSAGES_TABLE,
+        dynamodb_resource=FakeDynamoDBResource(table),
+    )
+
+    history = store.get_recent_history("session_001")
+
+    assert [message.content for message in history] == ["First", "Second"]
+    assert history[0].actions[0].payload == {"score": 2}
+    assert history[1].actions[0].payload == {"score": 2.5}
+    assert table.history_query_count == 2
+    assert "ExclusiveStartKey" not in table.history_query_kwargs[0]
+    assert table.history_query_kwargs[1]["ExclusiveStartKey"] == {
+        "session_id": "session_001",
+        "created_at_message_id": "page_2",
+    }
+
+
+def test_dynamodb_session_store_deletes_paginated_session_keys() -> None:
+    table = PaginatedMessagesTable()
+    store = DynamoDBSessionStore(
+        MESSAGES_TABLE,
+        dynamodb_resource=FakeDynamoDBResource(table),
+    )
+
+    deleted_count = store.clear_session("session_001")
+
+    assert deleted_count == 2
+    assert table.clear_query_count == 2
+    assert "ExclusiveStartKey" not in table.clear_query_kwargs[0]
+    assert table.clear_query_kwargs[1]["ExclusiveStartKey"] == {
+        "session_id": "session_001",
+        "created_at_message_id": "page_2",
+    }
+    assert table.batch_writer_instance.deleted_keys == [
+        {"session_id": "session_001", "created_at_message_id": "page_1_key"},
+        {"session_id": "session_001", "created_at_message_id": "page_2_key"},
+    ]

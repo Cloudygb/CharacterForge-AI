@@ -180,3 +180,28 @@ def test_character_summary_contains_listing_fields_only() -> None:
         "created_at": now,
         "updated_at": now,
     }
+
+
+def test_character_summary_trims_and_rejects_blank_listing_strings() -> None:
+    now = datetime(2026, 5, 18, 20, 0, tzinfo=UTC)
+
+    summary = CharacterSummary(
+        character_id="  char_mira_voss  ",
+        name="  Captain Mira Voss  ",
+        description="  A rogue airship captain.  ",
+        created_at=now,
+        updated_at=now,
+    )
+
+    assert summary.character_id == "char_mira_voss"
+    assert summary.name == "Captain Mira Voss"
+    assert summary.description == "A rogue airship captain."
+
+    with pytest.raises(ValidationError):
+        CharacterSummary(
+            character_id="char_mira_voss",
+            name="   ",
+            description="A rogue airship captain.",
+            created_at=now,
+            updated_at=now,
+        )

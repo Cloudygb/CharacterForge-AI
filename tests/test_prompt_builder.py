@@ -137,3 +137,27 @@ def test_build_bedrock_prompt_includes_required_json_response_schema() -> None:
     assert '"payload"' in prompt
     assert '"relationship_delta"' in prompt
     assert "Do not wrap the JSON in Markdown" in prompt
+
+
+def test_build_bedrock_prompt_labels_system_history_and_empty_action_rules() -> None:
+    character = make_character_profile().model_copy(update={"action_rules": []})
+    recent_messages = [
+        MessageRecord(
+            message_id="msg_system_001",
+            session_id="session_ruins_intro",
+            character_id="char_blacksmith_001",
+            player_id="player_42",
+            role="system",
+            content="Rain starts hammering on the forge roof.",
+            created_at=datetime(2026, 5, 18, 12, 7, tzinfo=UTC),
+        )
+    ]
+
+    prompt = build_bedrock_prompt(
+        character=character,
+        chat_request=make_chat_request(),
+        recent_messages=recent_messages,
+    )
+
+    assert "System: Rain starts hammering on the forge roof." in prompt
+    assert "No actions are enabled for this character. Return an empty actions array." in prompt
