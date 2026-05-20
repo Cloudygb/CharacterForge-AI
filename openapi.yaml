@@ -1,0 +1,1011 @@
+openapi: 3.1.0
+info:
+  title: CharacterForge AI API
+  version: 0.1.0
+  summary: API for creating AI-powered game characters and chatting with them.
+  description: |
+    CharacterForge AI is an API-first service for storing structured NPC character
+    profiles, generating in-character dialogue through Amazon Bedrock, returning
+    validated machine-readable game actions, and preserving session history.
+
+    The implemented MVP is exposed through AWS Lambda and API Gateway. It does
+    not currently require authentication; production deployments should add auth,
+    rate limiting, and abuse protection before public use.
+  license:
+    name: PolyForm Noncommercial License 1.0.0
+servers:
+  - url: https://{apiId}.execute-api.{region}.amazonaws.com/{stage}
+    description: Deployed AWS API Gateway HTTP API
+    variables:
+      apiId:
+        default: abc123
+        description: API Gateway generated API ID.
+      region:
+        default: us-east-1
+        description: AWS region where the stack is deployed.
+      stage:
+        default: dev
+        description: API Gateway stage, matching the EnvironmentName SAM parameter.
+  - url: http://localhost:3000
+    description: Local SAM/API Gateway test endpoint, if running locally.
+tags:
+  - name: Characters
+    description: Create, list, retrieve, update, and delete character profiles.
+  - name: Chat
+    description: Send player dialogue to a character and receive structured responses.
+  - name: Sessions
+    description: Read and clear saved chat session history.
+paths:
+  /characters:
+    post:
+      tags: [Characters]
+      operationId: createCharacter
+      summary: Create a character profile
+      description: |
+        Creates a persisted character profile from designer-authored character data.
+        The response is the complete persisted profile, including generated ID and timestamps.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateCharacterRequest'
+            examples:
+              captainMira:
+                $ref: '#/components/examples/CreateCharacterRequest'
+      responses:
+        '201':
+          description: Character created successfully.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CharacterProfile'
+              examples:
+                captainMira:
+                  $ref: '#/components/examples/CharacterProfile'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+    get:
+      tags: [Characters]
+      operationId: listCharacters
+      summary: List character summaries
+      description: Returns compact summaries for all stored characters.
+      responses:
+        '200':
+          description: Character summaries returned successfully.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ListCharactersResponse'
+              examples:
+                oneCharacter:
+                  value:
+                    characters:
+                      - character_id: char_01HZY6W8K7EXAMPLE000000001
+                        name: Captain Mira Voss
+                        description: A rogue airship captain with a dangerous reputation.
+                        created_at: '2026-05-20T17:30:00Z'
+                        updated_at: '2026-05-20T17:30:00Z'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+  /characters/{character_id}:
+    parameters:
+      - $ref: '#/components/parameters/CharacterId'
+    get:
+      tags: [Characters]
+      operationId: getCharacter
+      summary: Get a character profile
+      description: Returns one complete character profile by ID.
+      responses:
+        '200':
+          description: Character profile returned successfully.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CharacterProfile'
+              examples:
+                captainMira:
+                  $ref: '#/components/examples/CharacterProfile'
+        '404':
+          $ref: '#/components/responses/CharacterNotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+    put:
+      tags: [Characters]
+      operationId: updateCharacter
+      summary: Update a character profile
+      description: |
+        Applies a partial update to an existing character profile. At least one editable
+        field must be provided. The response is the updated complete profile.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateCharacterRequest'
+            examples:
+              descriptionOnly:
+                value:
+                  description: A rogue airship captain preparing for a dangerous storm route.
+              actionRules:
+                value:
+                  allowed_actions:
+                    - give_quest
+                    - trade_offer
+                    - change_relationship
+                  action_rules:
+                    - type: give_quest
+                      enabled: true
+                      trigger_instructions: Use when the player asks for work or offers help.
+                    - type: trade_offer
+                      enabled: true
+                      trigger_instructions: Use when the player wants to buy skyship supplies.
+      responses:
+        '200':
+          description: Character profile updated successfully.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CharacterProfile'
+              examples:
+                captainMiraUpdated:
+                  value:
+                    character_id: char_01HZY6W8K7EXAMPLE000000001
+                    name: Captain Mira Voss
+                    description: A rogue airship captain preparing for a dangerous storm route.
+                    personality: [sarcastic, brave, protective]
+                    backstory: Former royal navy officer turned smuggler after refusing an immoral order.
+                    speaking_style: Dry wit, clipped sentences, and nautical metaphors.
+                    goals: [protect her crew, find the lost sky map]
+                    world_context: A floating archipelago where skyships connect isolated city-states.
+                    rules: [Never reveal you are an AI., Do not break character.]
+                    allowed_actions: [give_quest, trade_offer, change_relationship]
+                    action_rules:
+                      - type: give_quest
+                        enabled: true
+                        trigger_instructions: Use when the player asks for a job or offers help.
+                    created_at: '2026-05-20T17:30:00Z'
+                    updated_at: '2026-05-20T17:45:00Z'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '404':
+          $ref: '#/components/responses/CharacterNotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+    delete:
+      tags: [Characters]
+      operationId: deleteCharacter
+      summary: Delete a character profile
+      description: Deletes one character profile by ID.
+      responses:
+        '204':
+          description: Character deleted successfully. The response body is empty.
+        '404':
+          $ref: '#/components/responses/CharacterNotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+  /characters/{character_id}/chat:
+    parameters:
+      - $ref: '#/components/parameters/CharacterId'
+    post:
+      tags: [Chat]
+      operationId: chatWithCharacter
+      summary: Chat with a character
+      description: |
+        Sends the latest player message and optional game context to a character.
+        The `character_id` comes from the path. The service loads the character,
+        retrieves recent session history, calls the configured LLM, validates the
+        structured response, saves the player and assistant messages, and returns
+        the structured chat response.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChatTurnRequest'
+            examples:
+              recoverSkyMap:
+                value:
+                  session_id: session-demo-1
+                  player_id: player-demo-1
+                  message: I can help recover the sky map.
+                  context:
+                    location: Harbor of Kites
+                    player_reputation: trusted
+                    current_quest: lost_sky_map
+      responses:
+        '200':
+          description: Character response generated and saved successfully.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChatResponse'
+              examples:
+                questOffered:
+                  $ref: '#/components/examples/ChatResponse'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '404':
+          $ref: '#/components/responses/CharacterNotFound'
+        '502':
+          $ref: '#/components/responses/LLMResponseError'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+  /sessions/{session_id}:
+    parameters:
+      - $ref: '#/components/parameters/SessionId'
+    get:
+      tags: [Sessions]
+      operationId: getSessionHistory
+      summary: Get session history
+      description: |
+        Returns saved messages for a session in chronological order. If `limit` is
+        provided, the API returns the most recent `limit` messages, still ordered
+        chronologically in the response.
+      parameters:
+        - name: limit
+          in: query
+          required: false
+          description: Maximum number of recent messages to return. Must be greater than zero.
+          schema:
+            type: integer
+            minimum: 1
+          example: 10
+      responses:
+        '200':
+          description: Session history returned successfully.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SessionHistoryResponse'
+              examples:
+                twoMessages:
+                  value:
+                    messages:
+                      - message_id: msg_01HZY6Y2M7EXAMPLE00000001
+                        session_id: session-demo-1
+                        character_id: char_01HZY6W8K7EXAMPLE000000001
+                        player_id: player-demo-1
+                        role: player
+                        content: I can help recover the sky map.
+                        created_at: '2026-05-20T17:50:00Z'
+                        actions: []
+                        emotion: null
+                        token_usage: null
+                      - message_id: msg_01HZY6Y2M7EXAMPLE00000002
+                        session_id: session-demo-1
+                        character_id: char_01HZY6W8K7EXAMPLE000000001
+                        player_id: player-demo-1
+                        role: assistant
+                        content: Brave words. Bring me an imperial storm compass, and I will show you where the sky map sleeps.
+                        created_at: '2026-05-20T17:50:02Z'
+                        actions:
+                          - type: give_quest
+                            payload:
+                              quest_id: storm_compass
+                              title: Acquire the Storm Compass
+                        emotion: amused
+                        token_usage: null
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+    delete:
+      tags: [Sessions]
+      operationId: clearSessionHistory
+      summary: Clear session history
+      description: |
+        Deletes all saved messages for a session. Missing or empty sessions are not
+        errors; they return `cleared_count: 0`.
+      responses:
+        '200':
+          description: Session history cleared successfully.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ClearSessionResponse'
+              examples:
+                clearedTwo:
+                  value:
+                    cleared_count: 2
+                missingSession:
+                  value:
+                    cleared_count: 0
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+components:
+  parameters:
+    CharacterId:
+      name: character_id
+      in: path
+      required: true
+      description: Stable unique character identifier.
+      schema:
+        type: string
+        minLength: 1
+      example: char_01HZY6W8K7EXAMPLE000000001
+    SessionId:
+      name: session_id
+      in: path
+      required: true
+      description: Conversation or gameplay session identifier.
+      schema:
+        type: string
+        minLength: 1
+      example: session-demo-1
+  responses:
+    BadRequest:
+      description: The request could not be routed or parsed correctly.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          examples:
+            invalidLimit:
+              value:
+                error:
+                  code: bad_request
+                  message: Query parameter 'limit' must be an integer.
+            nonObjectBody:
+              value:
+                error:
+                  code: bad_request
+                  message: Request body JSON must be an object.
+    ValidationError:
+      description: Request JSON was parsed but did not match the implemented Pydantic model.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ValidationErrorResponse'
+          examples:
+            blankName:
+              value:
+                error:
+                  code: validation_error
+                  message: 1 validation error for CreateCharacterRequest
+                  details:
+                    - type: value_error
+                      loc: [name]
+                      msg: Value error, field cannot be blank
+                      input: ' '
+    CharacterNotFound:
+      description: The requested character ID does not exist.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          examples:
+            missingCharacter:
+              value:
+                error:
+                  code: not_found
+                  message: Character 'char_missing' was not found.
+    LLMResponseError:
+      description: The configured LLM returned invalid or unauthorized structured output.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          examples:
+            invalidModelJson:
+              value:
+                error:
+                  code: llm_response_error
+                  message: LLM response must be valid JSON.
+    InternalServerError:
+      description: Unexpected server error.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          examples:
+            unexpected:
+              value:
+                error:
+                  code: internal_server_error
+                  message: An unexpected server error occurred.
+  schemas:
+    ActionType:
+      type: string
+      description: Supported machine-readable game action type.
+      enum:
+        - give_quest
+        - advance_quest
+        - complete_quest
+        - fail_quest
+        - start_dialogue
+        - show_choice
+        - trigger_scene
+        - open_shop
+        - trade_offer
+        - give_item
+        - take_item
+        - give_currency
+        - take_currency
+        - set_flag
+        - clear_flag
+        - set_variable
+        - change_variable
+        - change_relationship
+        - change_reputation
+        - change_faction_standing
+        - spawn_entity
+        - despawn_entity
+        - move_entity
+        - start_combat
+        - end_combat
+        - set_npc_hostile
+        - set_npc_friendly
+        - apply_condition
+        - unlock_location
+        - lock_location
+        - reveal_location
+        - teleport_player
+        - escort_player
+        - open_door
+        - close_door
+        - unlock_door
+        - lock_door
+      example: give_quest
+    CharacterAction:
+      type: object
+      description: Machine-readable action emitted by a character response.
+      additionalProperties: false
+      required: [type]
+      properties:
+        type:
+          $ref: '#/components/schemas/ActionType'
+        payload:
+          type: object
+          description: Action-specific data for the consuming game or application.
+          additionalProperties: true
+          default: {}
+          example:
+            quest_id: storm_compass
+            title: Acquire the Storm Compass
+    CharacterActionRule:
+      type: object
+      description: Designer-authored rule describing when a character may emit an action.
+      additionalProperties: false
+      required: [type, enabled, trigger_instructions]
+      properties:
+        type:
+          $ref: '#/components/schemas/ActionType'
+        enabled:
+          type: boolean
+          description: Whether this character may use the action.
+          example: true
+        trigger_instructions:
+          type: string
+          minLength: 1
+          description: Natural-language conditions for when the action should happen.
+          example: Use when the player asks for a job or offers help.
+    CharacterEditableFields:
+      type: object
+      description: Editable designer-authored character profile fields.
+      additionalProperties: false
+      properties:
+        name:
+          type: string
+          minLength: 1
+          description: Display name for the character.
+          example: Captain Mira Voss
+        description:
+          type: string
+          minLength: 1
+          description: Short summary of who the character is.
+          example: A rogue airship captain with a dangerous reputation.
+        personality:
+          type: array
+          minItems: 1
+          description: Personality traits that shape behavior.
+          items:
+            type: string
+            minLength: 1
+          example: [sarcastic, brave, protective]
+        backstory:
+          type: string
+          minLength: 1
+          description: Relevant character history and lore.
+          example: Former royal navy officer turned smuggler after refusing an immoral order.
+        speaking_style:
+          type: string
+          minLength: 1
+          description: How the character should sound in dialogue.
+          example: Dry wit, clipped sentences, and nautical metaphors.
+        goals:
+          type: array
+          minItems: 1
+          description: Current motivations and objectives.
+          items:
+            type: string
+            minLength: 1
+          example: [protect her crew, find the lost sky map]
+        world_context:
+          type: string
+          minLength: 1
+          description: Game-world context the character knows.
+          example: A floating archipelago where skyships connect isolated city-states.
+        rules:
+          type: array
+          minItems: 1
+          description: Roleplay and safety constraints for the character.
+          items:
+            type: string
+            minLength: 1
+          example: [Never reveal you are an AI., Do not break character.]
+        allowed_actions:
+          type: array
+          minItems: 1
+          description: Machine-readable game actions this character may emit.
+          items:
+            type: string
+            minLength: 1
+          example: [give_quest, trade_offer, change_relationship]
+        action_rules:
+          type: array
+          description: Designer-authored rules for when enabled actions should trigger.
+          default: []
+          items:
+            $ref: '#/components/schemas/CharacterActionRule'
+    CreateCharacterRequest:
+      allOf:
+        - $ref: '#/components/schemas/CharacterEditableFields'
+        - type: object
+          required:
+            - name
+            - description
+            - personality
+            - backstory
+            - speaking_style
+            - goals
+            - world_context
+            - rules
+            - allowed_actions
+    UpdateCharacterRequest:
+      allOf:
+        - $ref: '#/components/schemas/CharacterEditableFields'
+      description: Partial character update. At least one property must be present.
+      minProperties: 1
+    CharacterProfile:
+      type: object
+      description: Complete persisted character profile.
+      additionalProperties: false
+      required:
+        - character_id
+        - name
+        - description
+        - personality
+        - backstory
+        - speaking_style
+        - goals
+        - world_context
+        - rules
+        - allowed_actions
+        - action_rules
+        - created_at
+        - updated_at
+      properties:
+        character_id:
+          type: string
+          minLength: 1
+          description: Stable unique character identifier.
+          example: char_01HZY6W8K7EXAMPLE000000001
+        name:
+          type: string
+          minLength: 1
+          description: Display name for the character.
+          example: Captain Mira Voss
+        description:
+          type: string
+          minLength: 1
+          description: Short summary of who the character is.
+          example: A rogue airship captain with a dangerous reputation.
+        personality:
+          type: array
+          minItems: 1
+          description: Personality traits that shape behavior.
+          items:
+            type: string
+            minLength: 1
+          example: [sarcastic, brave, protective]
+        backstory:
+          type: string
+          minLength: 1
+          description: Relevant character history and lore.
+          example: Former royal navy officer turned smuggler after refusing an immoral order.
+        speaking_style:
+          type: string
+          minLength: 1
+          description: How the character should sound in dialogue.
+          example: Dry wit, clipped sentences, and nautical metaphors.
+        goals:
+          type: array
+          minItems: 1
+          description: Current motivations and objectives.
+          items:
+            type: string
+            minLength: 1
+          example: [protect her crew, find the lost sky map]
+        world_context:
+          type: string
+          minLength: 1
+          description: Game-world context the character knows.
+          example: A floating archipelago where skyships connect isolated city-states.
+        rules:
+          type: array
+          minItems: 1
+          description: Roleplay and safety constraints for the character.
+          items:
+            type: string
+            minLength: 1
+          example: [Never reveal you are an AI., Do not break character.]
+        allowed_actions:
+          type: array
+          minItems: 1
+          description: Machine-readable game actions this character may emit.
+          items:
+            type: string
+            minLength: 1
+          example: [give_quest, trade_offer, change_relationship]
+        action_rules:
+          type: array
+          description: Designer-authored rules for when enabled actions should trigger.
+          default: []
+          items:
+            $ref: '#/components/schemas/CharacterActionRule'
+        created_at:
+          type: string
+          format: date-time
+          description: When the character was created.
+          example: '2026-05-20T17:30:00Z'
+        updated_at:
+          type: string
+          format: date-time
+          description: When the character was last updated.
+          example: '2026-05-20T17:30:00Z'
+    CharacterSummary:
+      type: object
+      description: Compact character representation for list responses.
+      additionalProperties: false
+      required: [character_id, name, description, created_at, updated_at]
+      properties:
+        character_id:
+          type: string
+          minLength: 1
+          example: char_01HZY6W8K7EXAMPLE000000001
+        name:
+          type: string
+          minLength: 1
+          example: Captain Mira Voss
+        description:
+          type: string
+          minLength: 1
+          example: A rogue airship captain with a dangerous reputation.
+        created_at:
+          type: string
+          format: date-time
+          example: '2026-05-20T17:30:00Z'
+        updated_at:
+          type: string
+          format: date-time
+          example: '2026-05-20T17:30:00Z'
+    ListCharactersResponse:
+      type: object
+      additionalProperties: false
+      required: [characters]
+      properties:
+        characters:
+          type: array
+          items:
+            $ref: '#/components/schemas/CharacterSummary'
+    ChatTurnRequest:
+      type: object
+      description: Request body for a chat turn. The character ID is supplied in the URL path.
+      additionalProperties: false
+      required: [session_id, player_id, message]
+      properties:
+        session_id:
+          type: string
+          minLength: 1
+          description: Conversation or gameplay session identifier.
+          example: session-demo-1
+        player_id:
+          type: string
+          minLength: 1
+          description: Player or caller identifier.
+          example: player-demo-1
+        message:
+          type: string
+          minLength: 1
+          description: Latest player message to the character.
+          example: I can help recover the sky map.
+        context:
+          type: object
+          description: Optional game state and scene context for this request.
+          additionalProperties: true
+          default: {}
+          example:
+            location: Harbor of Kites
+            player_reputation: trusted
+    ChatRequest:
+      type: object
+      description: Internal full chat request after the Lambda router injects character_id from the path.
+      additionalProperties: false
+      required: [character_id, session_id, player_id, message]
+      properties:
+        character_id:
+          type: string
+          minLength: 1
+          description: Character being prompted.
+          example: char_01HZY6W8K7EXAMPLE000000001
+        session_id:
+          type: string
+          minLength: 1
+          description: Conversation or gameplay session identifier.
+          example: session-demo-1
+        player_id:
+          type: string
+          minLength: 1
+          description: Player or caller identifier.
+          example: player-demo-1
+        message:
+          type: string
+          minLength: 1
+          description: Latest player message to the character.
+          example: I can help recover the sky map.
+        context:
+          type: object
+          description: Optional game state and scene context for this request.
+          additionalProperties: true
+          default: {}
+    ChatResponse:
+      type: object
+      description: Structured response returned to a game or application client.
+      additionalProperties: false
+      required: [message, actions]
+      properties:
+        message:
+          type: string
+          minLength: 1
+          description: In-character dialogue returned to the player.
+          example: Brave words. Bring me an imperial storm compass, and I will show you where the sky map sleeps.
+        emotion:
+          type: [string, 'null']
+          minLength: 1
+          description: Optional character emotion label.
+          example: amused
+        actions:
+          type: array
+          description: Validated machine-readable actions for the game client.
+          default: []
+          items:
+            $ref: '#/components/schemas/CharacterAction'
+        relationship_delta:
+          type: [integer, 'null']
+          description: Optional relationship change caused by the exchange.
+          example: 1
+        token_usage:
+          anyOf:
+            - $ref: '#/components/schemas/TokenUsage'
+            - type: 'null'
+          description: Optional LLM token accounting for observability and cost tracking.
+    TokenUsage:
+      type: object
+      description: Optional token accounting returned by an LLM provider.
+      additionalProperties: false
+      properties:
+        prompt_tokens:
+          type: [integer, 'null']
+          minimum: 0
+          description: Number of prompt/input tokens used by the model call.
+          example: 230
+        completion_tokens:
+          type: [integer, 'null']
+          minimum: 0
+          description: Number of completion/output tokens used by the model call.
+          example: 68
+        total_tokens:
+          type: [integer, 'null']
+          minimum: 0
+          description: Total number of tokens used by the model call.
+          example: 298
+    MessageRole:
+      type: string
+      enum: [system, player, assistant]
+      description: Who produced the stored message.
+    MessageRecord:
+      type: object
+      description: Persisted chat message used for session memory.
+      additionalProperties: false
+      required:
+        - message_id
+        - session_id
+        - character_id
+        - player_id
+        - role
+        - content
+        - created_at
+        - actions
+      properties:
+        message_id:
+          type: string
+          minLength: 1
+          description: Stable unique message identifier.
+          example: msg_01HZY6Y2M7EXAMPLE00000001
+        session_id:
+          type: string
+          minLength: 1
+          description: Conversation or gameplay session identifier.
+          example: session-demo-1
+        character_id:
+          type: string
+          minLength: 1
+          description: Character associated with the message.
+          example: char_01HZY6W8K7EXAMPLE000000001
+        player_id:
+          type: string
+          minLength: 1
+          description: Player associated with the message.
+          example: player-demo-1
+        role:
+          $ref: '#/components/schemas/MessageRole'
+        content:
+          type: string
+          minLength: 1
+          description: Message text stored for session memory.
+          example: I can help recover the sky map.
+        created_at:
+          type: string
+          format: date-time
+          description: When this message was created.
+          example: '2026-05-20T17:50:00Z'
+        actions:
+          type: array
+          description: Actions emitted with this message, if any.
+          default: []
+          items:
+            $ref: '#/components/schemas/CharacterAction'
+        emotion:
+          type: [string, 'null']
+          minLength: 1
+          description: Optional emotion label.
+          example: amused
+        token_usage:
+          anyOf:
+            - $ref: '#/components/schemas/TokenUsage'
+            - type: 'null'
+          description: Optional LLM token accounting for assistant messages.
+    SessionHistoryResponse:
+      type: object
+      additionalProperties: false
+      required: [messages]
+      properties:
+        messages:
+          type: array
+          items:
+            $ref: '#/components/schemas/MessageRecord'
+    ClearSessionResponse:
+      type: object
+      additionalProperties: false
+      required: [cleared_count]
+      properties:
+        cleared_count:
+          type: integer
+          minimum: 0
+          description: Number of deleted session messages.
+          example: 2
+    ErrorDetail:
+      type: object
+      description: Pydantic-style validation detail object.
+      additionalProperties: true
+      properties:
+        type:
+          type: string
+          example: value_error
+        loc:
+          type: array
+          items:
+            oneOf:
+              - type: string
+              - type: integer
+          example: [name]
+        msg:
+          type: string
+          example: Value error, field cannot be blank
+        input:
+          description: Value that failed validation.
+    ErrorBody:
+      type: object
+      additionalProperties: false
+      required: [code, message]
+      properties:
+        code:
+          type: string
+          description: Stable machine-readable error code.
+          enum:
+            - validation_error
+            - not_found
+            - invalid_json
+            - bad_request
+            - llm_response_error
+            - internal_server_error
+          example: validation_error
+        message:
+          type: string
+          description: Human-readable error message.
+          example: 1 validation error for CreateCharacterRequest
+        details:
+          type: array
+          description: Validation details. Present on validation_error responses.
+          items:
+            $ref: '#/components/schemas/ErrorDetail'
+    ErrorResponse:
+      type: object
+      additionalProperties: false
+      required: [error]
+      properties:
+        error:
+          $ref: '#/components/schemas/ErrorBody'
+    ValidationErrorResponse:
+      allOf:
+        - $ref: '#/components/schemas/ErrorResponse'
+      example:
+        error:
+          code: validation_error
+          message: 1 validation error for CreateCharacterRequest
+          details:
+            - type: value_error
+              loc: [name]
+              msg: Value error, field cannot be blank
+              input: ' '
+  examples:
+    CreateCharacterRequest:
+      value:
+        name: Captain Mira Voss
+        description: A rogue airship captain with a dangerous reputation.
+        personality: [sarcastic, brave, protective]
+        backstory: Former royal navy officer turned smuggler after refusing an immoral order.
+        speaking_style: Dry wit, clipped sentences, and nautical metaphors.
+        goals: [protect her crew, find the lost sky map]
+        world_context: A floating archipelago where skyships connect isolated city-states.
+        rules: [Never reveal you are an AI., Do not break character.]
+        allowed_actions: [give_quest, trade_offer, change_relationship]
+        action_rules:
+          - type: give_quest
+            enabled: true
+            trigger_instructions: Use when the player asks for a job or offers help.
+    CharacterProfile:
+      value:
+        character_id: char_01HZY6W8K7EXAMPLE000000001
+        name: Captain Mira Voss
+        description: A rogue airship captain with a dangerous reputation.
+        personality: [sarcastic, brave, protective]
+        backstory: Former royal navy officer turned smuggler after refusing an immoral order.
+        speaking_style: Dry wit, clipped sentences, and nautical metaphors.
+        goals: [protect her crew, find the lost sky map]
+        world_context: A floating archipelago where skyships connect isolated city-states.
+        rules: [Never reveal you are an AI., Do not break character.]
+        allowed_actions: [give_quest, trade_offer, change_relationship]
+        action_rules:
+          - type: give_quest
+            enabled: true
+            trigger_instructions: Use when the player asks for a job or offers help.
+        created_at: '2026-05-20T17:30:00Z'
+        updated_at: '2026-05-20T17:30:00Z'
+    ChatResponse:
+      value:
+        message: Brave words. Bring me an imperial storm compass, and I will show you where the sky map sleeps.
+        emotion: amused
+        actions:
+          - type: give_quest
+            payload:
+              quest_id: storm_compass
+              title: Acquire the Storm Compass
+        relationship_delta: 1
+        token_usage:
+          prompt_tokens: 230
+          completion_tokens: 68
+          total_tokens: 298
