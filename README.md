@@ -1,80 +1,188 @@
 # CharacterForge AI
 
-**CharacterForge AI** is an AWS-hosted, API-first platform for creating AI-powered game characters from structured character profiles.
+**CharacterForge AI** is a serverless Python backend for building AI-powered game characters that can speak in-character, remember session history, and return validated, machine-readable game actions.
 
-Game designers and developers can define reusable NPCs with personality, backstory, goals, world context, speaking style, and allowed actions. External applications can then prompt those characters through an API and receive both in-character dialogue and machine-readable game actions.
+It is designed as an API-first portfolio project for game AI tooling: a designer defines an NPC profile once, a game or application sends player dialogue through the API, and the backend returns both natural-language roleplay and structured action data that a game client can safely consume.
 
-> Portfolio goal: demonstrate Python backend development, AWS serverless architecture, Amazon Bedrock integration, DynamoDB data modeling, prompt orchestration, structured LLM outputs, testing, and API documentation.
-
----
-
-## MVP Vision
-
-CharacterForge AI will allow a client application to:
-
-1. Create a structured character profile.
-2. Persist that profile.
-3. Send player dialogue and game context to the character.
-4. Generate an in-character response with AWS Bedrock.
-5. Return validated structured actions such as quests, trades, relationship changes, scene triggers, or world flags.
-6. Store session history so conversations have continuity.
+> **Portfolio focus:** Python backend engineering, AWS Lambda/API Gateway, DynamoDB data modeling, Amazon Bedrock integration, Pydantic validation, prompt orchestration, structured LLM responses, OpenAPI documentation, and high-coverage automated testing.
 
 ---
 
-## Planned Tech Stack
+## Why this project exists
 
-- **Language:** Python 3.11+
-- **Cloud:** AWS
-- **LLM Provider:** Amazon Bedrock, configurable via `CHARACTERFORGE_BEDROCK_MODEL_ID`
-- **Compute:** AWS Lambda
-- **API:** Amazon API Gateway
-- **Database:** Amazon DynamoDB
-- **Infrastructure as Code:** AWS SAM
-- **Validation:** Pydantic
-- **AWS SDK:** boto3
-- **Testing:** pytest, pytest-cov, moto
-- **Linting / Formatting:** Ruff
+LLM-powered NPCs are most useful when they are not just chatbots. A game client needs responses that are:
+
+- **In character** — grounded in personality, lore, goals, and speaking style.
+- **State-aware** — informed by recent session history and optional game context.
+- **Constrained** — limited by designer-authored rules and allowed action types.
+- **Machine-readable** — able to trigger quests, trades, relationship changes, scene events, flags, inventory updates, and other gameplay systems.
+- **Validated** — parsed and checked before anything is returned to the caller.
+
+CharacterForge AI demonstrates that backend pattern with a compact AWS serverless MVP.
 
 ---
 
-## Planned API Surface
+## Current capabilities
+
+- Create, list, retrieve, update, and delete structured character profiles.
+- Configure character personality, backstory, speaking style, goals, world context, roleplay rules, and allowed actions.
+- Add designer-authored action rules that describe when each enabled action should trigger.
+- Chat with a character through an API Gateway/Lambda entry point.
+- Build Bedrock-ready prompts from the character profile, game context, conversation history, and action rules.
+- Validate LLM JSON output into typed Pydantic models before returning it.
+- Persist character profiles and session messages in DynamoDB.
+- Retrieve or clear saved session history.
+- Run offline with in-memory stores and a deterministic mock LLM for tests and local demos.
+- Deploy with AWS SAM to Lambda, API Gateway, DynamoDB, and Amazon Bedrock Runtime.
+- Document the HTTP API with `openapi.yaml` and curl examples.
+
+---
+
+## Architecture overview
+
+```text
+Game / Tooling Client
+        |
+        | HTTPS JSON
+        v
+Amazon API Gateway HTTP API
+        |
+        v
+AWS Lambda: characterforge.app.handler
+        |
+        |-- Route request by method/path
+        |-- Validate request bodies with Pydantic
+        |-- Load character profiles and session history
+        |-- Build structured prompts for Bedrock
+        |-- Parse and validate model responses
+        |
+        +--> DynamoDB Characters table
+        |
+        +--> DynamoDB Messages table
+        |
+        +--> Amazon Bedrock Runtime
+```
+
+### Runtime components
+
+| Layer | Implementation | Purpose |
+| --- | --- | --- |
+| Lambda entry point | `src/characterforge/app.py` | Routes API Gateway v1/v2 events to character, chat, and session handlers. |
+| Character handlers | `src/characterforge/handlers/characters.py` | CRUD operations for designer-authored character profiles. |
+| Chat handler | `src/characterforge/handlers/chat.py` | Loads profile/history, builds prompt, calls LLM, validates output, persists messages. |
+| Session handlers | `src/characterforge/handlers/sessions.py` | Reads and clears saved conversation history. |
+| Models | `src/characterforge/models/` | Pydantic schemas for characters, chat, messages, and game actions. |
+| Prompt builder | `src/characterforge/services/prompt_builder.py` | Converts profile, history, and action rules into a Bedrock prompt. |
+| Response parser | `src/characterforge/services/response_parser.py` | Parses model JSON and rejects malformed or unauthorized actions. |
+| Persistence | `src/characterforge/services/dynamodb_store.py` | DynamoDB-backed character and session stores. |
+| LLM clients | `src/characterforge/services/bedrock_client.py`, `llm_client.py` | Real Bedrock Runtime client plus deterministic mock client. |
+| Infrastructure | `infra/template.yaml` | AWS SAM template for Lambda, HTTP API, DynamoDB, IAM, and Bedrock permissions. |
+
+### DynamoDB design
+
+| Table | Key schema | Used for |
+| --- | --- | --- |
+| `CharacterForgeCharacters-{env}` | `character_id` partition key | Durable character profiles and list/detail/update/delete operations. |
+| `CharacterForgeMessages-{env}` | `session_id` partition key, `created_at_message_id` sort key | Chronological chat history, recent-history prompt context, and session clearing. |
+
+The MVP intentionally uses a simple table design: no ownership GSI, no analytics indexes, no TTL, and no optimistic locking yet. Those are natural future additions once multi-user product requirements are defined.
+
+---
+
+## API surface
+
+The implemented API is intentionally small and game-client friendly:
 
 ```http
-POST /characters
-GET /characters
-GET /characters/{character_id}
-PUT /characters/{character_id}
+POST   /characters
+GET    /characters
+GET    /characters/{character_id}
+PUT    /characters/{character_id}
 DELETE /characters/{character_id}
-POST /characters/{character_id}/chat
-GET /sessions/{session_id}
+POST   /characters/{character_id}/chat
+GET    /sessions/{session_id}?limit=10
 DELETE /sessions/{session_id}
 ```
 
----
+Full API documentation lives in [`openapi.yaml`](openapi.yaml).
 
-## Example Character Profile
+### Example: create a character
+
+```bash
+export API_BASE_URL="https://<api-id>.execute-api.<region>.amazonaws.com/dev"
+
+curl -sS -X POST "$API_BASE_URL/characters" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "Captain Mira Voss",
+    "description": "A rogue airship captain with a dangerous reputation.",
+    "personality": ["sarcastic", "brave", "protective"],
+    "backstory": "Former royal navy officer turned smuggler after refusing an immoral order.",
+    "speaking_style": "Dry wit, clipped sentences, and nautical metaphors.",
+    "goals": ["protect her crew", "find the lost sky map"],
+    "world_context": "A floating archipelago where skyships connect isolated city-states.",
+    "rules": ["Never reveal you are an AI.", "Do not break character."],
+    "allowed_actions": ["give_quest", "trade_offer", "change_relationship"],
+    "action_rules": [
+      {
+        "type": "give_quest",
+        "enabled": true,
+        "trigger_instructions": "Use when the player asks for work or offers help."
+      }
+    ]
+  }'
+```
+
+Example response shape:
 
 ```json
 {
+  "character_id": "char_01HZY6W8K7EXAMPLE000000001",
   "name": "Captain Mira Voss",
-  "description": "A rogue airship captain.",
+  "description": "A rogue airship captain with a dangerous reputation.",
   "personality": ["sarcastic", "brave", "protective"],
-  "backstory": "Former royal navy officer turned smuggler.",
-  "speaking_style": "Dry wit, clipped sentences, nautical metaphors.",
+  "backstory": "Former royal navy officer turned smuggler after refusing an immoral order.",
+  "speaking_style": "Dry wit, clipped sentences, and nautical metaphors.",
   "goals": ["protect her crew", "find the lost sky map"],
-  "world_context": "A floating archipelago world.",
+  "world_context": "A floating archipelago where skyships connect isolated city-states.",
   "rules": ["Never reveal you are an AI.", "Do not break character."],
-  "allowed_actions": ["give_quest", "trade_offer", "change_relationship"]
+  "allowed_actions": ["give_quest", "trade_offer", "change_relationship"],
+  "action_rules": [
+    {
+      "type": "give_quest",
+      "enabled": true,
+      "trigger_instructions": "Use when the player asks for work or offers help."
+    }
+  ],
+  "created_at": "2026-05-20T17:30:00Z",
+  "updated_at": "2026-05-20T17:30:00Z"
 }
 ```
 
----
+### Example: chat with a character
 
-## Example Chat Response
+```bash
+export CHARACTER_ID="char_01HZY6W8K7EXAMPLE000000001"
+
+curl -sS -X POST "$API_BASE_URL/characters/$CHARACTER_ID/chat" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "session_id": "session-demo-1",
+    "player_id": "player-demo-1",
+    "message": "I can help recover the sky map.",
+    "context": {
+      "location": "Harbor of Kites",
+      "player_reputation": "trusted",
+      "current_quest": "lost_sky_map"
+    }
+  }'
+```
+
+Example response shape:
 
 ```json
 {
-  "message": "Cross the storm wall? Brave. Maybe foolish. I can get you through, but I need an imperial storm compass first.",
+  "message": "Brave words. Bring me an imperial storm compass, and I will show you where the sky map sleeps.",
   "emotion": "amused",
   "actions": [
     {
@@ -85,170 +193,180 @@ DELETE /sessions/{session_id}
       }
     }
   ],
-  "relationship_delta": 1
+  "relationship_delta": 1,
+  "token_usage": null
 }
 ```
 
----
-
-## Project Status
-
-This repository is currently being built step-by-step as a polished proof-of-concept portfolio project.
-
-Initial focus:
-
-- Local Python project structure
-- Pydantic models
-- Prompt builder
-- Mock LLM client
-- Structured action validation
-- DynamoDB persistence layer
-- AWS Bedrock integration
-- AWS SAM deployment template
-- OpenAPI documentation
-
----
-
-## Local Development
-
-Create and activate a local virtual environment, then install the project with development dependencies:
+### Example: read and clear session history
 
 ```bash
+curl -sS "$API_BASE_URL/sessions/session-demo-1?limit=10"
+
+curl -sS -X DELETE "$API_BASE_URL/sessions/session-demo-1"
+```
+
+## Curl API Examples
+
+The repository also includes ready-to-run scripts under [`examples/curl/`](examples/curl/):
+
+- [`examples/curl/create-character-local.sh`](examples/curl/create-character-local.sh)
+- [`examples/curl/chat-local.sh`](examples/curl/chat-local.sh)
+- [`examples/curl/create-character-deployed.sh`](examples/curl/create-character-deployed.sh)
+- [`examples/curl/chat-deployed.sh`](examples/curl/chat-deployed.sh)
+
+---
+
+## Local setup
+
+### Requirements
+
+- Python 3.11+
+- Git
+- Optional for AWS deployment: AWS CLI v2, AWS SAM CLI, Docker, and AWS credentials
+
+### Install for development
+
+```bash
+git clone https://github.com/Cloudygb/CharacterForge-AI.git
+cd CharacterForge-AI
+
 python3 -m venv .venv
 source .venv/bin/activate
+python3 -m pip install --upgrade pip
 python3 -m pip install -e ".[dev]"
 ```
 
-On Ubuntu/WSL, if virtual environment creation fails because `ensurepip` is missing, install the venv package first:
+On Windows PowerShell:
+
+```powershell
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install --upgrade pip
+python -m pip install -e ".[dev]"
+```
+
+### Useful development commands
 
 ```bash
-sudo apt update
-sudo apt install python3.12-venv
+make test       # pytest -v
+make coverage   # pytest with coverage report
+make lint       # ruff check src tests examples scripts
+make format     # ruff format src tests examples scripts
 ```
 
-Common development commands are available through the `Makefile`:
+Equivalent direct commands:
 
 ```bash
-make install
-make test
-make coverage
-make lint
-make format
+python3 -m pytest -q
+python3 -m pytest --cov=characterforge --cov-report=term-missing
+ruff check src tests examples scripts
+ruff format src tests examples scripts
 ```
 
----
+### Offline demo client
 
-## Local Game Client Demo
-
-A local Python demo client is available at:
-
-```text
-examples/game-client-python/demo_client.py
-```
-
-It demonstrates the current API-style flow without requiring AWS or a running web server:
-
-1. Load a sample character profile.
-2. Create the character through the local character handler.
-3. Send a player chat message through the local chat handler.
-4. Print the returned in-character dialogue.
-5. Print the structured actions a game client could consume.
-
-Run it from the repository root with `src` on `PYTHONPATH`:
+The local demo uses in-memory stores and the deterministic mock LLM. It does not require AWS credentials and does not call Bedrock.
 
 ```bash
 PYTHONPATH=src python3 examples/game-client-python/demo_client.py
 ```
 
-The demo uses the deterministic `MockLLMClient`, so it is safe to run offline and does not call Amazon Bedrock.
+### Local API with SAM
 
----
-
-## Curl API Examples
-
-Shell-based curl examples are available under:
-
-```text
-examples/curl/
-```
-
-They demonstrate the two most common API flows:
-
-1. Create a character with the Captain Mira Voss sample profile.
-2. Chat with the newly created character using a session ID and player message.
-
-### Local/mock API examples
-
-Use the local examples when running API Gateway locally through AWS SAM with the deterministic mock LLM enabled. This avoids DynamoDB and Bedrock calls, making the examples safe for offline API-shape testing.
-
-Start the local API from the repository root:
+For local API-shape testing, start the Lambda through SAM with mock dependencies enabled:
 
 ```bash
-sam local start-api --template infra/template.yaml --env-vars examples/curl/local-env.json
+sam local start-api \
+  --template infra/template.yaml \
+  --env-vars examples/curl/local-env.json
 ```
 
-In another terminal, create a character:
+Then in another terminal:
 
 ```bash
 bash examples/curl/create-character-local.sh
-```
-
-The script prints the created profile and an `export CHARACTER_ID=...` line. Use that ID for chat:
-
-```bash
-export CHARACTER_ID=char_...
+export CHARACTER_ID="char_..."
 bash examples/curl/chat-local.sh
 ```
 
-Optional local overrides:
-
-```bash
-LOCAL_API_BASE_URL=http://127.0.0.1:3000 \
-SESSION_ID=session-demo-local-1 \
-PLAYER_MESSAGE="I can help recover the sky map." \
-bash examples/curl/chat-local.sh
-```
-
-The local SAM environment file is `examples/curl/local-env.json`; it sets `USE_MOCK_LLM=true` so the Lambda uses in-memory stores and `MockLLMClient`.
-
-### Deployed API examples
-
-After deploying with SAM, set `API_BASE_URL` to the `ApiUrl` stack output. The deployment guide in `docs/aws-deployment.md` shows how to retrieve that value.
-
-```bash
-export API_BASE_URL=https://<api-id>.execute-api.<region>.amazonaws.com/dev
-bash examples/curl/create-character-deployed.sh
-```
-
-The create script prints the returned character ID. Use it to chat with the deployed API:
-
-```bash
-export CHARACTER_ID=char_...
-bash examples/curl/chat-deployed.sh
-```
-
-Optional deployed chat overrides:
-
-```bash
-SESSION_ID=session-demo-deployed-1 \
-PLAYER_ID=player-demo-1 \
-PLAYER_MESSAGE="What is the first step through the Stormwall?" \
-bash examples/curl/chat-deployed.sh
-```
-
-The deployed examples call the real deployed backend. If the stack is configured with Bedrock and DynamoDB, chat requests can invoke Amazon Bedrock and write session history to DynamoDB.
+`examples/curl/local-env.json` sets `USE_MOCK_LLM=true`, so local SAM tests avoid real DynamoDB and Bedrock calls.
 
 ---
 
-## Bedrock Smoke Test
+## AWS deployment summary
 
-A manual Bedrock smoke test is available at:
+The full beginner-friendly deployment guide is in [`docs/aws-deployment.md`](docs/aws-deployment.md). At a high level:
 
-```text
-scripts/bedrock_smoke_test.py
+1. Install AWS CLI v2, AWS SAM CLI, Docker, Python, and Git.
+2. Configure an AWS profile and region.
+3. Request access to the selected Amazon Bedrock model, such as `amazon.nova-micro-v1:0` in `us-east-1`.
+4. Validate the SAM template.
+5. Build and deploy the stack with SAM.
+6. Use the `ApiUrl` stack output as `API_BASE_URL` for curl examples.
+
+```bash
+aws cloudformation validate-template \
+  --template-body file://infra/template.yaml \
+  --region us-east-1
+
+sam build --template-file infra/template.yaml
+sam deploy --guided --template-file .aws-sam/build/template.yaml
 ```
 
-It is intentionally not part of the normal test suite. Run it only when you explicitly want to make a tiny real AWS Bedrock call using your configured AWS credentials:
+The SAM template creates:
+
+- API Gateway HTTP API with routes for characters, chat, and sessions.
+- Lambda function using `characterforge.app.handler`.
+- DynamoDB table for character profiles.
+- DynamoDB table for session messages.
+- IAM permissions scoped to the project tables and Bedrock Runtime invocation.
+- CloudFormation outputs for the API URL, Lambda function name, and table names.
+
+Important deployment parameters:
+
+| Parameter | Default | Purpose |
+| --- | --- | --- |
+| `EnvironmentName` | `dev` | Resource suffix and API stage name. |
+| `BedrockModelId` | `amazon.nova-micro-v1:0` | Bedrock model used for chat responses. |
+| `BedrockRegion` | `us-east-1` | Region where Bedrock Runtime is called. |
+| `RecentHistoryLimit` | `20` | Number of recent messages included in prompt context. |
+
+> **Cost note:** Lambda, API Gateway, DynamoDB, and Bedrock can incur AWS charges. The template uses pay-per-request DynamoDB for MVP simplicity, but Bedrock chat calls are real paid model invocations.
+
+---
+
+## Testing and quality
+
+The project is covered by unit tests for models, handlers, stores, prompt construction, response validation, Lambda routing, OpenAPI docs, curl examples, and the SAM template.
+
+Current local verification command:
+
+```bash
+ruff format src tests examples scripts
+ruff check src tests examples scripts
+pytest --cov=characterforge --cov-report=term-missing -q
+```
+
+Latest verified result:
+
+```text
+45 files left unchanged
+All checks passed!
+171 passed
+TOTAL coverage: 97%
+```
+
+Testing strategy highlights:
+
+- Pydantic validation tests for character, action, chat, and session models.
+- Handler tests with in-memory stores and mock LLM clients.
+- Lambda routing tests using fake API Gateway v1/v2 events, including base64 request bodies and malformed request handling.
+- DynamoDB store tests with moto/fakes for serialization, pagination, deletes, and Decimal conversion.
+- Bedrock client tests using injected fake runtime clients instead of live AWS calls.
+- Documentation tests for OpenAPI coverage, curl script safety, and SAM template structure.
+
+A manual Bedrock smoke test is available when you explicitly want a real AWS model call:
 
 ```bash
 CHARACTERFORGE_BEDROCK_MODEL_ID=amazon.nova-micro-v1:0 \
@@ -256,37 +374,75 @@ AWS_REGION=us-east-1 \
 PYTHONPATH=src python3 scripts/bedrock_smoke_test.py
 ```
 
-Optional environment variables:
+Do not run the smoke test in automated unit test suites; it calls the real Bedrock Runtime API.
 
-- `CHARACTERFORGE_BEDROCK_MODEL_ID` defaults to `amazon.nova-micro-v1:0`
-- `AWS_REGION` or `AWS_DEFAULT_REGION` defaults to `us-east-1`
-- `CHARACTERFORGE_BEDROCK_SMOKE_PROMPT` defaults to `Reply with exactly: ok`
+---
 
-The script prints the model, region, and a short result. It should not be run from automated tests because it calls the real Bedrock Runtime API.
+## Resume-focused highlights
+
+This project demonstrates practical backend skills that map directly to production cloud engineering work:
+
+- **Serverless API design:** Built a Lambda/API Gateway backend with explicit route handling and API Gateway event adaptation.
+- **AWS infrastructure:** Modeled Lambda, HTTP API, DynamoDB tables, IAM policies, and Bedrock Runtime access in AWS SAM.
+- **DynamoDB modeling:** Designed separate profile and append-only session-history tables around concrete access patterns.
+- **LLM integration:** Wrapped Amazon Bedrock Runtime behind a testable interface with model/region configuration.
+- **Prompt engineering:** Constructed deterministic prompts from structured character data, game context, conversation history, and designer-authored action rules.
+- **Structured output validation:** Parsed model JSON into typed schemas and rejected malformed or unauthorized game actions before returning them to clients.
+- **Testability:** Kept AWS, persistence, and LLM dependencies injectable so unit tests run offline and deterministically.
+- **Quality gates:** Uses Ruff formatting/linting and pytest coverage across source, examples, scripts, infrastructure tests, and docs checks.
+- **API documentation:** Maintains OpenAPI documentation and curl examples for local and deployed workflows.
+
+---
+
+## Repository layout
+
+```text
+.
+├── docs/
+│   └── aws-deployment.md        # Beginner-friendly AWS deployment guide
+├── examples/
+│   ├── curl/                    # Local and deployed API curl scripts
+│   └── game-client-python/      # Offline demo client
+├── infra/
+│   └── template.yaml            # AWS SAM serverless stack
+├── scripts/
+│   └── bedrock_smoke_test.py    # Optional real Bedrock Runtime smoke test
+├── src/characterforge/
+│   ├── app.py                   # Lambda entry point and router
+│   ├── handlers/                # Character, chat, and session handlers
+│   ├── models/                  # Pydantic domain/API models
+│   └── services/                # Stores, prompt builder, LLM clients, parser
+├── tests/                       # Unit and documentation tests
+├── openapi.yaml                 # HTTP API contract
+├── pyproject.toml               # Package metadata and tool config
+└── Makefile                     # Common development commands
+```
+
+---
+
+## Roadmap ideas
+
+Potential next steps for turning the MVP into a production-ready platform:
+
+- Authentication and authorization for user-owned characters.
+- Rate limiting and abuse protection for public APIs.
+- Tenant/project-scoped DynamoDB access patterns and indexes.
+- Optimistic locking for character updates.
+- Streaming chat responses.
+- Admin UI for character editing and action-rule configuration.
+- Observability dashboards for latency, errors, token usage, and Bedrock cost.
+- Broader game-engine integration examples.
 
 ---
 
 ## License
 
-CharacterForge AI is licensed under the **PolyForm Noncommercial License 1.0.0**. See `LICENSE` for the full license text.
+CharacterForge AI is licensed under the **PolyForm Noncommercial License 1.0.0**. See [`LICENSE`](LICENSE) for the full license text.
 
-This allows noncommercial use, including:
-
-- Personal study
-- Hobby projects
-- Research
-- Educational institution use
-
-Business or commercial use is not permitted unless a separate commercial license is granted.
+Noncommercial use is allowed, including personal study, hobby projects, research, and educational use. Business or commercial use requires a separate commercial license.
 
 For commercial licensing inquiries, contact:
 
 ```text
 evan.computerloft@gmail.com
-```
-
-Website:
-
-```text
-
 ```
