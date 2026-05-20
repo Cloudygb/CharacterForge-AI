@@ -67,7 +67,7 @@ Resources:
     Properties:
       Description: Handles CharacterForge character, chat, and session API requests.
       CodeUri: ../src
-      Handler: characterforge.api.lambda_handler.handler
+      Handler: characterforge.app.handler
       Environment:
         Variables:
           CHARACTERS_TABLE_NAME: !Ref CharactersTable

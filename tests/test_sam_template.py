@@ -58,6 +58,7 @@ def test_sam_template_configures_lambda_environment_and_routes() -> None:
     assert function_properties["CodeUri"] == "../src"
     assert (REPO_ROOT / "src" / "requirements.txt").is_file()
 
+    assert function_properties["Handler"] == "characterforge.app.handler"
     handler_module_name, handler_function_name = function_properties["Handler"].rsplit(".", 1)
     handler_module = import_module(handler_module_name)
     assert callable(getattr(handler_module, handler_function_name))
