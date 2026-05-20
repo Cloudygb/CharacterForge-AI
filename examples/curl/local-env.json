@@ -1,0 +1,10 @@
+{
+  "CharacterForgeFunction": {
+    "USE_MOCK_LLM": "true",
+    "CHARACTERS_TABLE_NAME": "CharacterForgeCharacters-local",
+    "MESSAGES_TABLE_NAME": "CharacterForgeMessages-local",
+    "CHARACTERFORGE_BEDROCK_MODEL_ID": "mock-local",
+    "CHARACTERFORGE_BEDROCK_REGION": "us-east-1",
+    "CHARACTERFORGE_RECENT_HISTORY_LIMIT": "20"
+  }
+}

@@ -164,6 +164,82 @@ The demo uses the deterministic `MockLLMClient`, so it is safe to run offline an
 
 ---
 
+## Curl API Examples
+
+Shell-based curl examples are available under:
+
+```text
+examples/curl/
+```
+
+They demonstrate the two most common API flows:
+
+1. Create a character with the Captain Mira Voss sample profile.
+2. Chat with the newly created character using a session ID and player message.
+
+### Local/mock API examples
+
+Use the local examples when running API Gateway locally through AWS SAM with the deterministic mock LLM enabled. This avoids DynamoDB and Bedrock calls, making the examples safe for offline API-shape testing.
+
+Start the local API from the repository root:
+
+```bash
+sam local start-api --template infra/template.yaml --env-vars examples/curl/local-env.json
+```
+
+In another terminal, create a character:
+
+```bash
+bash examples/curl/create-character-local.sh
+```
+
+The script prints the created profile and an `export CHARACTER_ID=...` line. Use that ID for chat:
+
+```bash
+export CHARACTER_ID=char_...
+bash examples/curl/chat-local.sh
+```
+
+Optional local overrides:
+
+```bash
+LOCAL_API_BASE_URL=http://127.0.0.1:3000 \
+SESSION_ID=session-demo-local-1 \
+PLAYER_MESSAGE="I can help recover the sky map." \
+bash examples/curl/chat-local.sh
+```
+
+The local SAM environment file is `examples/curl/local-env.json`; it sets `USE_MOCK_LLM=true` so the Lambda uses in-memory stores and `MockLLMClient`.
+
+### Deployed API examples
+
+After deploying with SAM, set `API_BASE_URL` to the `ApiUrl` stack output. The deployment guide in `docs/aws-deployment.md` shows how to retrieve that value.
+
+```bash
+export API_BASE_URL=https://<api-id>.execute-api.<region>.amazonaws.com/dev
+bash examples/curl/create-character-deployed.sh
+```
+
+The create script prints the returned character ID. Use it to chat with the deployed API:
+
+```bash
+export CHARACTER_ID=char_...
+bash examples/curl/chat-deployed.sh
+```
+
+Optional deployed chat overrides:
+
+```bash
+SESSION_ID=session-demo-deployed-1 \
+PLAYER_ID=player-demo-1 \
+PLAYER_MESSAGE="What is the first step through the Stormwall?" \
+bash examples/curl/chat-deployed.sh
+```
+
+The deployed examples call the real deployed backend. If the stack is configured with Bedrock and DynamoDB, chat requests can invoke Amazon Bedrock and write session history to DynamoDB.
+
+---
+
 ## Bedrock Smoke Test
 
 A manual Bedrock smoke test is available at:
