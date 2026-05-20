@@ -33,6 +33,7 @@ CharacterForge AI demonstrates that backend pattern with a compact AWS serverles
 - Persist character profiles and session messages in DynamoDB.
 - Retrieve or clear saved session history.
 - Run offline with in-memory stores and a deterministic mock LLM for tests and local demos.
+- Explore the API flow in a dependency-free static web playground.
 - Deploy with AWS SAM to Lambda, API Gateway, DynamoDB, and Amazon Bedrock Runtime.
 - Document the HTTP API with `openapi.yaml` and curl examples.
 
@@ -272,6 +273,22 @@ The local demo uses in-memory stores and the deterministic mock LLM. It does not
 PYTHONPATH=src python3 examples/game-client-python/demo_client.py
 ```
 
+### Web playground
+
+A dependency-free static playground is available under `examples/web-playground/`. It can run fully in mock mode, call the local SAM API, or call a deployed API Gateway URL.
+
+```bash
+python3 -m http.server 8080 --directory examples/web-playground
+```
+
+Then open:
+
+```text
+http://127.0.0.1:8080
+```
+
+Paste `http://127.0.0.1:3000` when using `sam local start-api`, or paste a deployed `API_BASE_URL` after deploying with SAM.
+
 ### Local API with SAM
 
 For local API-shape testing, start the Lambda through SAM with mock dependencies enabled:
@@ -402,7 +419,8 @@ This project demonstrates practical backend skills that map directly to producti
 │   └── aws-deployment.md        # Beginner-friendly AWS deployment guide
 ├── examples/
 │   ├── curl/                    # Local and deployed API curl scripts
-│   └── game-client-python/      # Offline demo client
+│   ├── game-client-python/      # Offline demo client
+│   └── web-playground/          # Static browser playground
 ├── infra/
 │   └── template.yaml            # AWS SAM serverless stack
 ├── scripts/

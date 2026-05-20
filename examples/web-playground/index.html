@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>CharacterForge AI Web Playground</title>
+    <link rel="stylesheet" href="styles.css" />
+    <script src="app.js" defer></script>
+  </head>
+  <body>
+    <main class="shell">
+      <section class="hero">
+        <p class="eyebrow">CharacterForge AI</p>
+        <h1>Web Playground</h1>
+        <p>
+          Try the character API flow from a browser: paste an API URL, create a sample
+          character, send a chat message, and inspect the structured actions returned to a game
+          client.
+        </p>
+      </section>
+
+      <section class="panel">
+        <h2>1. Connect to an API</h2>
+        <label for="api-url">API URL</label>
+        <input
+          id="api-url"
+          type="url"
+          placeholder="http://127.0.0.1:3000 or https://.../dev"
+          autocomplete="off"
+        />
+        <p class="hint">
+          Leave blank to use portfolio mock mode. Paste a local SAM URL or deployed API Gateway
+          URL to call the real backend.
+        </p>
+        <div id="connection-status" class="status muted">Mock mode: no network calls yet.</div>
+      </section>
+
+      <section class="grid">
+        <article class="panel">
+          <h2>2. Create or select a sample character</h2>
+          <label for="sample-select">Sample character</label>
+          <select id="sample-select"></select>
+          <div class="button-row">
+            <button id="create-character" type="button">Create Sample Character</button>
+            <button id="use-mock-character" type="button" class="secondary">
+              Select Without API
+            </button>
+          </div>
+          <p class="hint">
+            Creating sends <code>POST /characters</code>. Selecting without API is useful for a
+            quick offline portfolio demo.
+          </p>
+          <div class="mini-card">
+            <strong id="character-name">No character selected</strong>
+            <span id="character-id">Character ID will appear here.</span>
+          </div>
+          <pre id="character-json" class="code-block" aria-label="Selected character JSON"></pre>
+        </article>
+
+        <article class="panel">
+          <h2>3. Send Chat Message</h2>
+          <label for="player-message">Player message</label>
+          <textarea id="player-message" rows="5">
+I can help recover the sky map. What do you need from me?</textarea
+          >
+          <div class="form-row">
+            <label for="session-id">Session ID</label>
+            <input id="session-id" value="session-web-demo-1" />
+          </div>
+          <div class="form-row">
+            <label for="player-id">Player ID</label>
+            <input id="player-id" value="player-web-demo-1" />
+          </div>
+          <button id="send-chat" type="button">Send Chat Message</button>
+        </article>
+      </section>
+
+      <section class="grid">
+        <article class="panel response-panel">
+          <h2>Response</h2>
+          <div id="chat-status" class="status muted">Send a message to see a response.</div>
+          <div class="response-bubble">
+            <p id="response-message">No response yet.</p>
+            <dl>
+              <div>
+                <dt>Emotion</dt>
+                <dd id="response-emotion">—</dd>
+              </div>
+              <div>
+                <dt>Relationship delta</dt>
+                <dd id="response-relationship">—</dd>
+              </div>
+            </dl>
+          </div>
+        </article>
+
+        <article class="panel">
+          <h2>Structured actions</h2>
+          <div id="actions-list" class="actions-list empty">No actions yet.</div>
+          <h3>Raw JSON</h3>
+          <pre id="response-json" class="code-block" aria-label="Chat response JSON"></pre>
+        </article>
+      </section>
+    </main>
+  </body>
+</html>
