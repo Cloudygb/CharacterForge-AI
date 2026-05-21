@@ -331,7 +331,8 @@ p {
   color: #edf5ff;
 }
 
-.checkbox-field {
+.checkbox-field,
+.radio-field {
   display: flex;
   align-items: center;
   gap: 0.65rem;
@@ -339,10 +340,31 @@ p {
   font-weight: 800;
 }
 
-.checkbox-field input {
+.checkbox-field input,
+.radio-field input {
   width: 1.1rem;
   height: 1.1rem;
   accent-color: #72e1ff;
+}
+
+.credential-fieldset {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  padding: 1rem;
+  border: 1px solid rgba(156, 180, 255, 0.18);
+  border-radius: 1rem;
+  margin: 1rem 0;
+}
+
+.credential-fieldset legend {
+  padding: 0 0.35rem;
+  color: #72e1ff;
+  font-weight: 800;
+}
+
+.deployment-preview {
+  margin-top: 1.5rem;
 }
 
 .action-editor-list {

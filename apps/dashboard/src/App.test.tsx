@@ -39,6 +39,7 @@ describe("CharacterForge dashboard", () => {
       "Welcome",
       "API Settings",
       "Setup Check",
+      "Deployment",
       "Characters",
       "Character Editor",
       "Character Packs",
@@ -176,6 +177,59 @@ describe("CharacterForge dashboard", () => {
     expect(screen.getByText("eu-west-1")).toBeInTheDocument();
     expect(screen.getByText(/verify that characterforge deployment templates target eu-west-1/i)).toBeInTheDocument();
     expect(screen.getByText(/higher-capability models may cost more per request/i)).toBeInTheDocument();
+  });
+
+  it("previews the deployment Start flow in dry-run mode without calling AWS or the SDK", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+
+    await user.click(screen.getByRole("button", { name: "Deployment" }));
+    expect(screen.getByRole("heading", { name: /deployment start/i })).toBeInTheDocument();
+    expect(screen.getAllByText(/dry-run mode only/i).length).toBeGreaterThan(0);
+
+    await user.clear(screen.getByLabelText(/aws region/i));
+    await user.type(screen.getByLabelText(/aws region/i), "us-west-2");
+    await user.selectOptions(screen.getByLabelText(/bedrock model/i), "anthropic.claude-3-5-sonnet-20240620-v1:0");
+    await user.clear(screen.getByLabelText(/stack name/i));
+    await user.type(screen.getByLabelText(/stack name/i), "characterforge-demo");
+    await user.clear(screen.getByLabelText(/aws profile name/i));
+    await user.type(screen.getByLabelText(/aws profile name/i), "game-dev");
+
+    await user.click(screen.getByRole("button", { name: /preview start dry run/i }));
+
+    expect(await screen.findByText(/dry-run deployment preview ready/i)).toBeInTheDocument();
+    expect(screen.getByText(/no aws, sam, cloudformation, bedrock, or credential provider calls were made/i)).toBeInTheDocument();
+    expect(screen.getByText(/sam deploy command preview/i)).toBeInTheDocument();
+    expect(screen.getByText(/--stack-name characterforge-demo/i)).toBeInTheDocument();
+    expect(screen.getByText(/--region us-west-2/i)).toBeInTheDocument();
+    expect(screen.getByText(/--profile game-dev/i)).toBeInTheDocument();
+    expect(screen.getByText(/BedrockModelId=anthropic\.claude-3-5-sonnet-20240620-v1:0/i)).toBeInTheDocument();
+    expect(screen.getByText(/resources that would be created/i)).toBeInTheDocument();
+    expect(screen.getByText(/aws lambda function for characterforge\.app\.handler/i)).toBeInTheDocument();
+    expect(screen.getByText(/api gateway rest api with api key usage plan protection/i)).toBeInTheDocument();
+    expect(screen.getByText(/dynamodb tables for character profiles and session messages/i)).toBeInTheDocument();
+    expect(listCharactersMock).not.toHaveBeenCalled();
+    expect(createCharacterMock).not.toHaveBeenCalled();
+  });
+
+  it("redacts temporary AWS credentials from deployment dry-run previews", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+
+    await user.click(screen.getByRole("button", { name: "Deployment" }));
+    await user.click(screen.getByRole("radio", { name: /temporary credentials/i }));
+    await user.type(screen.getByLabelText(/access key id/i), "TEMPACCESSKEY123456");
+    await user.type(screen.getByLabelText(/secret access key/i), "real-secret-value");
+    await user.type(screen.getByLabelText(/session token/i), "real-session-token");
+    await user.click(screen.getByRole("button", { name: /preview start dry run/i }));
+
+    expect(await screen.findByText(/dry-run deployment preview ready/i)).toBeInTheDocument();
+    expect(screen.getByText(/AWS_ACCESS_KEY_ID=<provided locally>/i)).toBeInTheDocument();
+    expect(screen.getAllByText(/AWS_SECRET_ACCESS_KEY=<redacted>/i).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/AWS_SESSION_TOKEN=<redacted>/i).length).toBeGreaterThan(0);
+    expect(screen.queryByText(/TEMPACCESSKEY123456/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/real-secret-value/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/real-session-token/i)).not.toBeInTheDocument();
   });
 
   it("keeps mock mode active and does not call the SDK when no API base URL is set", async () => {

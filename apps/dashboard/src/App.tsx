@@ -3,9 +3,14 @@ import { useMemo, useState } from "react";
 
 import { CharacterForgeClient, type CharacterSummary } from "@characterforge/characterforge-ai";
 
+import {
+  createBrowserDryRunDeploymentAdapter,
+  type DeploymentStartPreview,
+  type DeploymentStartRequest
+} from "./deploymentAdapters";
 import "./styles.css";
 
-type ScreenId = "welcome" | "settings" | "setup" | "characters" | "editor" | "packs" | "chat" | "json";
+type ScreenId = "welcome" | "settings" | "setup" | "deployment" | "characters" | "editor" | "packs" | "chat" | "json";
 
 type Character = {
   id: string;
@@ -157,6 +162,7 @@ const screens: Array<{ id: ScreenId; label: string }> = [
   { id: "welcome", label: "Welcome" },
   { id: "settings", label: "API Settings" },
   { id: "setup", label: "Setup Check" },
+  { id: "deployment", label: "Deployment" },
   { id: "characters", label: "Characters" },
   { id: "editor", label: "Character Editor" },
   { id: "packs", label: "Character Packs" },
@@ -212,7 +218,24 @@ const defaultSetupCheckForm: SetupCheckForm = {
   bedrockModel: "anthropic.claude-3-haiku-20240307-v1:0"
 };
 
+const defaultDeploymentForm: DeploymentStartRequest = {
+  awsRegion: "us-east-1",
+  bedrockModel: "amazon.nova-micro-v1:0",
+  stackName: "characterforge-ai-dev",
+  environmentName: "dev",
+  credentialMode: "profile",
+  profileName: "default",
+  temporaryCredentials: {
+    accessKeyId: "",
+    secretAccessKey: "",
+    sessionToken: ""
+  }
+};
+
+const deploymentAdapter = createBrowserDryRunDeploymentAdapter();
+
 const bedrockModelOptions = [
+  { value: "amazon.nova-micro-v1:0", label: "Amazon Nova Micro" },
   { value: "anthropic.claude-3-haiku-20240307-v1:0", label: "Claude 3 Haiku" },
   { value: "anthropic.claude-3-5-sonnet-20240620-v1:0", label: "Claude 3.5 Sonnet" }
 ];
@@ -905,6 +928,161 @@ function SetupCheckCard({ label, value }: { label: string; value: string }) {
   );
 }
 
+function DeploymentStartScreen({
+  form,
+  onFormChange,
+  onPreviewStart,
+  preview,
+  status
+}: {
+  form: DeploymentStartRequest;
+  onFormChange: (form: DeploymentStartRequest) => void;
+  onPreviewStart: () => void;
+  preview: DeploymentStartPreview | null;
+  status: ConnectionStatus;
+}) {
+  const temporaryCredentials = form.temporaryCredentials ?? { accessKeyId: "", secretAccessKey: "", sessionToken: "" };
+
+  function updateTemporaryCredentials(field: keyof NonNullable<DeploymentStartRequest["temporaryCredentials"]>, value: string) {
+    onFormChange({
+      ...form,
+      temporaryCredentials: {
+        ...temporaryCredentials,
+        [field]: value
+      }
+    });
+  }
+
+  return (
+    <section className="screen-card" aria-labelledby="deployment-title">
+      <p className="eyebrow">Dry-run deployment</p>
+      <h1 id="deployment-title">Deployment Start</h1>
+      <p>
+        Preview the local desktop Start flow before enabling real AWS deployment. Dry-run mode only builds the SAM and
+        CloudFormation command plan; it never calls AWS, SAM, Bedrock, CloudFormation, or credential providers.
+      </p>
+      <div className="notice compact">Dry-run mode only: safe local command preview, no AWS requests.</div>
+      <div className="editor-grid">
+        <label className="field">
+          AWS region
+          <input value={form.awsRegion} onChange={(event) => onFormChange({ ...form, awsRegion: event.target.value })} />
+        </label>
+        <label className="field">
+          Bedrock model
+          <select value={form.bedrockModel} onChange={(event) => onFormChange({ ...form, bedrockModel: event.target.value })}>
+            {bedrockModelOptions.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label} ({option.value})
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="field">
+          Stack name
+          <input value={form.stackName} onChange={(event) => onFormChange({ ...form, stackName: event.target.value })} />
+        </label>
+        <label className="field">
+          Environment name
+          <input value={form.environmentName} onChange={(event) => onFormChange({ ...form, environmentName: event.target.value })} />
+        </label>
+      </div>
+
+      <fieldset className="credential-fieldset">
+        <legend>AWS credential source</legend>
+        <label className="radio-field">
+          <input
+            checked={form.credentialMode === "profile"}
+            name="deployment-credential-mode"
+            onChange={() => onFormChange({ ...form, credentialMode: "profile" })}
+            type="radio"
+          />
+          AWS profile
+        </label>
+        <label className="radio-field">
+          <input
+            checked={form.credentialMode === "temporary"}
+            name="deployment-credential-mode"
+            onChange={() => onFormChange({ ...form, credentialMode: "temporary" })}
+            type="radio"
+          />
+          Temporary credentials
+        </label>
+      </fieldset>
+
+      {form.credentialMode === "profile" ? (
+        <label className="field">
+          AWS profile name
+          <input value={form.profileName} onChange={(event) => onFormChange({ ...form, profileName: event.target.value })} />
+        </label>
+      ) : (
+        <div className="editor-grid" aria-label="Temporary credential fields">
+          <label className="field">
+            Access key ID
+            <input
+              autoComplete="off"
+              value={temporaryCredentials.accessKeyId}
+              onChange={(event) => updateTemporaryCredentials("accessKeyId", event.target.value)}
+            />
+          </label>
+          <label className="field">
+            Secret access key
+            <input
+              autoComplete="off"
+              type="password"
+              value={temporaryCredentials.secretAccessKey}
+              onChange={(event) => updateTemporaryCredentials("secretAccessKey", event.target.value)}
+            />
+          </label>
+          <label className="field field-wide">
+            Session token
+            <input
+              autoComplete="off"
+              type="password"
+              value={temporaryCredentials.sessionToken}
+              onChange={(event) => updateTemporaryCredentials("sessionToken", event.target.value)}
+            />
+          </label>
+        </div>
+      )}
+
+      <div className="button-row">
+        <button type="button" onClick={onPreviewStart}>Preview Start dry run</button>
+      </div>
+      <div className={`connection-status ${status.state}`} role="status">
+        {status.message}
+      </div>
+
+      {preview ? (
+        <div className="deployment-preview">
+          <div className="notice compact">
+            {preview.awsCallsMade ? "Adapter reported live calls." : "No AWS, SAM, CloudFormation, Bedrock, or credential provider calls were made."}
+          </div>
+          <h2>SAM deploy command preview</h2>
+          <pre className="json-preview" aria-label="SAM deploy command preview">
+            {preview.commands.join("\n")}
+          </pre>
+          <section aria-labelledby="deployment-resources-title">
+            <h2 id="deployment-resources-title">Resources that would be created</h2>
+            <ul>
+              {preview.resources.map((resource) => (
+                <li key={resource}>{resource}</li>
+              ))}
+            </ul>
+          </section>
+          <section className="warning setup-warning-list" aria-labelledby="deployment-warnings-title">
+            <h2 id="deployment-warnings-title">Dry-run warnings</h2>
+            <ul>
+              {preview.warnings.map((warning) => (
+                <li key={warning}>{warning}</li>
+              ))}
+            </ul>
+          </section>
+        </div>
+      ) : null}
+    </section>
+  );
+}
+
 function CharactersScreen({ characters, mode }: { characters: Character[]; mode: "api" | "mock" }) {
   return (
     <section className="screen-card" aria-labelledby="characters-title">
@@ -1300,6 +1478,12 @@ export default function App() {
     message: "Not checked yet.",
     state: "idle"
   });
+  const [deploymentForm, setDeploymentForm] = useState<DeploymentStartRequest>(defaultDeploymentForm);
+  const [deploymentPreview, setDeploymentPreview] = useState<DeploymentStartPreview | null>(null);
+  const [deploymentStatus, setDeploymentStatus] = useState<ConnectionStatus>({
+    message: "Dry-run preview has not been generated yet.",
+    state: "idle"
+  });
 
   const apiMode = Boolean(settings.apiBaseUrl.trim());
   const activeCharacters = apiMode && apiCharacters.length ? apiCharacters : mockCharacters;
@@ -1363,6 +1547,13 @@ export default function App() {
     const result = await runMockSetupCheck(setupCheckForm);
     setSetupCheckResult(result);
     setSetupCheckStatus({ message: "Mock setup check complete.", state: "success" });
+  }
+
+  async function handlePreviewDeploymentStart() {
+    setDeploymentStatus({ message: "Building dry-run deployment preview...", state: "loading" });
+    const preview = await deploymentAdapter.previewStart(deploymentForm);
+    setDeploymentPreview(preview);
+    setDeploymentStatus({ message: "Dry-run deployment preview ready.", state: "success" });
   }
 
   async function handleSubmitCharacter() {
@@ -1490,6 +1681,16 @@ export default function App() {
             onRunCheck={handleRunSetupCheck}
             result={setupCheckResult}
             status={setupCheckStatus}
+          />
+        );
+      case "deployment":
+        return (
+          <DeploymentStartScreen
+            form={deploymentForm}
+            onFormChange={setDeploymentForm}
+            onPreviewStart={handlePreviewDeploymentStart}
+            preview={deploymentPreview}
+            status={deploymentStatus}
           />
         );
       case "characters":
