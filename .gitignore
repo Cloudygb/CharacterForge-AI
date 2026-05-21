@@ -57,6 +57,7 @@ npm-debug.log*
 
 # Rust / Tauri
 apps/dashboard/src-tauri/target/
+apps/dashboard/src-tauri/gen/
 
 # Local artifacts
 .tmp/

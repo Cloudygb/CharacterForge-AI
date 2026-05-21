@@ -72,12 +72,25 @@ pub struct ShellCommandResult {
 
 pub trait DeploymentCommandAdapter {
     fn preview_start(&self, request: DeploymentStartRequest) -> DeploymentStartPreview;
-    fn start(&self, request: DeploymentStartRequest, options: DeploymentStartOptions) -> Result<DeploymentStartResult, String>;
+    fn start(
+        &self,
+        request: DeploymentStartRequest,
+        options: DeploymentStartOptions,
+    ) -> Result<DeploymentStartResult, String>;
 }
 
 pub trait DeploymentShellAdapter {
-    fn run(&self, request: &DeploymentStartRequest, command: &ShellCommand) -> Result<ShellCommandResult, String>;
-    fn save_outputs(&self, stack_name: &str, region: &str, outputs: &BTreeMap<String, String>) -> Result<String, String>;
+    fn run(
+        &self,
+        request: &DeploymentStartRequest,
+        command: &ShellCommand,
+    ) -> Result<ShellCommandResult, String>;
+    fn save_outputs(
+        &self,
+        stack_name: &str,
+        region: &str,
+        outputs: &BTreeMap<String, String>,
+    ) -> Result<String, String>;
 }
 
 pub struct DryRunDeploymentCommandAdapter;
@@ -94,7 +107,11 @@ impl<S: DeploymentShellAdapter> RealDeploymentCommandAdapter<S> {
 pub struct LocalProcessDeploymentShell;
 
 impl DeploymentShellAdapter for LocalProcessDeploymentShell {
-    fn run(&self, request: &DeploymentStartRequest, command: &ShellCommand) -> Result<ShellCommandResult, String> {
+    fn run(
+        &self,
+        request: &DeploymentStartRequest,
+        command: &ShellCommand,
+    ) -> Result<ShellCommandResult, String> {
         let mut child = Command::new(&command.program);
         child.args(&command.args);
         if request.credential_mode == "temporary" {
@@ -104,7 +121,9 @@ impl DeploymentShellAdapter for LocalProcessDeploymentShell {
                 child.env("AWS_SESSION_TOKEN", &credentials.session_token);
             }
         }
-        let output = child.output().map_err(|error| format!("failed to run {}: {error}", command.program))?;
+        let output = child
+            .output()
+            .map_err(|error| format!("failed to run {}: {error}", command.program))?;
         Ok(ShellCommandResult {
             exit_code: output.status.code().unwrap_or(1),
             stdout: String::from_utf8_lossy(&output.stdout).to_string(),
@@ -112,20 +131,29 @@ impl DeploymentShellAdapter for LocalProcessDeploymentShell {
         })
     }
 
-    fn save_outputs(&self, stack_name: &str, region: &str, outputs: &BTreeMap<String, String>) -> Result<String, String> {
+    fn save_outputs(
+        &self,
+        stack_name: &str,
+        region: &str,
+        outputs: &BTreeMap<String, String>,
+    ) -> Result<String, String> {
         let base_dir = user_home_dir()
             .unwrap_or_else(std::env::temp_dir)
             .join(".characterforge")
             .join("deployments");
-        fs::create_dir_all(&base_dir).map_err(|error| format!("failed to create output directory: {error}"))?;
+        fs::create_dir_all(&base_dir)
+            .map_err(|error| format!("failed to create output directory: {error}"))?;
         let path = base_dir.join(format!("{stack_name}-{region}-outputs.json"));
         let document = serde_json::json!({
             "stackName": stack_name,
             "region": region,
             "outputs": outputs,
         });
-        fs::write(&path, serde_json::to_vec_pretty(&document).map_err(|error| error.to_string())?)
-            .map_err(|error| format!("failed to save outputs: {error}"))?;
+        fs::write(
+            &path,
+            serde_json::to_vec_pretty(&document).map_err(|error| error.to_string())?,
+        )
+        .map_err(|error| format!("failed to save outputs: {error}"))?;
         Ok(path.to_string_lossy().to_string())
     }
 }
@@ -135,7 +163,11 @@ impl DeploymentCommandAdapter for DryRunDeploymentCommandAdapter {
         build_preview(request)
     }
 
-    fn start(&self, _request: DeploymentStartRequest, _options: DeploymentStartOptions) -> Result<DeploymentStartResult, String> {
+    fn start(
+        &self,
+        _request: DeploymentStartRequest,
+        _options: DeploymentStartOptions,
+    ) -> Result<DeploymentStartResult, String> {
         Err("real deployment Start is not available from the dry-run adapter".to_string())
     }
 }
@@ -145,11 +177,17 @@ impl<S: DeploymentShellAdapter> DeploymentCommandAdapter for RealDeploymentComma
         build_preview(request)
     }
 
-    fn start(&self, request: DeploymentStartRequest, options: DeploymentStartOptions) -> Result<DeploymentStartResult, String> {
+    fn start(
+        &self,
+        request: DeploymentStartRequest,
+        options: DeploymentStartOptions,
+    ) -> Result<DeploymentStartResult, String> {
         let normalized = NormalizedDeploymentRequest::from(&request);
         let required_confirmation = format!("START {}", normalized.stack_name);
         if options.confirmation_text.trim() != required_confirmation {
-            return Err(format!("To run real deployment Start, type {required_confirmation}."));
+            return Err(format!(
+                "To run real deployment Start, type {required_confirmation}."
+            ));
         }
 
         let mut logs = vec![format!(
@@ -163,7 +201,10 @@ impl<S: DeploymentShellAdapter> DeploymentCommandAdapter for RealDeploymentComma
             push_redacted_output(&mut logs, &request, &result.stdout);
             push_redacted_output(&mut logs, &request, &result.stderr);
             if result.exit_code != 0 {
-                logs.push(format!("Command failed with exit code {}.", result.exit_code));
+                logs.push(format!(
+                    "Command failed with exit code {}.",
+                    result.exit_code
+                ));
                 return Ok(DeploymentStartResult {
                     status: "failed".to_string(),
                     final_stack_status: "COMMAND_FAILED".to_string(),
@@ -177,7 +218,9 @@ impl<S: DeploymentShellAdapter> DeploymentCommandAdapter for RealDeploymentComma
         let describe_command = describe_stacks_command(&request);
         let mut final_stack_status = "UNKNOWN".to_string();
         for attempt in 1..=30 {
-            logs.push(format!("Polling CloudFormation stack status ({attempt}/30)."));
+            logs.push(format!(
+                "Polling CloudFormation stack status ({attempt}/30)."
+            ));
             logs.push(command_to_log_line(&request, &describe_command));
             let result = self.shell.run(&request, &describe_command)?;
             if result.exit_code != 0 {
@@ -193,14 +236,22 @@ impl<S: DeploymentShellAdapter> DeploymentCommandAdapter for RealDeploymentComma
 
             let (stack_status, _outputs) = parse_describe_stacks(&result.stdout)?;
             final_stack_status = stack_status;
-            logs.push(format!("CloudFormation stack status: {final_stack_status}."));
+            logs.push(format!(
+                "CloudFormation stack status: {final_stack_status}."
+            ));
 
             if final_stack_status == "CREATE_COMPLETE" || final_stack_status == "UPDATE_COMPLETE" {
                 let output_result = self.shell.run(&request, &describe_command)?;
                 let (_status, raw_outputs) = parse_describe_stacks(&output_result.stdout)?;
                 let outputs = non_secret_outputs(raw_outputs);
-                let saved_outputs_path = self.shell.save_outputs(&normalized.stack_name, &normalized.aws_region, &outputs)?;
-                logs.push(format!("Saved non-secret stack outputs to {saved_outputs_path}."));
+                let saved_outputs_path = self.shell.save_outputs(
+                    &normalized.stack_name,
+                    &normalized.aws_region,
+                    &outputs,
+                )?;
+                logs.push(format!(
+                    "Saved non-secret stack outputs to {saved_outputs_path}."
+                ));
                 return Ok(DeploymentStartResult {
                     status: "succeeded".to_string(),
                     final_stack_status,
@@ -226,7 +277,9 @@ impl<S: DeploymentShellAdapter> DeploymentCommandAdapter for RealDeploymentComma
             thread::sleep(Duration::from_secs(5));
         }
 
-        logs.push("Timed out waiting for CloudFormation stack to reach a terminal status.".to_string());
+        logs.push(
+            "Timed out waiting for CloudFormation stack to reach a terminal status.".to_string(),
+        );
         Ok(DeploymentStartResult {
             status: "failed".to_string(),
             final_stack_status,
@@ -331,7 +384,11 @@ fn build_command_plan(request: &DeploymentStartRequest) -> Vec<ShellCommand> {
         },
         ShellCommand {
             program: "sam".to_string(),
-            args: vec!["build".to_string(), "--template-file".to_string(), "infra/template.yaml".to_string()],
+            args: vec![
+                "build".to_string(),
+                "--template-file".to_string(),
+                "infra/template.yaml".to_string(),
+            ],
         },
         ShellCommand {
             program: "sam".to_string(),
@@ -386,7 +443,14 @@ fn command_to_log_line(request: &DeploymentStartRequest, command: &ShellCommand)
     } else {
         ""
     };
-    redact_text(request, &format!("$ {env_prefix}{} {}", command.program, command.args.join(" ")))
+    redact_text(
+        request,
+        &format!(
+            "$ {env_prefix}{} {}",
+            command.program,
+            command.args.join(" ")
+        ),
+    )
 }
 
 fn push_redacted_output(logs: &mut Vec<String>, request: &DeploymentStartRequest, text: &str) {
@@ -399,7 +463,11 @@ fn push_redacted_output(logs: &mut Vec<String>, request: &DeploymentStartRequest
 fn redact_text(request: &DeploymentStartRequest, text: &str) -> String {
     let mut redacted = text.to_string();
     if let Some(credentials) = &request.temporary_credentials {
-        for value in [&credentials.access_key_id, &credentials.secret_access_key, &credentials.session_token] {
+        for value in [
+            &credentials.access_key_id,
+            &credentials.secret_access_key,
+            &credentials.session_token,
+        ] {
             if !value.is_empty() {
                 redacted = redacted.replace(value, "<redacted>");
             }
@@ -409,7 +477,8 @@ fn redact_text(request: &DeploymentStartRequest, text: &str) -> String {
 }
 
 fn parse_describe_stacks(stdout: &str) -> Result<(String, Vec<(String, String)>), String> {
-    let value: Value = serde_json::from_str(stdout).map_err(|error| format!("invalid describe-stacks JSON: {error}"))?;
+    let value: Value = serde_json::from_str(stdout)
+        .map_err(|error| format!("invalid describe-stacks JSON: {error}"))?;
     let stack = value
         .get("Stacks")
         .and_then(Value::as_array)
@@ -440,7 +509,10 @@ fn non_secret_outputs(outputs: Vec<(String, String)>) -> BTreeMap<String, String
         .into_iter()
         .filter(|(key, _value)| {
             let lower = key.to_lowercase();
-            !(lower.contains("secret") || lower.contains("token") || lower.contains("password") || lower.contains("keyvalue"))
+            !(lower.contains("secret")
+                || lower.contains("token")
+                || lower.contains("password")
+                || lower.contains("keyvalue"))
         })
         .collect()
 }
@@ -456,12 +528,15 @@ fn user_home_dir() -> Option<PathBuf> {
 }
 
 #[tauri::command]
-pub fn preview_deployment_start(request: DeploymentStartRequest) -> DeploymentStartPreview {
+fn preview_deployment_start(request: DeploymentStartRequest) -> DeploymentStartPreview {
     DryRunDeploymentCommandAdapter.preview_start(request)
 }
 
 #[tauri::command]
-pub fn start_deployment(request: DeploymentStartRequest, options: DeploymentStartOptions) -> Result<DeploymentStartResult, String> {
+fn start_deployment(
+    request: DeploymentStartRequest,
+    options: DeploymentStartOptions,
+) -> Result<DeploymentStartResult, String> {
     RealDeploymentCommandAdapter::new(LocalProcessDeploymentShell).start(request, options)
 }
 
@@ -469,7 +544,10 @@ pub fn start_deployment(request: DeploymentStartRequest, options: DeploymentStar
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
-        .invoke_handler(tauri::generate_handler![preview_deployment_start, start_deployment])
+        .invoke_handler(tauri::generate_handler![
+            preview_deployment_start,
+            start_deployment
+        ])
         .run(tauri::generate_context!())
         .expect("error while running CharacterForge Dashboard");
 }

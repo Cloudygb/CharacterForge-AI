@@ -35,7 +35,7 @@ def test_tauri_config_packages_existing_dashboard_build() -> None:
     assert "nsis" in config["bundle"]["targets"]
 
 
-def test_tauri_rust_shell_has_no_aws_deployment_actions() -> None:
+def test_tauri_rust_shell_guards_real_deployment_actions() -> None:
     cargo_toml = (TAURI / "Cargo.toml").read_text(encoding="utf-8")
     main_rs = (TAURI / "src" / "main.rs").read_text(encoding="utf-8")
     lib_rs = (TAURI / "src" / "lib.rs").read_text(encoding="utf-8")
@@ -44,15 +44,15 @@ def test_tauri_rust_shell_has_no_aws_deployment_actions() -> None:
     assert "tauri" in cargo_toml
     assert "run()" in main_rs
     assert "generate_context" in lib_rs
-    forbidden_terms = [
-        "sam deploy",
-        "cloudformation",
-        "bedrockruntime",
-        "aws_access_key",
-        "aws secret",
-    ]
-    for term in forbidden_terms:
-        assert term not in combined
+    assert "preview_deployment_start" in lib_rs
+    assert "start_deployment" in lib_rs
+    assert "sam deploy" in combined
+    assert "cloudformation" in combined
+    assert "start {}" in lib_rs.lower()
+    assert "confirmation_text" in lib_rs
+    assert "<redacted>" in lib_rs
+    assert "bedrockruntime" not in combined
+    assert "aws secret" not in combined
 
 
 def test_dashboard_docs_explain_windows_installer_without_live_deployment() -> None:

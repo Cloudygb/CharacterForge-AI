@@ -46,7 +46,7 @@ def _public_text_files() -> list[Path]:
         else:
             candidates = [path for path in root.rglob("*") if path.is_file()]
         for path in candidates:
-            if any(part in {"node_modules", "dist", "coverage"} for part in path.parts):
+            if any(part in {"node_modules", "dist", "coverage", "target", "gen"} for part in path.parts):
                 continue
             if path.suffix.lower() in TEXT_SUFFIXES:
                 files.append(path)
