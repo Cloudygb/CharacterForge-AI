@@ -40,7 +40,8 @@
         "startMenuFolder": "CharacterForgeAI",
         "installerHooks": "installer/characterforgeai.nsh"
       }
-    }
+    },
+    "licenseFile": "../../../LICENSE"
   },
   "mainBinaryName": "CharacterForgeAI"
 }

@@ -36,6 +36,7 @@ def test_tauri_config_packages_existing_dashboard_build() -> None:
     assert config["build"]["devUrl"] == "http://localhost:5173"
     assert "msi" in config["bundle"]["targets"]
     assert "nsis" in config["bundle"]["targets"]
+    assert config["bundle"]["licenseFile"] == "../../../LICENSE"
     nsis = config["bundle"]["windows"]["nsis"]
     assert nsis["installMode"] == "currentUser"
     assert nsis["startMenuFolder"] == "CharacterForgeAI"
@@ -79,6 +80,47 @@ def test_custom_nsis_installer_hook_is_user_friendly_and_safe() -> None:
     ]
     for term in forbidden:
         assert term not in normalized
+
+
+def test_custom_nsis_installer_hook_defines_the_intended_page_flow() -> None:
+    hook = (TAURI / "installer" / "characterforgeai.nsh").read_text(encoding="utf-8")
+    normalized = hook.lower()
+
+    expected_order = [
+        "page custom cfai_createwelcomepage",
+        "licensedata \"../../../license\"",
+        "page license",
+        "page custom cfai_createdependencyvalidationpage cfai_leavedependencyvalidationpage",
+        "page custom cfai_createdependencyinstallpage cfai_leavedependencyinstallpage",
+        "page directory",
+        "page custom cfai_createshortcutoptionspage cfai_leaveshortcutoptionspage",
+        "page instfiles",
+        "page custom cfai_createfinishpage cfai_leavefinishpage",
+    ]
+    cursor = -1
+    for snippet in expected_order:
+        next_position = normalized.find(snippet)
+        assert next_position > cursor, f"missing or out of order NSIS page snippet: {snippet}"
+        cursor = next_position
+
+    required_controls = [
+        "nsd_createcheckbox",
+        "$cfai_dependencyvalidationcheckbox",
+        "$cfai_dependencyinstallcheckbox",
+        "$cfai_desktopshortcutcheckbox",
+        "$cfai_startmenushortcutcheckbox",
+        "$cfai_launchnowcheckbox",
+        "run dependency validation now",
+        "install missing tools now",
+        "desktop shortcut",
+        "start menu shortcut",
+        "launch characterforgeai now",
+    ]
+    for snippet in required_controls:
+        assert snippet in normalized
+
+    assert "messagebox mb_yesno" not in normalized
+    assert "messagebox mb_ok" not in normalized
 
 
 def test_tauri_rust_shell_guards_real_deployment_actions() -> None:
