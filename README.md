@@ -36,6 +36,7 @@ CharacterForge AI demonstrates that backend pattern with a compact AWS serverles
 - Explore the API flow in a dependency-free static web playground.
 - Use a minimal TypeScript SDK client for character CRUD, chat, session history, and action dispatching.
 - Follow Unity and Unreal integration guides for API call flow, action dispatching, and safe gameplay binding patterns.
+- Preview a mock React/Vite dashboard for API settings, character editing, chat testing, and raw JSON inspection.
 - Share portable character packs with pack metadata, characters, payload templates, and binding files.
 - Deploy with AWS SAM to Lambda, API Gateway, DynamoDB, and Amazon Bedrock Runtime.
 - Document the HTTP API with `openapi.yaml` and curl examples.
@@ -476,6 +477,8 @@ This project demonstrates practical backend skills that map directly to producti
 
 ```text
 .
+├── apps/
+│   └── dashboard/               # React/Vite dashboard mockup
 ├── docs/
 │   ├── assets/                  # Architecture image and demo assets
 │   ├── game-engines/            # Unity and Unreal integration guides

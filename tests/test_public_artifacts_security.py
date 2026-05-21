@@ -6,6 +6,7 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[1]
 PUBLIC_ARTIFACT_PATHS = [
     REPO_ROOT / "README.md",
+    REPO_ROOT / "apps",
     REPO_ROOT / "docs",
     REPO_ROOT / "examples",
     REPO_ROOT / "sdk",

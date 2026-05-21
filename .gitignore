@@ -51,7 +51,9 @@ logs/
 
 # Node / TypeScript
 node_modules/
+dist/
 npm-debug.log*
+*.tsbuildinfo
 
 # Local artifacts
 .tmp/
