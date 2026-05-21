@@ -28,6 +28,7 @@ describe("CharacterForge dashboard", () => {
     listCharactersMock.mockReset();
     createCharacterMock.mockReset();
     updateCharacterMock.mockReset();
+    delete window.__TAURI__;
     window.localStorage.clear();
   });
 
@@ -153,7 +154,7 @@ describe("CharacterForge dashboard", () => {
     expect(screen.getAllByText(/credential status/i).length).toBeGreaterThan(0);
     expect(screen.getByText(/mock credentials detected/i)).toBeInTheDocument();
     expect(screen.getByText(/bedrock access status/i)).toBeInTheDocument();
-    expect(screen.getByText(/model access simulated as ready/i)).toBeInTheDocument();
+    expect(screen.getAllByText(/model access simulated as ready/i).length).toBeGreaterThan(0);
     expect(screen.getByText(/existing stack status/i)).toBeInTheDocument();
     expect(screen.getByText(/no existing stack found/i)).toBeInTheDocument();
     expect(screen.getByText(/warnings/i)).toBeInTheDocument();
@@ -177,6 +178,63 @@ describe("CharacterForge dashboard", () => {
     expect(screen.getByText("eu-west-1")).toBeInTheDocument();
     expect(screen.getByText(/verify that characterforge deployment templates target eu-west-1/i)).toBeInTheDocument();
     expect(screen.getByText(/higher-capability models may cost more per request/i)).toBeInTheDocument();
+  });
+
+  it("runs app-side Tauri setup readiness checks without exposing credentials", async () => {
+    const user = userEvent.setup();
+    const invoke = vi.fn().mockResolvedValue({
+      overallStatus: "ready",
+      checks: [
+        { id: "webview2", label: "WebView2 Runtime", status: "ready", detail: "WebView2 runtime available" },
+        { id: "awsCli", label: "AWS CLI", status: "ready", detail: "aws-cli/2.15.0" },
+        { id: "samCli", label: "AWS SAM CLI", status: "ready", detail: "SAM CLI, version 1.110.0" },
+        { id: "docker", label: "Docker", status: "warning", detail: "Docker CLI installed; engine is not running" },
+        { id: "resources", label: "Deployment resources", status: "ready", detail: "Packaged deployment resources found" },
+        { id: "awsProfile", label: "AWS profile", status: "ready", detail: "Profile game-dev is configured" },
+        { id: "awsRegion", label: "AWS region", status: "ready", detail: "Region us-west-2 selected" },
+        { id: "stack", label: "CloudFormation stack", status: "warning", detail: "Stack characterforge-demo does not exist yet" },
+        { id: "model", label: "Bedrock model", status: "ready", detail: "Model appears in Bedrock foundation model list" }
+      ],
+      warnings: ["No credential values are returned by setup checks."]
+    });
+    window.__TAURI__ = { core: { invoke } };
+
+    render(<App />);
+    await user.click(screen.getByRole("button", { name: "Setup Check" }));
+    await user.clear(screen.getByLabelText(/aws region/i));
+    await user.type(screen.getByLabelText(/aws region/i), "us-west-2");
+    await user.clear(screen.getByLabelText(/aws profile name/i));
+    await user.type(screen.getByLabelText(/aws profile name/i), "game-dev");
+    await user.clear(screen.getByLabelText(/stack name/i));
+    await user.type(screen.getByLabelText(/stack name/i), "characterforge-demo");
+    await user.click(screen.getByRole("button", { name: /run setup check/i }));
+
+    expect(await screen.findByText(/desktop setup readiness check complete/i)).toBeInTheDocument();
+    expect(invoke).toHaveBeenCalledWith("check_setup_readiness", {
+      request: {
+        awsRegion: "us-west-2",
+        bedrockModel: "anthropic.claude-3-haiku-20240307-v1:0",
+        profileName: "game-dev",
+        stackName: "characterforge-demo"
+      }
+    });
+    for (const label of [
+      "WebView2 Runtime",
+      "AWS CLI",
+      "AWS SAM CLI",
+      "Docker",
+      "Deployment resources",
+      "AWS profile",
+      "AWS region",
+      "CloudFormation stack",
+      "Bedrock model"
+    ]) {
+      expect(screen.getAllByText(label).length).toBeGreaterThan(0);
+    }
+    expect(screen.getAllByText(/Profile game-dev is configured/i).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/Stack characterforge-demo does not exist yet/i).length).toBeGreaterThan(0);
+    expect(screen.queryByText(/secret/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/session token/i)).not.toBeInTheDocument();
   });
 
   it("previews the deployment Start flow in dry-run mode without calling AWS or the SDK", async () => {

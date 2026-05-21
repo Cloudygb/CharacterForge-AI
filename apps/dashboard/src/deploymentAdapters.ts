@@ -16,6 +16,28 @@ export type DeploymentStartRequest = {
   temporaryCredentials?: TemporaryDeploymentCredentials;
 };
 
+export type SetupReadinessRequest = {
+  awsRegion: string;
+  bedrockModel: string;
+  profileName: string;
+  stackName: string;
+};
+
+export type SetupReadinessCheckStatus = "ready" | "warning" | "error";
+
+export type SetupReadinessCheck = {
+  id: string;
+  label: string;
+  status: SetupReadinessCheckStatus;
+  detail: string;
+};
+
+export type SetupReadinessResult = {
+  overallStatus: SetupReadinessCheckStatus;
+  checks: SetupReadinessCheck[];
+  warnings: string[];
+};
+
 export type DeploymentStartPreview = {
   mode: "dry-run";
   awsCallsMade: boolean;

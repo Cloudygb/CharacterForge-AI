@@ -12,7 +12,8 @@ import {
   type DeploymentStartRequest,
   type DeploymentStartResult,
   type RealDeploymentEndAdapter,
-  type RealDeploymentStartAdapter
+  type RealDeploymentStartAdapter,
+  type SetupReadinessResult
 } from "./deploymentAdapters";
 import "./styles.css";
 
@@ -161,14 +162,19 @@ type TutorialStep = {
 type SetupCheckForm = {
   awsRegion: string;
   bedrockModel: string;
+  profileName: string;
+  stackName: string;
 };
 
 type SetupCheckResult = {
   awsRegion: string;
   bedrockModel: string;
+  profileName: string;
+  stackName: string;
   credentialStatus: string;
   bedrockAccessStatus: string;
   existingStackStatus: string;
+  checks: SetupReadinessResult["checks"];
   warnings: string[];
 };
 
@@ -231,7 +237,9 @@ const actionTemplateConfigs: ActionTemplateConfig[] = [
 
 const defaultSetupCheckForm: SetupCheckForm = {
   awsRegion: "us-east-1",
-  bedrockModel: "anthropic.claude-3-haiku-20240307-v1:0"
+  bedrockModel: "anthropic.claude-3-haiku-20240307-v1:0",
+  profileName: "default",
+  stackName: "characterforge-ai-dev"
 };
 
 const defaultDeploymentForm: DeploymentStartRequest = {
@@ -255,6 +263,36 @@ function createDeploymentAdapter() {
     );
   }
   return createBrowserDryRunDeploymentAdapter();
+}
+
+function hasTauriInvoke() {
+  return typeof window !== "undefined" && Boolean(window.__TAURI__?.core?.invoke);
+}
+
+async function runSetupReadinessCheck(form: SetupCheckForm): Promise<SetupCheckResult> {
+  if (hasTauriInvoke()) {
+    const readiness = (await window.__TAURI__!.core!.invoke("check_setup_readiness", {
+      request: {
+        awsRegion: form.awsRegion.trim() || defaultSetupCheckForm.awsRegion,
+        bedrockModel: form.bedrockModel,
+        profileName: form.profileName.trim() || defaultSetupCheckForm.profileName,
+        stackName: form.stackName.trim() || defaultSetupCheckForm.stackName
+      }
+    })) as SetupReadinessResult;
+    const findDetail = (label: string) => readiness.checks.find((check) => check.label === label)?.detail ?? "Not checked";
+    return {
+      awsRegion: form.awsRegion.trim() || defaultSetupCheckForm.awsRegion,
+      bedrockModel: form.bedrockModel,
+      profileName: form.profileName.trim() || defaultSetupCheckForm.profileName,
+      stackName: form.stackName.trim() || defaultSetupCheckForm.stackName,
+      credentialStatus: findDetail("AWS profile"),
+      bedrockAccessStatus: findDetail("Bedrock model"),
+      existingStackStatus: findDetail("CloudFormation stack"),
+      checks: readiness.checks,
+      warnings: readiness.warnings
+    };
+  }
+  return runMockSetupCheck(form);
 }
 
 const deploymentAdapter = createDeploymentAdapter();
@@ -370,6 +408,8 @@ function saveSettings(settings: ApiSettings) {
 async function runMockSetupCheck(form: SetupCheckForm): Promise<SetupCheckResult> {
   const awsRegion = form.awsRegion.trim() || defaultSetupCheckForm.awsRegion;
   const bedrockModel = form.bedrockModel;
+  const profileName = form.profileName.trim() || defaultSetupCheckForm.profileName;
+  const stackName = form.stackName.trim() || defaultSetupCheckForm.stackName;
   const warnings = [
     "Mock results only — this browser adapter does not call AWS.",
     "Confirm Bedrock model access in the AWS console before deployment."
@@ -385,9 +425,22 @@ async function runMockSetupCheck(form: SetupCheckForm): Promise<SetupCheckResult
   return {
     awsRegion,
     bedrockModel,
+    profileName,
+    stackName,
     credentialStatus: "Mock credentials detected",
     bedrockAccessStatus: "Model access simulated as ready",
     existingStackStatus: "No existing stack found",
+    checks: [
+      { id: "webview2", label: "WebView2 Runtime", status: "ready", detail: "Browser mock mode; desktop WebView2 is checked by the Tauri app." },
+      { id: "awsCli", label: "AWS CLI", status: "warning", detail: "Not checked in browser mock mode." },
+      { id: "samCli", label: "AWS SAM CLI", status: "warning", detail: "Not checked in browser mock mode." },
+      { id: "docker", label: "Docker", status: "warning", detail: "Not checked in browser mock mode." },
+      { id: "resources", label: "Deployment resources", status: "ready", detail: "Mock resources available for UI walkthrough." },
+      { id: "awsProfile", label: "AWS profile", status: "ready", detail: `Mock profile ${profileName} selected.` },
+      { id: "awsRegion", label: "AWS region", status: "ready", detail: `Mock region ${awsRegion} selected.` },
+      { id: "stack", label: "CloudFormation stack", status: "warning", detail: `Mock stack ${stackName} was not queried.` },
+      { id: "model", label: "Bedrock model", status: "ready", detail: "Model access simulated as ready" }
+    ],
     warnings
   };
 }
@@ -894,13 +947,15 @@ function SetupCheckScreen({
 }) {
   return (
     <section className="screen-card" aria-labelledby="setup-check-title">
-      <p className="eyebrow">Mock setup readiness</p>
+      <p className="eyebrow">Setup readiness</p>
       <h1 id="setup-check-title">Setup Check</h1>
       <p>
-        Use the setup-check adapter to preview AWS readiness signals before wiring real AWS checks. This screen does
-        not call AWS, Bedrock, CloudFormation, or credential providers.
+        In the desktop app, this runs local Tauri checks for WebView2, AWS CLI, SAM, Docker, packaged resources,
+        AWS profile, region, stack, and Bedrock model readiness without returning credential values.
       </p>
-      <div className="notice compact">Mocked setup-check adapter: safe local state only, no AWS requests.</div>
+      <div className="notice compact">
+        Browser mode uses the mocked setup-check adapter; desktop mode uses Tauri Rust commands with redacted output.
+      </div>
       <div className="editor-grid">
         <label className="field">
           AWS region
@@ -922,6 +977,20 @@ function SetupCheckScreen({
             ))}
           </select>
         </label>
+        <label className="field">
+          AWS profile name
+          <input
+            value={form.profileName}
+            onChange={(event) => onFormChange({ ...form, profileName: event.target.value })}
+          />
+        </label>
+        <label className="field">
+          Stack name
+          <input
+            value={form.stackName}
+            onChange={(event) => onFormChange({ ...form, stackName: event.target.value })}
+          />
+        </label>
       </div>
       <div className="button-row">
         <button type="button" onClick={onRunCheck}>Run setup check</button>
@@ -932,10 +1001,22 @@ function SetupCheckScreen({
       <div className="setup-check-grid">
         <SetupCheckCard label="AWS region" value={result?.awsRegion ?? form.awsRegion} />
         <SetupCheckCard label="Selected Bedrock model" value={result?.bedrockModel ?? form.bedrockModel} />
+        <SetupCheckCard label="AWS profile" value={result?.profileName ?? form.profileName} />
+        <SetupCheckCard label="Stack name" value={result?.stackName ?? form.stackName} />
         <SetupCheckCard label="Credential status" value={result?.credentialStatus ?? "Not checked yet"} />
         <SetupCheckCard label="Bedrock access status" value={result?.bedrockAccessStatus ?? "Not checked yet"} />
         <SetupCheckCard label="Existing stack status" value={result?.existingStackStatus ?? "Not checked yet"} />
       </div>
+      {result?.checks.length ? (
+        <section className="setup-warning-list" aria-labelledby="readiness-details-title">
+          <h2 id="readiness-details-title">Readiness details</h2>
+          <div className="setup-check-grid">
+            {result.checks.map((check) => (
+              <SetupCheckCard key={check.id} label={check.label} value={`${check.status}: ${check.detail}`} />
+            ))}
+          </div>
+        </section>
+      ) : null}
       <section className="warning setup-warning-list" aria-labelledby="setup-warnings-title">
         <h2 id="setup-warnings-title">Warnings</h2>
         <ul>
@@ -1677,10 +1758,18 @@ export default function App() {
   }
 
   async function handleRunSetupCheck() {
-    setSetupCheckStatus({ message: "Running mocked setup check...", state: "loading" });
-    const result = await runMockSetupCheck(setupCheckForm);
-    setSetupCheckResult(result);
-    setSetupCheckStatus({ message: "Mock setup check complete.", state: "success" });
+    const desktopMode = hasTauriInvoke();
+    setSetupCheckStatus({ message: desktopMode ? "Running desktop setup readiness check..." : "Running mocked setup check...", state: "loading" });
+    try {
+      const result = await runSetupReadinessCheck(setupCheckForm);
+      setSetupCheckResult(result);
+      setSetupCheckStatus({
+        message: desktopMode ? "Desktop setup readiness check complete." : "Mock setup check complete.",
+        state: "success"
+      });
+    } catch (error) {
+      setSetupCheckStatus({ message: error instanceof Error ? error.message : "Setup check failed.", state: "error" });
+    }
   }
 
   async function handlePreviewDeploymentStart() {

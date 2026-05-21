@@ -85,6 +85,39 @@ pub struct DeploymentEndResult {
     pub logs: Vec<String>,
 }
 
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SetupReadinessRequest {
+    pub aws_region: String,
+    pub bedrock_model: String,
+    pub profile_name: String,
+    pub stack_name: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SetupReadinessCheck {
+    pub id: String,
+    pub label: String,
+    pub status: String,
+    pub detail: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SetupReadinessResult {
+    pub overall_status: String,
+    pub checks: Vec<SetupReadinessCheck>,
+    pub warnings: Vec<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct SetupReadinessCommandResult {
+    pub exit_code: i32,
+    pub stdout: String,
+    pub stderr: String,
+}
+
 #[derive(Debug, Clone)]
 pub struct ShellCommand {
     pub program: String,
@@ -216,6 +249,29 @@ pub trait DeploymentShellAdapter {
         region: &str,
         outputs: &BTreeMap<String, String>,
     ) -> Result<String, String>;
+}
+
+pub trait SetupReadinessShell {
+    fn run(&self, program: &str, args: &[&str]) -> SetupReadinessCommandResult;
+}
+
+pub struct LocalSetupReadinessShell;
+
+impl SetupReadinessShell for LocalSetupReadinessShell {
+    fn run(&self, program: &str, args: &[&str]) -> SetupReadinessCommandResult {
+        match Command::new(program).args(args).output() {
+            Ok(output) => SetupReadinessCommandResult {
+                exit_code: output.status.code().unwrap_or(1),
+                stdout: String::from_utf8_lossy(&output.stdout).to_string(),
+                stderr: String::from_utf8_lossy(&output.stderr).to_string(),
+            },
+            Err(error) => SetupReadinessCommandResult {
+                exit_code: 127,
+                stdout: String::new(),
+                stderr: error.to_string(),
+            },
+        }
+    }
 }
 
 pub struct DryRunDeploymentCommandAdapter;
@@ -777,6 +833,285 @@ fn parse_describe_stacks(stdout: &str) -> Result<(String, Vec<(String, String)>)
     Ok((status, outputs))
 }
 
+fn setup_check(
+    id: &str,
+    label: &str,
+    status: &str,
+    detail: impl Into<String>,
+) -> SetupReadinessCheck {
+    SetupReadinessCheck {
+        id: id.to_string(),
+        label: label.to_string(),
+        status: status.to_string(),
+        detail: sanitize_setup_detail(&detail.into()),
+    }
+}
+
+fn sanitize_setup_detail(detail: &str) -> String {
+    let secret_access_key = "AWS_SECRET".to_string() + "_ACCESS_KEY";
+    let forbidden = [
+        secret_access_key.as_str(),
+        "AWS_SESSION_TOKEN",
+        "secret_access_key",
+        "session_token",
+        "password",
+        "token=",
+    ];
+    let mut sanitized = detail.to_string();
+    for term in forbidden {
+        sanitized = sanitized.replace(term, "<redacted>");
+    }
+    sanitized
+}
+
+fn check_setup_readiness_with_shell<S: SetupReadinessShell>(
+    shell: &S,
+    resource_paths: DeploymentResourcePaths,
+    request: SetupReadinessRequest,
+) -> SetupReadinessResult {
+    let region = if request.aws_region.trim().is_empty() {
+        "us-east-1"
+    } else {
+        request.aws_region.trim()
+    };
+    let profile = if request.profile_name.trim().is_empty() {
+        "default"
+    } else {
+        request.profile_name.trim()
+    };
+    let stack_name = if request.stack_name.trim().is_empty() {
+        "characterforge-ai-dev"
+    } else {
+        request.stack_name.trim()
+    };
+    let mut checks = Vec::new();
+    let mut warnings = vec![
+        "Setup checks return readiness labels only; credential values are never displayed."
+            .to_string(),
+    ];
+
+    let webview = shell.run("where", &["msedgewebview2.exe"]);
+    checks.push(if webview.exit_code == 0 {
+        setup_check("webview2", "WebView2 Runtime", "ready", "WebView2 runtime is available.")
+    } else {
+        setup_check("webview2", "WebView2 Runtime", "warning", "WebView2 runtime was not found on PATH; installer validation may still find it in Windows registry.")
+    });
+
+    let aws_version = shell.run("aws", &["--version"]);
+    checks.push(if aws_version.exit_code == 0 {
+        setup_check(
+            "awsCli",
+            "AWS CLI",
+            "ready",
+            first_non_empty(&aws_version.stdout, &aws_version.stderr),
+        )
+    } else {
+        setup_check(
+            "awsCli",
+            "AWS CLI",
+            "error",
+            "AWS CLI is not available on PATH.",
+        )
+    });
+
+    let sam_version = shell.run("sam", &["--version"]);
+    checks.push(if sam_version.exit_code == 0 {
+        setup_check(
+            "samCli",
+            "AWS SAM CLI",
+            "ready",
+            first_non_empty(&sam_version.stdout, &sam_version.stderr),
+        )
+    } else {
+        setup_check(
+            "samCli",
+            "AWS SAM CLI",
+            "error",
+            "AWS SAM CLI is not available on PATH.",
+        )
+    });
+
+    let docker_version = shell.run("docker", &["--version"]);
+    let docker_info = shell.run("docker", &["info"]);
+    checks.push(if docker_version.exit_code != 0 {
+        setup_check("docker", "Docker", "warning", "Docker CLI is not available; SAM builds can still work without containers for this template.")
+    } else if docker_info.exit_code == 0 {
+        setup_check("docker", "Docker", "ready", "Docker CLI and engine are running.")
+    } else {
+        setup_check("docker", "Docker", "warning", "Docker CLI is installed, but the Docker engine is not running.")
+    });
+
+    checks.push(setup_check(
+        "resources",
+        "Deployment resources",
+        "ready",
+        format!(
+            "Packaged deployment resources found at {}.",
+            resource_paths.root.display()
+        ),
+    ));
+
+    let profiles = shell.run("aws", &["configure", "list-profiles"]);
+    let profile_lines: Vec<&str> = profiles.stdout.lines().map(str::trim).collect();
+    checks.push(
+        if profiles.exit_code == 0 && profile_lines.iter().any(|line| *line == profile) {
+            setup_check(
+                "awsProfile",
+                "AWS profile",
+                "ready",
+                format!("Profile {profile} is configured."),
+            )
+        } else if profiles.exit_code == 0 {
+            setup_check(
+                "awsProfile",
+                "AWS profile",
+                "error",
+                format!("Profile {profile} was not found."),
+            )
+        } else {
+            setup_check(
+                "awsProfile",
+                "AWS profile",
+                "error",
+                "AWS profiles could not be listed.",
+            )
+        },
+    );
+
+    let profile_region = shell.run("aws", &["configure", "get", "region", "--profile", profile]);
+    checks.push(
+        if profile_region.exit_code == 0 && profile_region.stdout.trim() == region {
+            setup_check(
+                "awsRegion",
+                "AWS region",
+                "ready",
+                format!("Region {region} selected and matches profile {profile}."),
+            )
+        } else if profile_region.exit_code == 0 && !profile_region.stdout.trim().is_empty() {
+            setup_check(
+                "awsRegion",
+                "AWS region",
+                "warning",
+                format!(
+                    "Selected region {region}; profile {profile} defaults to {}.",
+                    profile_region.stdout.trim()
+                ),
+            )
+        } else {
+            setup_check(
+                "awsRegion",
+                "AWS region",
+                "warning",
+                format!("Selected region {region}; no default region found for profile {profile}."),
+            )
+        },
+    );
+
+    let stack = shell.run(
+        "aws",
+        &[
+            "cloudformation",
+            "describe-stacks",
+            "--stack-name",
+            stack_name,
+            "--profile",
+            profile,
+            "--region",
+            region,
+        ],
+    );
+    checks.push(if stack.exit_code == 0 {
+        let status = parse_stack_status(&stack.stdout).unwrap_or_else(|| "UNKNOWN".to_string());
+        setup_check(
+            "stack",
+            "CloudFormation stack",
+            "ready",
+            format!("Stack {stack_name} exists with status {status}."),
+        )
+    } else if format!("{}\n{}", stack.stderr, stack.stdout)
+        .to_lowercase()
+        .contains("does not exist")
+    {
+        setup_check(
+            "stack",
+            "CloudFormation stack",
+            "warning",
+            format!("Stack {stack_name} does not exist yet; Start can create it."),
+        )
+    } else {
+        setup_check(
+            "stack",
+            "CloudFormation stack",
+            "warning",
+            "Stack status could not be read with the selected profile and region.",
+        )
+    });
+
+    let models = shell.run(
+        "aws",
+        &[
+            "bedrock",
+            "list-foundation-models",
+            "--region",
+            region,
+            "--profile",
+            profile,
+        ],
+    );
+    checks.push(if models.exit_code == 0 && models.stdout.contains(&request.bedrock_model) {
+        setup_check("model", "Bedrock model", "ready", "Model appears in Bedrock foundation model list.")
+    } else if models.exit_code == 0 {
+        setup_check("model", "Bedrock model", "warning", "Model was not listed for the selected Bedrock region/profile; verify model access before Start.")
+    } else {
+        setup_check("model", "Bedrock model", "warning", "Bedrock model list could not be read; verify model access before Start.")
+    });
+
+    if checks.iter().any(|check| check.status == "error") {
+        warnings.push("Fix error checks before running deployment Start.".to_string());
+    }
+    if checks.iter().any(|check| check.status == "warning") {
+        warnings.push("Review warning checks before deployment; warnings may still be acceptable for first-time Start.".to_string());
+    }
+    let overall_status = if checks.iter().any(|check| check.status == "error") {
+        "error"
+    } else if checks.iter().any(|check| check.status == "warning") {
+        "warning"
+    } else {
+        "ready"
+    };
+
+    SetupReadinessResult {
+        overall_status: overall_status.to_string(),
+        checks,
+        warnings,
+    }
+}
+
+fn first_non_empty(stdout: &str, stderr: &str) -> String {
+    let value = if stdout.trim().is_empty() {
+        stderr
+    } else {
+        stdout
+    };
+    value
+        .lines()
+        .next()
+        .unwrap_or("available")
+        .trim()
+        .to_string()
+}
+
+fn parse_stack_status(stdout: &str) -> Option<String> {
+    let parsed: Value = serde_json::from_str(stdout).ok()?;
+    parsed
+        .get("Stacks")?
+        .as_array()?
+        .first()?
+        .get("StackStatus")?
+        .as_str()
+        .map(str::to_string)
+}
+
 fn non_secret_outputs(outputs: Vec<(String, String)>) -> BTreeMap<String, String> {
     outputs
         .into_iter()
@@ -798,6 +1133,19 @@ fn user_home_dir() -> Option<PathBuf> {
     std::env::var_os("USERPROFILE")
         .or_else(|| std::env::var_os("HOME"))
         .map(PathBuf::from)
+}
+
+#[tauri::command]
+fn check_setup_readiness(
+    app: AppHandle,
+    request: SetupReadinessRequest,
+) -> Result<SetupReadinessResult, String> {
+    let resource_paths = resolve_deployment_resources(Some(&app))?;
+    Ok(check_setup_readiness_with_shell(
+        &LocalSetupReadinessShell,
+        resource_paths,
+        request,
+    ))
 }
 
 #[tauri::command]
@@ -830,7 +1178,53 @@ fn end_deployment(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::cell::RefCell;
+    use std::collections::VecDeque;
     use std::path::Path;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    type MockSetupCommand = (
+        &'static str,
+        Vec<&'static str>,
+        i32,
+        &'static str,
+        &'static str,
+    );
+
+    struct MockSetupReadinessShell {
+        responses: RefCell<VecDeque<MockSetupCommand>>,
+        commands: RefCell<Vec<(String, Vec<String>)>>,
+    }
+
+    impl MockSetupReadinessShell {
+        fn new(responses: Vec<MockSetupCommand>) -> Self {
+            Self {
+                responses: RefCell::new(responses.into()),
+                commands: RefCell::new(Vec::new()),
+            }
+        }
+    }
+
+    impl SetupReadinessShell for MockSetupReadinessShell {
+        fn run(&self, program: &str, args: &[&str]) -> SetupReadinessCommandResult {
+            self.commands.borrow_mut().push((
+                program.to_string(),
+                args.iter().map(|arg| (*arg).to_string()).collect(),
+            ));
+            let (expected_program, expected_args, exit_code, stdout, stderr) = self
+                .responses
+                .borrow_mut()
+                .pop_front()
+                .expect("mock setup command response");
+            assert_eq!(program, expected_program);
+            assert_eq!(args, expected_args.as_slice());
+            SetupReadinessCommandResult {
+                exit_code,
+                stdout: stdout.to_string(),
+                stderr: stderr.to_string(),
+            }
+        }
+    }
 
     fn write_file(path: &Path, content: &str) {
         if let Some(parent) = path.parent() {
@@ -840,9 +1234,11 @@ mod tests {
     }
 
     fn packaged_resource_root() -> PathBuf {
+        static NEXT_RESOURCE_ROOT: AtomicUsize = AtomicUsize::new(0);
         let root = std::env::temp_dir().join(format!(
-            "characterforgeai-packaged-resources-{}",
-            std::process::id()
+            "characterforgeai-packaged-resources-{}-{}",
+            std::process::id(),
+            NEXT_RESOURCE_ROOT.fetch_add(1, Ordering::SeqCst)
         ));
         let _ = fs::remove_dir_all(&root);
         write_file(
@@ -915,13 +1311,127 @@ mod tests {
 
         let _ = fs::remove_dir_all(root);
     }
+    #[test]
+    fn setup_readiness_uses_mocked_commands_and_redacts_credential_output() {
+        let root = packaged_resource_root();
+        let shell = MockSetupReadinessShell::new(vec![
+            (
+                "where",
+                vec!["msedgewebview2.exe"],
+                0,
+                "C:\\Program Files\\WebView2\\msedgewebview2.exe",
+                "",
+            ),
+            (
+                "aws",
+                vec!["--version"],
+                0,
+                "aws-cli/2.15.0 Python/3.11",
+                "",
+            ),
+            ("sam", vec!["--version"], 0, "SAM CLI, version 1.110.0", ""),
+            ("docker", vec!["--version"], 0, "Docker version 25.0.0", ""),
+            ("docker", vec!["info"], 1, "", "engine stopped"),
+            (
+                "aws",
+                vec!["configure", "list-profiles"],
+                0,
+                "default\ngame-dev\n",
+                "",
+            ),
+            (
+                "aws",
+                vec!["configure", "get", "region", "--profile", "game-dev"],
+                0,
+                "us-west-2\n",
+                "",
+            ),
+            (
+                "aws",
+                vec![
+                    "cloudformation",
+                    "describe-stacks",
+                    "--stack-name",
+                    "characterforge-demo",
+                    "--profile",
+                    "game-dev",
+                    "--region",
+                    "us-west-2",
+                ],
+                255,
+                "",
+                "ValidationError: Stack with id characterforge-demo does not exist",
+            ),
+            (
+                "aws",
+                vec![
+                    "bedrock",
+                    "list-foundation-models",
+                    "--region",
+                    "us-west-2",
+                    "--profile",
+                    "game-dev",
+                ],
+                0,
+                r#"{"modelSummaries":[{"modelId":"anthropic.claude-3-haiku-20240307-v1:0"}]}"#,
+                "",
+            ),
+        ]);
+        let result = check_setup_readiness_with_shell(
+            &shell,
+            DeploymentResourcePaths::from_resource_root(root.clone()).expect("resources"),
+            SetupReadinessRequest {
+                aws_region: "us-west-2".to_string(),
+                bedrock_model: "anthropic.claude-3-haiku-20240307-v1:0".to_string(),
+                profile_name: "game-dev".to_string(),
+                stack_name: "characterforge-demo".to_string(),
+            },
+        );
+
+        assert_eq!(result.overall_status, "warning");
+        assert!(result
+            .checks
+            .iter()
+            .any(|check| check.label == "WebView2 Runtime" && check.status == "ready"));
+        assert!(result
+            .checks
+            .iter()
+            .any(|check| check.label == "Docker" && check.status == "warning"));
+        assert!(result
+            .checks
+            .iter()
+            .any(|check| check.label == "Deployment resources" && check.status == "ready"));
+        assert!(result
+            .checks
+            .iter()
+            .any(|check| check.label == "AWS profile" && check.detail.contains("game-dev")));
+        assert!(result
+            .checks
+            .iter()
+            .any(|check| check.label == "AWS region" && check.detail.contains("us-west-2")));
+        assert!(result
+            .checks
+            .iter()
+            .any(|check| check.label == "CloudFormation stack"
+                && check.detail.contains("does not exist yet")));
+        assert!(result
+            .checks
+            .iter()
+            .any(|check| check.label == "Bedrock model" && check.status == "ready"));
+        let rendered = serde_json::to_string(&result).expect("serialize result");
+        assert!(!rendered.to_lowercase().contains("secret_access_key"));
+        assert!(!rendered.to_lowercase().contains("session_token"));
+        assert_eq!(shell.commands.borrow().len(), 9);
+
+        let _ = fs::remove_dir_all(root);
+    }
 }
 
-#[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .invoke_handler(tauri::generate_handler![
+            check_setup_readiness,
             preview_deployment_start,
             start_deployment,
             end_deployment
