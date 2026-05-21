@@ -211,3 +211,33 @@ examples/character-packs/aether-skies-starter/character-pack.json
 It includes `characters/captain-mira-voss.json`, which defines Captain Mira Voss, her allowed action rules, and payload templates for quests, shops, items, flags, reputation, map locations, combat, and cinematic scenes. It also includes `bindings/rpg-binding.json`, which maps those payload templates to a generic RPG runtime.
 
 You can copy the folder to start a new pack, then change the manifest `slug`, pack metadata, character files, payload templates, and binding file targets for your own game.
+
+---
+
+## Local import/export scripts
+
+CharacterForge includes local-first scripts for validating and creating packs from JSON files. They do not require AWS by default.
+
+Dry-run validate an existing pack:
+
+```bash
+PYTHONPATH=src python scripts/character_pack_import.py \
+  examples/character-packs/aether-skies-starter \
+  --dry-run
+```
+
+Export a new pack from local character and binding JSON files:
+
+```bash
+PYTHONPATH=src python scripts/character_pack_export.py \
+  /tmp/my-character-pack \
+  --slug my-character-pack \
+  --name "My Character Pack" \
+  --description "A local JSON character pack." \
+  --author "Your Name" \
+  --character examples/character-packs/aether-skies-starter/characters/captain-mira-voss.json \
+  --binding examples/character-packs/aether-skies-starter/bindings/rpg-binding.json \
+  --dry-run
+```
+
+Both scripts validate the manifest, character payloads, duplicate IDs, binding file paths, and binding coverage before reporting success.

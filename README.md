@@ -488,7 +488,9 @@ This project demonstrates practical backend skills that map directly to producti
 │   ├── character-pack.schema.json # JSON Schema for character pack manifests
 │   └── game-binding.schema.json   # JSON Schema for game binding files
 ├── scripts/
-│   └── bedrock_smoke_test.py    # Optional real Bedrock Runtime smoke test
+│   ├── bedrock_smoke_test.py    # Optional real Bedrock Runtime smoke test
+│   ├── character_pack_export.py # Local JSON character pack exporter
+│   └── character_pack_import.py # Local JSON character pack validator/import dry run
 ├── src/characterforge/
 │   ├── app.py                   # Lambda entry point and router
 │   ├── handlers/                # Character, chat, and session handlers
