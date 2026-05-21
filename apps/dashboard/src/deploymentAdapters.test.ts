@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   createBrowserDryRunDeploymentAdapter,
   createRealDeploymentStartAdapter,
+  createRealDeploymentEndAdapter,
   type DeploymentShellAdapter,
   type DeploymentStartRequest
 } from "./deploymentAdapters";
@@ -127,6 +128,68 @@ describe("deployment adapters", () => {
     expect(result.status).toBe("failed");
     expect(result.finalStackStatus).toBe("ROLLBACK_COMPLETE");
     expect(result.logs.join("\n")).toContain("CloudFormation reported ROLLBACK_COMPLETE");
+    expect(shell.savedOutputs).toEqual([]);
+  });
+
+  it("cancels deployment End before commands run when export prompt is declined", async () => {
+    const shell = createMockDeploymentShell();
+    const adapter = createRealDeploymentEndAdapter(shell);
+
+    const result = await adapter.end(baseRequest, {
+      confirmationText: "END characterforge-ai-dev",
+      exportConfirmed: false,
+      cancelled: true
+    });
+
+    expect(result.status).toBe("cancelled");
+    expect(result.finalStackStatus).toBe("CANCELLED_BEFORE_DELETE");
+    expect(result.logs.join("\n")).toContain("Export character packs before deleting the deployment stack");
+    expect(shell.commands).toEqual([]);
+  });
+
+  it("deletes the stack through mocked commands, polls DELETE_COMPLETE, and redacts End logs", async () => {
+    const shell = createMockDeploymentShell({ statuses: ["DELETE_IN_PROGRESS", "DELETE_COMPLETE"] });
+    const adapter = createRealDeploymentEndAdapter(shell);
+
+    const result = await adapter.end(
+      {
+        ...baseRequest,
+        credentialMode: "temporary",
+        temporaryCredentials: {
+          accessKeyId: "TEMPACCESSKEY123456",
+          secretAccessKey: "real-secret-value",
+          sessionToken: "real-session-token"
+        }
+      },
+      { confirmationText: "END characterforge-ai-dev", exportConfirmed: true }
+    );
+
+    expect(result.status).toBe("succeeded");
+    expect(result.finalStackStatus).toBe("DELETE_COMPLETE");
+    expect(shell.commands.map((command) => command.program)).toEqual(["aws", "aws", "aws"]);
+    expect(shell.commands[0].args).toEqual([
+      "cloudformation",
+      "delete-stack",
+      "--stack-name",
+      "characterforge-ai-dev",
+      "--region",
+      "us-east-1"
+    ]);
+    expect(result.logs.join("\n")).toContain("AWS_SECRET_ACCESS_KEY=<redacted>");
+    expect(result.logs.join("\n")).not.toContain("real-secret-value");
+    expect(result.logs.join("\n")).not.toContain("real-session-token");
+    expect(shell.savedOutputs).toEqual([]);
+  });
+
+  it("reports deployment End failure statuses from mocked polling", async () => {
+    const shell = createMockDeploymentShell({ statuses: ["DELETE_IN_PROGRESS", "DELETE_FAILED"] });
+    const adapter = createRealDeploymentEndAdapter(shell);
+
+    const result = await adapter.end(baseRequest, { confirmationText: "END characterforge-ai-dev", exportConfirmed: true });
+
+    expect(result.status).toBe("failed");
+    expect(result.finalStackStatus).toBe("DELETE_FAILED");
+    expect(result.logs.join("\n")).toContain("CloudFormation reported DELETE_FAILED");
     expect(shell.savedOutputs).toEqual([]);
   });
 });

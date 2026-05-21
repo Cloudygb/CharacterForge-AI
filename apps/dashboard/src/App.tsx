@@ -6,9 +6,12 @@ import { CharacterForgeClient, type CharacterSummary } from "@characterforge/cha
 import {
   createBrowserDryRunDeploymentAdapter,
   createDesktopShellDeploymentAdapter,
+  type DeploymentEndResult,
+  type DeploymentOperationResult,
   type DeploymentStartPreview,
   type DeploymentStartRequest,
   type DeploymentStartResult,
+  type RealDeploymentEndAdapter,
   type RealDeploymentStartAdapter
 } from "./deploymentAdapters";
 import "./styles.css";
@@ -248,7 +251,7 @@ const defaultDeploymentForm: DeploymentStartRequest = {
 function createDeploymentAdapter() {
   if (typeof window !== "undefined" && window.__TAURI__?.core?.invoke) {
     return createDesktopShellDeploymentAdapter((command, payload) =>
-      window.__TAURI__!.core!.invoke(command, payload) as Promise<DeploymentStartPreview | DeploymentStartResult>
+      window.__TAURI__!.core!.invoke(command, payload) as Promise<DeploymentStartPreview | DeploymentOperationResult>
     );
   }
   return createBrowserDryRunDeploymentAdapter();
@@ -256,8 +259,8 @@ function createDeploymentAdapter() {
 
 const deploymentAdapter = createDeploymentAdapter();
 
-function isRealDeploymentAdapter(adapter: typeof deploymentAdapter): adapter is RealDeploymentStartAdapter {
-  return "start" in adapter;
+function isRealDeploymentAdapter(adapter: typeof deploymentAdapter): adapter is RealDeploymentStartAdapter & RealDeploymentEndAdapter {
+  return "start" in adapter && "end" in adapter;
 }
 
 const bedrockModelOptions = [
@@ -956,29 +959,42 @@ function SetupCheckCard({ label, value }: { label: string; value: string }) {
 
 function DeploymentStartScreen({
   confirmationText,
+  endConfirmationText,
+  exportBeforeEndConfirmed,
   form,
   isDesktopShell,
   onConfirmationChange,
+  onEndConfirmationChange,
+  onExportBeforeEndConfirmedChange,
   onFormChange,
   onPreviewStart,
+  onRealEnd,
   onRealStart,
   preview,
+  endResult,
   startResult,
   status
 }: {
   confirmationText: string;
+  endConfirmationText: string;
+  exportBeforeEndConfirmed: boolean;
   form: DeploymentStartRequest;
   isDesktopShell: boolean;
   onConfirmationChange: (value: string) => void;
+  onEndConfirmationChange: (value: string) => void;
+  onExportBeforeEndConfirmedChange: (value: boolean) => void;
   onFormChange: (form: DeploymentStartRequest) => void;
   onPreviewStart: () => void;
+  onRealEnd: () => void;
   onRealStart: () => void;
   preview: DeploymentStartPreview | null;
+  endResult: DeploymentEndResult | null;
   startResult: DeploymentStartResult | null;
   status: ConnectionStatus;
 }) {
   const temporaryCredentials = form.temporaryCredentials ?? { accessKeyId: "", secretAccessKey: "", sessionToken: "" };
   const requiredConfirmation = `START ${form.stackName.trim() || "characterforge-ai-dev"}`;
+  const requiredEndConfirmation = `END ${form.stackName.trim() || "characterforge-ai-dev"}`;
 
   function updateTemporaryCredentials(field: keyof NonNullable<DeploymentStartRequest["temporaryCredentials"]>, value: string) {
     onFormChange({
@@ -1107,6 +1123,35 @@ function DeploymentStartScreen({
         </div>
       </section>
 
+      <section className="setup-safety-panel" aria-labelledby="real-end-title">
+        <h2 id="real-end-title">Real desktop End</h2>
+        <p>
+          End deletes the CloudFormation stack through the desktop shell. Export character packs first, then type the
+          exact stack-name confirmation before deletion. Logs are redacted and stack deletion status is polled until it
+          succeeds or fails.
+        </p>
+        <p className="warning">
+          {isDesktopShell
+            ? `Export character packs, then type ${requiredEndConfirmation} to enable deployment End.`
+            : "Real deployment End is disabled in the browser preview and is available only in the packaged Tauri desktop shell."}
+        </p>
+        <label className="checkbox-field">
+          <input
+            checked={exportBeforeEndConfirmed}
+            onChange={(event) => onExportBeforeEndConfirmedChange(event.target.checked)}
+            type="checkbox"
+          />
+          I exported the character packs I need before deleting this stack.
+        </label>
+        <label className="field">
+          Deployment End confirmation
+          <input value={endConfirmationText} onChange={(event) => onEndConfirmationChange(event.target.value)} />
+        </label>
+        <div className="button-row">
+          <button type="button" onClick={onRealEnd}>End deployment and delete stack</button>
+        </div>
+      </section>
+
       <div className={`connection-status ${status.state}`} role="status">
         {status.message}
       </div>
@@ -1148,6 +1193,18 @@ function DeploymentStartScreen({
           </p>
           <pre className="json-preview" aria-label="Real Start redacted log">
             {startResult.logs.join("\n")}
+          </pre>
+        </section>
+      ) : null}
+
+      {endResult ? (
+        <section className="deployment-preview" aria-labelledby="deployment-end-log-title">
+          <h2 id="deployment-end-log-title">Real End redacted log</h2>
+          <p>
+            Final stack status: <strong>{endResult.finalStackStatus}</strong>
+          </p>
+          <pre className="json-preview" aria-label="Real End redacted log">
+            {endResult.logs.join("\n")}
           </pre>
         </section>
       ) : null}
@@ -1557,7 +1614,10 @@ export default function App() {
     state: "idle"
   });
   const [deploymentConfirmation, setDeploymentConfirmation] = useState("");
+  const [deploymentEndConfirmation, setDeploymentEndConfirmation] = useState("");
+  const [exportBeforeEndConfirmed, setExportBeforeEndConfirmed] = useState(false);
   const [deploymentStartResult, setDeploymentStartResult] = useState<DeploymentStartResult | null>(null);
+  const [deploymentEndResult, setDeploymentEndResult] = useState<DeploymentEndResult | null>(null);
 
   const apiMode = Boolean(settings.apiBaseUrl.trim());
   const activeCharacters = apiMode && apiCharacters.length ? apiCharacters : mockCharacters;
@@ -1656,6 +1716,46 @@ export default function App() {
     } catch (error) {
       setDeploymentStatus({
         message: error instanceof Error ? `Deployment Start blocked: ${error.message}` : "Deployment Start failed before commands ran.",
+        state: "error"
+      });
+    }
+  }
+
+  async function handleRealDeploymentEnd() {
+    const requiredConfirmation = `END ${deploymentForm.stackName.trim() || "characterforge-ai-dev"}`;
+    if (!exportBeforeEndConfirmed) {
+      setDeploymentStatus({ message: "Export character packs before running deployment End.", state: "error" });
+      return;
+    }
+    if (deploymentEndConfirmation.trim() !== requiredConfirmation) {
+      setDeploymentStatus({ message: `Type ${requiredConfirmation} before running deployment End.`, state: "error" });
+      return;
+    }
+    if (!isRealDeploymentAdapter(deploymentAdapter)) {
+      setDeploymentStatus({ message: "Real deployment End is available only inside the Tauri desktop shell.", state: "error" });
+      return;
+    }
+
+    setDeploymentEndResult(null);
+    setDeploymentStatus({ message: "Running deployment End through the desktop shell...", state: "loading" });
+    try {
+      const result = await deploymentAdapter.end(deploymentForm, {
+        confirmationText: deploymentEndConfirmation,
+        exportConfirmed: exportBeforeEndConfirmed
+      });
+      setDeploymentEndResult(result);
+      setDeploymentStatus({
+        message:
+          result.status === "succeeded"
+            ? `Deployment End completed with ${result.finalStackStatus}.`
+            : result.status === "cancelled"
+              ? "Deployment End cancelled before commands ran."
+              : `Deployment End ended with ${result.finalStackStatus}. Review the redacted log below.`,
+        state: result.status === "succeeded" ? "success" : result.status === "cancelled" ? "idle" : "error"
+      });
+    } catch (error) {
+      setDeploymentStatus({
+        message: error instanceof Error ? `Deployment End blocked: ${error.message}` : "Deployment End failed before commands ran.",
         state: "error"
       });
     }
@@ -1792,13 +1892,19 @@ export default function App() {
         return (
           <DeploymentStartScreen
             confirmationText={deploymentConfirmation}
+            endConfirmationText={deploymentEndConfirmation}
+            exportBeforeEndConfirmed={exportBeforeEndConfirmed}
             form={deploymentForm}
             isDesktopShell={isRealDeploymentAdapter(deploymentAdapter)}
             onConfirmationChange={setDeploymentConfirmation}
+            onEndConfirmationChange={setDeploymentEndConfirmation}
+            onExportBeforeEndConfirmedChange={setExportBeforeEndConfirmed}
             onFormChange={setDeploymentForm}
             onPreviewStart={handlePreviewDeploymentStart}
+            onRealEnd={handleRealDeploymentEnd}
             onRealStart={handleRealDeploymentStart}
             preview={deploymentPreview}
+            endResult={deploymentEndResult}
             startResult={deploymentStartResult}
             status={deploymentStatus}
           />

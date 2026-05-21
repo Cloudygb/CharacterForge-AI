@@ -37,6 +37,14 @@ pub struct DeploymentStartOptions {
     pub confirmation_text: String,
 }
 
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DeploymentEndOptions {
+    pub confirmation_text: String,
+    pub export_confirmed: bool,
+    pub cancelled: Option<bool>,
+}
+
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DeploymentStartPreview {
@@ -55,6 +63,14 @@ pub struct DeploymentStartResult {
     pub logs: Vec<String>,
     pub saved_outputs_path: Option<String>,
     pub outputs: Option<BTreeMap<String, String>>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DeploymentEndResult {
+    pub status: String,
+    pub final_stack_status: String,
+    pub logs: Vec<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -77,6 +93,11 @@ pub trait DeploymentCommandAdapter {
         request: DeploymentStartRequest,
         options: DeploymentStartOptions,
     ) -> Result<DeploymentStartResult, String>;
+    fn end(
+        &self,
+        request: DeploymentStartRequest,
+        options: DeploymentEndOptions,
+    ) -> Result<DeploymentEndResult, String>;
 }
 
 pub trait DeploymentShellAdapter {
@@ -169,6 +190,14 @@ impl DeploymentCommandAdapter for DryRunDeploymentCommandAdapter {
         _options: DeploymentStartOptions,
     ) -> Result<DeploymentStartResult, String> {
         Err("real deployment Start is not available from the dry-run adapter".to_string())
+    }
+
+    fn end(
+        &self,
+        _request: DeploymentStartRequest,
+        _options: DeploymentEndOptions,
+    ) -> Result<DeploymentEndResult, String> {
+        Err("deployment End is not available from the dry-run adapter".to_string())
     }
 }
 
@@ -286,6 +315,109 @@ impl<S: DeploymentShellAdapter> DeploymentCommandAdapter for RealDeploymentComma
             logs,
             saved_outputs_path: None,
             outputs: None,
+        })
+    }
+
+    fn end(
+        &self,
+        request: DeploymentStartRequest,
+        options: DeploymentEndOptions,
+    ) -> Result<DeploymentEndResult, String> {
+        let normalized = NormalizedDeploymentRequest::from(&request);
+        let required_confirmation = format!("END {}", normalized.stack_name);
+        if options.cancelled.unwrap_or(false) || !options.export_confirmed {
+            return Ok(DeploymentEndResult {
+                status: "cancelled".to_string(),
+                final_stack_status: "CANCELLED_BEFORE_DELETE".to_string(),
+                logs: vec![
+                    "Deployment End cancelled before commands ran.".to_string(),
+                    "Export character packs before deleting the deployment stack so local characters can be restored later.".to_string(),
+                ],
+            });
+        }
+        if options.confirmation_text.trim() != required_confirmation {
+            return Err(format!(
+                "To run deployment End, type {required_confirmation}."
+            ));
+        }
+
+        let mut logs = vec![format!(
+            "Confirmed deployment End for {} in {}.",
+            normalized.stack_name, normalized.aws_region
+        )];
+        let delete_command = delete_stack_command(&request);
+        logs.push(command_to_log_line(&request, &delete_command));
+        let delete_result = self.shell.run(&request, &delete_command)?;
+        push_redacted_output(&mut logs, &request, &delete_result.stdout);
+        push_redacted_output(&mut logs, &request, &delete_result.stderr);
+        if delete_result.exit_code != 0 {
+            logs.push(format!(
+                "Delete command failed with exit code {}.",
+                delete_result.exit_code
+            ));
+            return Ok(DeploymentEndResult {
+                status: "failed".to_string(),
+                final_stack_status: "DELETE_STACK_FAILED".to_string(),
+                logs,
+            });
+        }
+
+        let describe_command = describe_stacks_command(&request);
+        let mut final_stack_status = "DELETE_IN_PROGRESS".to_string();
+        for attempt in 1..=30 {
+            logs.push(format!(
+                "Polling CloudFormation delete status ({attempt}/30)."
+            ));
+            logs.push(command_to_log_line(&request, &describe_command));
+            let result = self.shell.run(&request, &describe_command)?;
+            if result.exit_code != 0 {
+                let combined = format!("{}\n{}", result.stderr, result.stdout);
+                push_redacted_output(&mut logs, &request, &combined);
+                let lower = combined.to_lowercase();
+                if lower.contains("does not exist") || lower.contains("validationerror") {
+                    return Ok(DeploymentEndResult {
+                        status: "succeeded".to_string(),
+                        final_stack_status: "DELETE_COMPLETE".to_string(),
+                        logs,
+                    });
+                }
+                return Ok(DeploymentEndResult {
+                    status: "failed".to_string(),
+                    final_stack_status: "DESCRIBE_STACKS_FAILED".to_string(),
+                    logs,
+                });
+            }
+
+            let (stack_status, _outputs) = parse_describe_stacks(&result.stdout)?;
+            final_stack_status = stack_status;
+            logs.push(format!(
+                "CloudFormation stack status: {final_stack_status}."
+            ));
+            if final_stack_status == "DELETE_COMPLETE" {
+                return Ok(DeploymentEndResult {
+                    status: "succeeded".to_string(),
+                    final_stack_status,
+                    logs,
+                });
+            }
+            if final_stack_status == "DELETE_FAILED" || is_failure_status(&final_stack_status) {
+                logs.push(format!(
+                    "CloudFormation reported {final_stack_status}; review stack events before retrying deployment End."
+                ));
+                return Ok(DeploymentEndResult {
+                    status: "failed".to_string(),
+                    final_stack_status,
+                    logs,
+                });
+            }
+            thread::sleep(Duration::from_secs(5));
+        }
+
+        logs.push("Timed out waiting for CloudFormation stack deletion to finish.".to_string());
+        Ok(DeploymentEndResult {
+            status: "failed".to_string(),
+            final_stack_status,
+            logs,
         })
     }
 }
@@ -437,6 +569,24 @@ fn describe_stacks_command(request: &DeploymentStartRequest) -> ShellCommand {
     }
 }
 
+fn delete_stack_command(request: &DeploymentStartRequest) -> ShellCommand {
+    let normalized = NormalizedDeploymentRequest::from(request);
+    let mut args = vec![
+        "cloudformation".to_string(),
+        "delete-stack".to_string(),
+        "--stack-name".to_string(),
+        normalized.stack_name,
+    ];
+    if request.credential_mode != "temporary" {
+        args.extend(["--profile".to_string(), normalized.profile_name]);
+    }
+    args.extend(["--region".to_string(), normalized.aws_region]);
+    ShellCommand {
+        program: "aws".to_string(),
+        args,
+    }
+}
+
 fn command_to_log_line(request: &DeploymentStartRequest, command: &ShellCommand) -> String {
     let env_prefix = if request.credential_mode == "temporary" {
         "AWS_ACCESS_KEY_ID=<provided locally> AWS_SECRET_ACCESS_KEY=<redacted> AWS_SESSION_TOKEN=<redacted> "
@@ -540,13 +690,22 @@ fn start_deployment(
     RealDeploymentCommandAdapter::new(LocalProcessDeploymentShell).start(request, options)
 }
 
+#[tauri::command]
+fn end_deployment(
+    request: DeploymentStartRequest,
+    options: DeploymentEndOptions,
+) -> Result<DeploymentEndResult, String> {
+    RealDeploymentCommandAdapter::new(LocalProcessDeploymentShell).end(request, options)
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .invoke_handler(tauri::generate_handler![
             preview_deployment_start,
-            start_deployment
+            start_deployment,
+            end_deployment
         ])
         .run(tauri::generate_context!())
         .expect("error while running CharacterForge Dashboard");

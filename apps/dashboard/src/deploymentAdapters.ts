@@ -28,7 +28,14 @@ export type DeploymentStartOptions = {
   confirmationText: string;
 };
 
+export type DeploymentEndOptions = {
+  confirmationText: string;
+  exportConfirmed: boolean;
+  cancelled?: boolean;
+};
+
 export type DeploymentStartStatus = "succeeded" | "failed";
+export type DeploymentEndStatus = "succeeded" | "failed" | "cancelled";
 
 export type DeploymentStackOutput = {
   OutputKey: string;
@@ -42,6 +49,14 @@ export type DeploymentStartResult = {
   savedOutputsPath?: string;
   outputs?: Record<string, string>;
 };
+
+export type DeploymentEndResult = {
+  status: DeploymentEndStatus;
+  finalStackStatus: string;
+  logs: string[];
+};
+
+export type DeploymentOperationResult = DeploymentStartResult | DeploymentEndResult;
 
 export type DeploymentShellCommand = {
   program: string;
@@ -74,6 +89,10 @@ export interface RealDeploymentStartAdapter extends DeploymentCommandAdapter {
   start(request: DeploymentStartRequest, options: DeploymentStartOptions): Promise<DeploymentStartResult>;
 }
 
+export interface RealDeploymentEndAdapter extends DeploymentCommandAdapter {
+  end(request: DeploymentStartRequest, options: DeploymentEndOptions): Promise<DeploymentEndResult>;
+}
+
 export const deploymentResources = [
   "AWS Lambda function for characterforge.app.handler",
   "API Gateway REST API with API key usage plan protection",
@@ -84,6 +103,7 @@ export const deploymentResources = [
 ];
 
 const successfulStackStatuses = new Set(["CREATE_COMPLETE", "UPDATE_COMPLETE"]);
+const successfulDeleteStatuses = new Set(["DELETE_COMPLETE"]);
 const failedStackStatusFragments = ["ROLLBACK", "FAILED", "DELETE_COMPLETE"];
 
 function sanitize(value: string, fallback: string): string {
@@ -250,6 +270,16 @@ function buildDescribeStacksCommand(request: DeploymentStartRequest): Deployment
   };
 }
 
+
+function buildDeleteStackCommand(request: DeploymentStartRequest): DeploymentShellCommand {
+  const normalized = normalizedRequest(request);
+  return {
+    program: "aws",
+    args: ["cloudformation", "delete-stack", "--stack-name", normalized.stackName, ...profileArgList(request), "--region", normalized.awsRegion],
+    env: credentialEnv(request)
+  };
+}
+
 export function buildDeploymentStartPreview(request: DeploymentStartRequest): DeploymentStartPreview {
   const normalized = normalizedRequest(request);
   const prefix = credentialPrefix(request);
@@ -348,12 +378,80 @@ export function createRealDeploymentStartAdapter(shell: DeploymentShellAdapter):
   };
 }
 
-export interface DesktopShellDeploymentCommandAdapter extends RealDeploymentStartAdapter {
+
+export function createRealDeploymentEndAdapter(shell: DeploymentShellAdapter): RealDeploymentEndAdapter {
+  return {
+    async previewStart(request: DeploymentStartRequest) {
+      return buildDeploymentStartPreview(request);
+    },
+    async end(request: DeploymentStartRequest, options: DeploymentEndOptions) {
+      const normalized = normalizedRequest(request);
+      const requiredConfirmation = `END ${normalized.stackName}`;
+      if (options.cancelled || !options.exportConfirmed) {
+        return {
+          status: "cancelled",
+          finalStackStatus: "CANCELLED_BEFORE_DELETE",
+          logs: [
+            "Deployment End cancelled before commands ran.",
+            "Export character packs before deleting the deployment stack so local characters can be restored later."
+          ]
+        };
+      }
+      if (options.confirmationText.trim() !== requiredConfirmation) {
+        throw new Error(`To run deployment End, type ${requiredConfirmation}.`);
+      }
+
+      const logs = [`Confirmed deployment End for ${normalized.stackName} in ${normalized.awsRegion}.`];
+      const deleteCommand = buildDeleteStackCommand(request);
+      logs.push(commandToLogLine(deleteCommand, request));
+      const deleteResult = await shell.run(deleteCommand);
+      logs.push(redactText(deleteResult.stdout, request));
+      if (deleteResult.stderr) {
+        logs.push(redactText(deleteResult.stderr, request));
+      }
+      if (deleteResult.exitCode !== 0) {
+        logs.push(`Delete command failed with exit code ${deleteResult.exitCode}.`);
+        return { status: "failed", finalStackStatus: "DELETE_STACK_FAILED", logs };
+      }
+
+      const describeCommand = buildDescribeStacksCommand(request);
+      let finalStackStatus = "DELETE_IN_PROGRESS";
+      for (let attempt = 1; attempt <= 30; attempt += 1) {
+        logs.push(`Polling CloudFormation delete status (${attempt}/30).`);
+        logs.push(commandToLogLine(describeCommand, request));
+        const result = await shell.run(describeCommand);
+        if (result.exitCode !== 0) {
+          const combined = `${result.stderr}\n${result.stdout}`;
+          logs.push(redactText(combined, request));
+          if (/does not exist|stack with id .* does not exist|validationerror/i.test(combined)) {
+            return { status: "succeeded", finalStackStatus: "DELETE_COMPLETE", logs };
+          }
+          return { status: "failed", finalStackStatus: "DESCRIBE_STACKS_FAILED", logs };
+        }
+        const stack = parseDescribeStacks(result.stdout);
+        finalStackStatus = stack.status;
+        logs.push(`CloudFormation stack status: ${finalStackStatus}.`);
+        if (successfulDeleteStatuses.has(finalStackStatus)) {
+          return { status: "succeeded", finalStackStatus, logs };
+        }
+        if (finalStackStatus === "DELETE_FAILED" || /ROLLBACK|FAILED/.test(finalStackStatus)) {
+          logs.push(`CloudFormation reported ${finalStackStatus}; review stack events before retrying deployment End.`);
+          return { status: "failed", finalStackStatus, logs };
+        }
+      }
+
+      logs.push("Timed out waiting for CloudFormation stack deletion to finish.");
+      return { status: "failed", finalStackStatus, logs };
+    }
+  };
+}
+
+export interface DesktopShellDeploymentCommandAdapter extends RealDeploymentStartAdapter, RealDeploymentEndAdapter {
   readonly shell: "tauri";
 }
 
 export function createDesktopShellDeploymentAdapter(
-  invokeCommand: (command: string, payload: unknown) => Promise<DeploymentStartPreview | DeploymentStartResult>
+  invokeCommand: (command: string, payload: unknown) => Promise<DeploymentStartPreview | DeploymentOperationResult>
 ): DesktopShellDeploymentCommandAdapter {
   return {
     shell: "tauri",
@@ -362,6 +460,9 @@ export function createDesktopShellDeploymentAdapter(
     },
     start(request: DeploymentStartRequest, options: DeploymentStartOptions) {
       return invokeCommand("start_deployment", { request, options }) as Promise<DeploymentStartResult>;
+    },
+    end(request: DeploymentStartRequest, options: DeploymentEndOptions) {
+      return invokeCommand("end_deployment", { request, options }) as Promise<DeploymentEndResult>;
     }
   };
 }
