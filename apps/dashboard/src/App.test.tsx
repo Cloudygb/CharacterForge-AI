@@ -115,9 +115,12 @@ describe("CharacterForge dashboard", () => {
     await user.click(screen.getByRole("button", { name: /finish tutorial and open api settings/i }));
 
     await waitFor(() =>
-      expect(invoke).toHaveBeenCalledWith("save_app_config", {
-        config: { firstRunTutorialCompleted: true, firstRunTutorialSkipped: false }
-      })
+      expect(invoke).toHaveBeenCalledWith(
+        "save_app_config",
+        expect.objectContaining({
+          config: expect.objectContaining({ firstRunTutorialCompleted: true, firstRunTutorialSkipped: false })
+        })
+      )
     );
   });
 
@@ -145,9 +148,12 @@ describe("CharacterForge dashboard", () => {
     await user.click(screen.getByRole("button", { name: /skip tutorial/i }));
 
     await waitFor(() =>
-      expect(invoke).toHaveBeenCalledWith("save_app_config", {
-        config: { firstRunTutorialCompleted: true, firstRunTutorialSkipped: true }
-      })
+      expect(invoke).toHaveBeenCalledWith(
+        "save_app_config",
+        expect.objectContaining({
+          config: expect.objectContaining({ firstRunTutorialCompleted: true, firstRunTutorialSkipped: true })
+        })
+      )
     );
     expect(screen.queryByRole("heading", { name: /^first-run tutorial$/i })).not.toBeInTheDocument();
   });
@@ -423,6 +429,60 @@ describe("CharacterForge dashboard", () => {
     await user.click(screen.getByRole("button", { name: /test connection/i }));
 
     expect(await screen.findByText(/mock mode is active/i)).toBeInTheDocument();
+    expect(listCharactersMock).not.toHaveBeenCalled();
+  });
+
+  it("shows future-ready update settings without enabling unsafe auto-updates", async () => {
+    const user = userEvent.setup();
+    const invoke = vi.fn().mockImplementation((command: string, payload: unknown) => {
+      if (command === "get_app_config") {
+        return Promise.resolve({
+          firstRunTutorialCompleted: true,
+          firstRunTutorialSkipped: false,
+          updateSettings: {
+            channel: "stable",
+            manifestUrl: "",
+            manualCheckEnabled: false,
+            unsafeAutoUpdateEnabled: false
+          }
+        });
+      }
+      if (command === "save_app_config") {
+        return Promise.resolve(payload && typeof payload === "object" && "config" in payload ? payload.config : {});
+      }
+      return Promise.reject(new Error(`unexpected command ${command}`));
+    });
+    window.__TAURI__ = { core: { invoke } };
+
+    render(<App />);
+    await user.click(screen.getByRole("button", { name: "API Settings" }));
+
+    expect(screen.getByRole("heading", { name: /check for updates/i })).toBeInTheDocument();
+    expect(screen.getByText(/future-ready placeholder/i)).toBeInTheDocument();
+    expect(screen.getByText(/unsafe auto-updates are disabled/i)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /check for updates/i })).toBeDisabled();
+    expect(screen.getByLabelText(/update channel/i)).toHaveValue("stable");
+    expect(screen.getByLabelText(/update manifest url/i)).toHaveValue("");
+
+    await user.selectOptions(screen.getByLabelText(/update channel/i), "beta");
+    await user.type(screen.getByLabelText(/update manifest url/i), "https://updates.example.test/characterforge/stable.json");
+    await user.click(screen.getByRole("button", { name: /save update planning settings/i }));
+
+    await waitFor(() =>
+      expect(invoke).toHaveBeenCalledWith("save_app_config", {
+        config: {
+          firstRunTutorialCompleted: true,
+          firstRunTutorialSkipped: false,
+          updateSettings: {
+            channel: "beta",
+            manifestUrl: "https://updates.example.test/characterforge/stable.json",
+            manualCheckEnabled: false,
+            unsafeAutoUpdateEnabled: false
+          }
+        }
+      })
+    );
+    expect(screen.getByText(/update planning settings saved/i)).toBeInTheDocument();
     expect(listCharactersMock).not.toHaveBeenCalled();
   });
 

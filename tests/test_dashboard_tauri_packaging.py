@@ -50,6 +50,18 @@ def test_tauri_config_packages_existing_dashboard_build() -> None:
     assert nsis["installerHooks"] == "installer/characterforgeai.nsh"
 
 
+def test_tauri_updater_is_not_enabled_before_signed_release_requirements_are_ready() -> None:
+    config = read_json(TAURI / "tauri.conf.json")
+    cargo_toml = (TAURI / "Cargo.toml").read_text(encoding="utf-8").lower()
+    package = read_json(DASHBOARD / "package.json")
+
+    assert "plugins" not in config or "updater" not in config.get("plugins", {})
+    assert "updater" not in config
+    assert "tauri-plugin-updater" not in cargo_toml
+    assert "@tauri-apps/plugin-updater" not in package.get("dependencies", {})
+    assert "@tauri-apps/plugin-updater" not in package.get("devDependencies", {})
+
+
 def test_custom_nsis_installer_hook_is_user_friendly_and_safe() -> None:
     hook_path = TAURI / "installer" / "characterforgeai.nsh"
     hook = hook_path.read_text(encoding="utf-8")

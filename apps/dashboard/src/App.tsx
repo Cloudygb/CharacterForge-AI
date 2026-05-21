@@ -159,9 +159,17 @@ type TutorialStep = {
   nextLabel: string;
 };
 
+type UpdateSettings = {
+  channel: "stable" | "beta" | "nightly";
+  manifestUrl: string;
+  manualCheckEnabled: boolean;
+  unsafeAutoUpdateEnabled: boolean;
+};
+
 type AppConfig = {
   firstRunTutorialCompleted: boolean;
   firstRunTutorialSkipped: boolean;
+  updateSettings: UpdateSettings;
 };
 
 type SetupCheckForm = {
@@ -203,9 +211,17 @@ type AwsSetupWizardResult = {
 const settingsStorageKey = "characterforge.dashboard.settings";
 const appConfigStorageKey = "characterforge.dashboard.appConfig";
 
+const defaultUpdateSettings: UpdateSettings = {
+  channel: "stable",
+  manifestUrl: "",
+  manualCheckEnabled: false,
+  unsafeAutoUpdateEnabled: false
+};
+
 const defaultAppConfig: AppConfig = {
   firstRunTutorialCompleted: false,
-  firstRunTutorialSkipped: false
+  firstRunTutorialSkipped: false,
+  updateSettings: defaultUpdateSettings
 };
 
 const screens: Array<{ id: ScreenId; label: string }> = [
@@ -465,10 +481,21 @@ function saveSettings(settings: ApiSettings) {
   window.localStorage.setItem(settingsStorageKey, JSON.stringify({ apiBaseUrl: settings.apiBaseUrl, apiKey: "" }));
 }
 
+function normalizeUpdateSettings(settings: Partial<UpdateSettings> | null | undefined): UpdateSettings {
+  const channel = settings?.channel === "beta" || settings?.channel === "nightly" ? settings.channel : "stable";
+  return {
+    channel,
+    manifestUrl: typeof settings?.manifestUrl === "string" ? settings.manifestUrl : "",
+    manualCheckEnabled: false,
+    unsafeAutoUpdateEnabled: false
+  };
+}
+
 function normalizeAppConfig(config: Partial<AppConfig> | null | undefined): AppConfig {
   return {
     firstRunTutorialCompleted: Boolean(config?.firstRunTutorialCompleted),
-    firstRunTutorialSkipped: Boolean(config?.firstRunTutorialSkipped)
+    firstRunTutorialSkipped: Boolean(config?.firstRunTutorialSkipped),
+    updateSettings: normalizeUpdateSettings(config?.updateSettings)
   };
 }
 
@@ -992,13 +1019,21 @@ function ApiSettingsScreen({
   draftSettings,
   onDraftSettingsChange,
   onSaveSettings,
-  onTestConnection
+  onSaveUpdateSettings,
+  onTestConnection,
+  onUpdateSettingsChange,
+  updateSettings,
+  updateStatus
 }: {
   connectionStatus: ConnectionStatus;
   draftSettings: ApiSettings;
   onDraftSettingsChange: (settings: ApiSettings) => void;
   onSaveSettings: () => void;
+  onSaveUpdateSettings: () => void;
   onTestConnection: () => void;
+  onUpdateSettingsChange: (settings: UpdateSettings) => void;
+  updateSettings: UpdateSettings;
+  updateStatus: ConnectionStatus;
 }) {
   return (
     <section className="screen-card" aria-labelledby="settings-title">
@@ -1058,6 +1093,51 @@ function ApiSettingsScreen({
         Do not paste production API keys into committed files, browser bundles, screenshots, or client-side config.
         Public builds should call a server-side proxy that stores the key outside the game or dashboard client.
       </div>
+      <section className="setup-safety-panel" aria-labelledby="updates-title">
+        <p className="eyebrow">Future-ready placeholder</p>
+        <h2 id="updates-title">Check for Updates</h2>
+        <p>
+          Plan the release channel and manifest location now, but keep update checks inactive until the Tauri updater
+          plugin, signed release artifacts, and endpoint signatures are configured.
+        </p>
+        <div className="warning">
+          Unsafe auto-updates are disabled. This screen does not download, install, or launch updater code.
+        </div>
+        <div className="editor-grid">
+          <label className="field">
+            Update channel
+            <select
+              value={updateSettings.channel}
+              onChange={(event) =>
+                onUpdateSettingsChange(normalizeUpdateSettings({ ...updateSettings, channel: event.target.value as UpdateSettings["channel"] }))
+              }
+            >
+              <option value="stable">stable</option>
+              <option value="beta">beta</option>
+              <option value="nightly">nightly</option>
+            </select>
+          </label>
+          <label className="field field-wide">
+            Update manifest URL
+            <input
+              placeholder="https://updates.example.test/characterforge/{{channel}}.json"
+              value={updateSettings.manifestUrl}
+              onChange={(event) => onUpdateSettingsChange(normalizeUpdateSettings({ ...updateSettings, manifestUrl: event.target.value }))}
+            />
+          </label>
+        </div>
+        <div className="button-row">
+          <button type="button" disabled>
+            Check for updates
+          </button>
+          <button type="button" onClick={onSaveUpdateSettings}>
+            Save update planning settings
+          </button>
+        </div>
+        <div className={`connection-status ${updateStatus.state}`} role="status">
+          {updateStatus.message}
+        </div>
+      </section>
     </section>
   );
 }
@@ -1878,6 +1958,10 @@ export default function App() {
   });
   const [packExportState, setPackExportState] = useState<PackExportState | null>(null);
   const [appConfig, setAppConfig] = useState<AppConfig>(defaultAppConfig);
+  const [updateStatus, setUpdateStatus] = useState<ConnectionStatus>({
+    message: "Update checks are not enabled yet.",
+    state: "idle"
+  });
   const [tutorialStepIndex, setTutorialStepIndex] = useState(0);
   const [showTutorial, setShowTutorial] = useState(true);
   const [setupCheckForm, setSetupCheckForm] = useState<SetupCheckForm>(defaultSetupCheckForm);
@@ -1929,8 +2013,8 @@ export default function App() {
     };
   }, []);
 
-  function persistAppConfig(nextConfig: AppConfig) {
-    const normalized = normalizeAppConfig(nextConfig);
+  function persistAppConfig(nextConfig: Partial<AppConfig>) {
+    const normalized = normalizeAppConfig({ ...appConfig, ...nextConfig });
     setAppConfig(normalized);
     void saveAppConfig(normalized).catch(() => {
       setAppConfig(appConfig);
@@ -1951,6 +2035,17 @@ export default function App() {
   function handleReopenTutorial() {
     setTutorialStepIndex(0);
     setShowTutorial(true);
+  }
+
+  function handleUpdateSettingsChange(updateSettings: UpdateSettings) {
+    setAppConfig((current) => ({ ...current, updateSettings: normalizeUpdateSettings(updateSettings) }));
+    setUpdateStatus({ message: "Update planning settings changed but not saved yet.", state: "idle" });
+  }
+
+  function handleSaveUpdateSettings() {
+    const nextConfig = normalizeAppConfig(appConfig);
+    persistAppConfig(nextConfig);
+    setUpdateStatus({ message: "Update planning settings saved. Update checks remain disabled.", state: "success" });
   }
 
   function handleSaveSettings() {
@@ -2222,7 +2317,11 @@ export default function App() {
             draftSettings={draftSettings}
             onDraftSettingsChange={setDraftSettings}
             onSaveSettings={handleSaveSettings}
+            onSaveUpdateSettings={handleSaveUpdateSettings}
             onTestConnection={handleTestConnection}
+            onUpdateSettingsChange={handleUpdateSettingsChange}
+            updateSettings={appConfig.updateSettings}
+            updateStatus={updateStatus}
           />
         );
       case "setup":

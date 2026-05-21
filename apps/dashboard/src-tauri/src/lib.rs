@@ -151,9 +151,42 @@ pub struct SetupReadinessCommandResult {
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct UpdateSettings {
+    pub channel: String,
+    pub manifest_url: String,
+    pub manual_check_enabled: bool,
+    pub unsafe_auto_update_enabled: bool,
+}
+
+impl Default for UpdateSettings {
+    fn default() -> Self {
+        Self {
+            channel: "stable".to_string(),
+            manifest_url: String::new(),
+            manual_check_enabled: false,
+            unsafe_auto_update_enabled: false,
+        }
+    }
+}
+
+impl UpdateSettings {
+    fn sanitized(mut self) -> Self {
+        if !matches!(self.channel.as_str(), "stable" | "beta" | "nightly") {
+            self.channel = "stable".to_string();
+        }
+        self.manual_check_enabled = false;
+        self.unsafe_auto_update_enabled = false;
+        self
+    }
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct AppConfig {
     pub first_run_tutorial_completed: bool,
     pub first_run_tutorial_skipped: bool,
+    #[serde(default)]
+    pub update_settings: UpdateSettings,
 }
 
 impl Default for AppConfig {
@@ -161,6 +194,7 @@ impl Default for AppConfig {
         Self {
             first_run_tutorial_completed: false,
             first_run_tutorial_skipped: false,
+            update_settings: UpdateSettings::default(),
         }
     }
 }
@@ -195,11 +229,14 @@ fn read_app_config_from_path(path: &Path) -> Result<AppConfig, String> {
     }
     let raw = fs::read_to_string(path)
         .map_err(|error| format!("failed to read CharacterForgeAI config: {error}"))?;
-    serde_json::from_str(&raw)
-        .map_err(|error| format!("failed to parse CharacterForgeAI config: {error}"))
+    let mut config: AppConfig = serde_json::from_str(&raw)
+        .map_err(|error| format!("failed to parse CharacterForgeAI config: {error}"))?;
+    config.update_settings = config.update_settings.sanitized();
+    Ok(config)
 }
 
-fn write_app_config_to_path(path: &Path, config: AppConfig) -> Result<AppConfig, String> {
+fn write_app_config_to_path(path: &Path, mut config: AppConfig) -> Result<AppConfig, String> {
+    config.update_settings = config.update_settings.sanitized();
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent).map_err(|error| {
             format!("failed to create CharacterForgeAI config directory: {error}")
@@ -2054,20 +2091,39 @@ mod tests {
         let default_config = read_app_config_from_path(&config_path).expect("read default config");
         assert!(!default_config.first_run_tutorial_completed);
         assert!(!default_config.first_run_tutorial_skipped);
+        assert_eq!(default_config.update_settings.channel, "stable");
+        assert_eq!(default_config.update_settings.manifest_url, "");
+        assert!(!default_config.update_settings.manual_check_enabled);
+        assert!(!default_config.update_settings.unsafe_auto_update_enabled);
         assert_eq!(config_path, config_dir.join("CharacterForgeAI/config.json"));
 
         let saved_config = AppConfig {
             first_run_tutorial_completed: true,
             first_run_tutorial_skipped: true,
+            update_settings: UpdateSettings {
+                channel: "beta".to_string(),
+                manifest_url: "https://updates.example.test/characterforge/stable.json".to_string(),
+                manual_check_enabled: false,
+                unsafe_auto_update_enabled: true,
+            },
         };
         write_app_config_to_path(&config_path, saved_config.clone()).expect("write config");
 
         let persisted = read_app_config_from_path(&config_path).expect("read persisted config");
         assert!(persisted.first_run_tutorial_completed);
         assert!(persisted.first_run_tutorial_skipped);
+        assert_eq!(persisted.update_settings.channel, "beta");
+        assert_eq!(
+            persisted.update_settings.manifest_url,
+            "https://updates.example.test/characterforge/stable.json"
+        );
+        assert!(!persisted.update_settings.manual_check_enabled);
+        assert!(!persisted.update_settings.unsafe_auto_update_enabled);
         let raw = fs::read_to_string(&config_path).expect("read config json");
         assert!(raw.contains("firstRunTutorialCompleted"));
         assert!(raw.contains("firstRunTutorialSkipped"));
+        assert!(raw.contains("updateSettings"));
+        assert!(raw.contains("unsafeAutoUpdateEnabled"));
 
         let _ = fs::remove_dir_all(config_dir);
     }
