@@ -1,0 +1,59 @@
+{
+  "schemaVersion": 1,
+  "generatedAtUtc": "2026-01-01T00:00:00Z",
+  "admin": {
+    "isAdmin": false,
+    "requiredForPerMachineInstall": true
+  },
+  "windows": {
+    "isSupported": true,
+    "caption": "Microsoft Windows 11 Pro",
+    "version": "10.0.22631",
+    "buildNumber": 22631,
+    "minimumBuildNumber": 19041
+  },
+  "webview2": {
+    "installed": true,
+    "version": "121.0.0.0",
+    "source": "HKLM:\\SOFTWARE\\Microsoft\\EdgeUpdate\\Clients\\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}"
+  },
+  "awsCli": {
+    "installed": true,
+    "version": "aws-cli/2.15.0 Python/3.11.0 Windows/10 exe/AMD64 prompt/off",
+    "path": "C:\\Program Files\\Amazon\\AWSCLIV2\\aws.exe",
+    "source": "PATH",
+    "message": null
+  },
+  "samCli": {
+    "installed": true,
+    "version": "SAM CLI, version 1.110.0",
+    "path": "C:\\Program Files\\Amazon\\AWSSAMCLI\\bin\\sam.exe",
+    "source": "PATH",
+    "message": null
+  },
+  "docker": {
+    "installed": true,
+    "version": "Docker version 25.0.0, build sample",
+    "path": "C:\\Program Files\\Docker\\Docker\\resources\\bin\\docker.exe",
+    "running": true,
+    "message": null
+  },
+  "characterForgeAI": {
+    "installed": false,
+    "version": null,
+    "installPath": null,
+    "source": null
+  },
+  "diskSpace": {
+    "path": "C:",
+    "freeBytes": 68719476736,
+    "freeGB": 64.0,
+    "requiredFreeGB": 4,
+    "hasEnoughSpace": true
+  },
+  "summary": {
+    "ready": true,
+    "warnings": [],
+    "errors": []
+  }
+}
