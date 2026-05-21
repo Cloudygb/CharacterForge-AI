@@ -38,6 +38,7 @@ describe("CharacterForge dashboard", () => {
     for (const screenName of [
       "Welcome",
       "API Settings",
+      "Setup Check",
       "Characters",
       "Character Editor",
       "Character Packs",
@@ -90,9 +91,13 @@ describe("CharacterForge dashboard", () => {
     expect(screen.getByLabelText(/api base url/i)).toBeInTheDocument();
   });
 
-  it("navigates between character, editor, chat, settings, and JSON preview screens", async () => {
+  it("navigates between setup check, character, editor, chat, settings, and JSON preview screens", async () => {
     const user = userEvent.setup();
     render(<App />);
+
+    await user.click(screen.getByRole("button", { name: "Setup Check" }));
+    expect(screen.getByRole("heading", { name: /setup check/i })).toBeInTheDocument();
+    expect(screen.getByText(/mocked setup-check adapter/i)).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "Characters" }));
     expect(screen.getByRole("heading", { name: /characters/i })).toBeInTheDocument();
@@ -123,6 +128,54 @@ describe("CharacterForge dashboard", () => {
     expect(screen.getByRole("heading", { name: /raw json preview/i })).toBeInTheDocument();
     expect(screen.getByText(/mockCharacters/i)).toBeInTheDocument();
     expect(screen.getByText(/connectionStatus/i)).toBeInTheDocument();
+  });
+
+  it("runs mocked setup checks for AWS readiness without calling AWS", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+
+    await user.click(screen.getByRole("button", { name: "Setup Check" }));
+
+    expect(screen.getByText(/mocked setup-check adapter/i)).toBeInTheDocument();
+    expect(screen.getByLabelText(/aws region/i)).toHaveValue("us-east-1");
+    expect(screen.getByLabelText(/bedrock model/i)).toHaveValue("anthropic.claude-3-haiku-20240307-v1:0");
+    expect(screen.getByText(/credential status/i)).toBeInTheDocument();
+    expect(screen.getAllByText(/not checked yet/i).length).toBeGreaterThan(0);
+
+    await user.click(screen.getByRole("button", { name: /run setup check/i }));
+
+    expect(await screen.findByText(/mock setup check complete/i)).toBeInTheDocument();
+    expect(screen.getAllByText(/aws region/i).length).toBeGreaterThan(0);
+    expect(screen.getByText("us-east-1")).toBeInTheDocument();
+    expect(screen.getByText(/selected bedrock model/i)).toBeInTheDocument();
+    expect(screen.getByText("anthropic.claude-3-haiku-20240307-v1:0")).toBeInTheDocument();
+    expect(screen.getAllByText(/credential status/i).length).toBeGreaterThan(0);
+    expect(screen.getByText(/mock credentials detected/i)).toBeInTheDocument();
+    expect(screen.getByText(/bedrock access status/i)).toBeInTheDocument();
+    expect(screen.getByText(/model access simulated as ready/i)).toBeInTheDocument();
+    expect(screen.getByText(/existing stack status/i)).toBeInTheDocument();
+    expect(screen.getByText(/no existing stack found/i)).toBeInTheDocument();
+    expect(screen.getByText(/warnings/i)).toBeInTheDocument();
+    expect(screen.getByText(/mock results only/i)).toBeInTheDocument();
+    expect(screen.getByText(/confirm bedrock model access in the aws console/i)).toBeInTheDocument();
+    expect(listCharactersMock).not.toHaveBeenCalled();
+    expect(createCharacterMock).not.toHaveBeenCalled();
+  });
+
+  it("updates mocked setup-check warnings when region and model choices are risky", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+
+    await user.click(screen.getByRole("button", { name: "Setup Check" }));
+    await user.clear(screen.getByLabelText(/aws region/i));
+    await user.type(screen.getByLabelText(/aws region/i), "eu-west-1");
+    await user.selectOptions(screen.getByLabelText(/bedrock model/i), "anthropic.claude-3-5-sonnet-20240620-v1:0");
+    await user.click(screen.getByRole("button", { name: /run setup check/i }));
+
+    expect(await screen.findByText(/mock setup check complete/i)).toBeInTheDocument();
+    expect(screen.getByText("eu-west-1")).toBeInTheDocument();
+    expect(screen.getByText(/verify that characterforge deployment templates target eu-west-1/i)).toBeInTheDocument();
+    expect(screen.getByText(/higher-capability models may cost more per request/i)).toBeInTheDocument();
   });
 
   it("keeps mock mode active and does not call the SDK when no API base URL is set", async () => {

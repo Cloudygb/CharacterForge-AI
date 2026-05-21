@@ -5,7 +5,7 @@ import { CharacterForgeClient, type CharacterSummary } from "@characterforge/cha
 
 import "./styles.css";
 
-type ScreenId = "welcome" | "settings" | "characters" | "editor" | "packs" | "chat" | "json";
+type ScreenId = "welcome" | "settings" | "setup" | "characters" | "editor" | "packs" | "chat" | "json";
 
 type Character = {
   id: string;
@@ -137,11 +137,26 @@ type TutorialStep = {
   nextLabel: string;
 };
 
+type SetupCheckForm = {
+  awsRegion: string;
+  bedrockModel: string;
+};
+
+type SetupCheckResult = {
+  awsRegion: string;
+  bedrockModel: string;
+  credentialStatus: string;
+  bedrockAccessStatus: string;
+  existingStackStatus: string;
+  warnings: string[];
+};
+
 const settingsStorageKey = "characterforge.dashboard.settings";
 
 const screens: Array<{ id: ScreenId; label: string }> = [
   { id: "welcome", label: "Welcome" },
   { id: "settings", label: "API Settings" },
+  { id: "setup", label: "Setup Check" },
   { id: "characters", label: "Characters" },
   { id: "editor", label: "Character Editor" },
   { id: "packs", label: "Character Packs" },
@@ -190,6 +205,16 @@ const actionTemplateConfigs: ActionTemplateConfig[] = [
     description: "Flag action payload template",
     defaultJson: '{"flag_id":"learned_sky_map_rumor","value":true}'
   }
+];
+
+const defaultSetupCheckForm: SetupCheckForm = {
+  awsRegion: "us-east-1",
+  bedrockModel: "anthropic.claude-3-haiku-20240307-v1:0"
+};
+
+const bedrockModelOptions = [
+  { value: "anthropic.claude-3-haiku-20240307-v1:0", label: "Claude 3 Haiku" },
+  { value: "anthropic.claude-3-5-sonnet-20240620-v1:0", label: "Claude 3.5 Sonnet" }
 ];
 
 const firstRunTutorialSteps: TutorialStep[] = [
@@ -288,6 +313,31 @@ function loadInitialSettings(): ApiSettings {
 
 function saveSettings(settings: ApiSettings) {
   window.localStorage.setItem(settingsStorageKey, JSON.stringify({ apiBaseUrl: settings.apiBaseUrl, apiKey: "" }));
+}
+
+async function runMockSetupCheck(form: SetupCheckForm): Promise<SetupCheckResult> {
+  const awsRegion = form.awsRegion.trim() || defaultSetupCheckForm.awsRegion;
+  const bedrockModel = form.bedrockModel;
+  const warnings = [
+    "Mock results only — this browser adapter does not call AWS.",
+    "Confirm Bedrock model access in the AWS console before deployment."
+  ];
+
+  if (awsRegion !== "us-east-1") {
+    warnings.push(`Verify that CharacterForge deployment templates target ${awsRegion}.`);
+  }
+  if (bedrockModel.includes("sonnet")) {
+    warnings.push("Higher-capability models may cost more per request; review Bedrock pricing before demos.");
+  }
+
+  return {
+    awsRegion,
+    bedrockModel,
+    credentialStatus: "Mock credentials detected",
+    bedrockAccessStatus: "Model access simulated as ready",
+    existingStackStatus: "No existing stack found",
+    warnings
+  };
 }
 
 function createInitialEditorForm(character: Character): CharacterEditorForm {
@@ -777,6 +827,84 @@ function ApiSettingsScreen({
   );
 }
 
+function SetupCheckScreen({
+  form,
+  onFormChange,
+  onRunCheck,
+  result,
+  status
+}: {
+  form: SetupCheckForm;
+  onFormChange: (form: SetupCheckForm) => void;
+  onRunCheck: () => void;
+  result: SetupCheckResult | null;
+  status: ConnectionStatus;
+}) {
+  return (
+    <section className="screen-card" aria-labelledby="setup-check-title">
+      <p className="eyebrow">Mock setup readiness</p>
+      <h1 id="setup-check-title">Setup Check</h1>
+      <p>
+        Use the setup-check adapter to preview AWS readiness signals before wiring real AWS checks. This screen does
+        not call AWS, Bedrock, CloudFormation, or credential providers.
+      </p>
+      <div className="notice compact">Mocked setup-check adapter: safe local state only, no AWS requests.</div>
+      <div className="editor-grid">
+        <label className="field">
+          AWS region
+          <input
+            value={form.awsRegion}
+            onChange={(event) => onFormChange({ ...form, awsRegion: event.target.value })}
+          />
+        </label>
+        <label className="field">
+          Bedrock model
+          <select
+            value={form.bedrockModel}
+            onChange={(event) => onFormChange({ ...form, bedrockModel: event.target.value })}
+          >
+            {bedrockModelOptions.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label} ({option.value})
+              </option>
+            ))}
+          </select>
+        </label>
+      </div>
+      <div className="button-row">
+        <button type="button" onClick={onRunCheck}>Run setup check</button>
+      </div>
+      <div className={`connection-status ${status.state}`} role="status">
+        {status.message}
+      </div>
+      <div className="setup-check-grid">
+        <SetupCheckCard label="AWS region" value={result?.awsRegion ?? form.awsRegion} />
+        <SetupCheckCard label="Selected Bedrock model" value={result?.bedrockModel ?? form.bedrockModel} />
+        <SetupCheckCard label="Credential status" value={result?.credentialStatus ?? "Not checked yet"} />
+        <SetupCheckCard label="Bedrock access status" value={result?.bedrockAccessStatus ?? "Not checked yet"} />
+        <SetupCheckCard label="Existing stack status" value={result?.existingStackStatus ?? "Not checked yet"} />
+      </div>
+      <section className="warning setup-warning-list" aria-labelledby="setup-warnings-title">
+        <h2 id="setup-warnings-title">Warnings</h2>
+        <ul>
+          {(result?.warnings ?? ["Mock results only — run the setup check before using this for deployment decisions."]).map((warning) => (
+            <li key={warning}>{warning}</li>
+          ))}
+        </ul>
+      </section>
+    </section>
+  );
+}
+
+function SetupCheckCard({ label, value }: { label: string; value: string }) {
+  return (
+    <article className="summary-card">
+      <span>{label}</span>
+      <strong>{value}</strong>
+    </article>
+  );
+}
+
 function CharactersScreen({ characters, mode }: { characters: Character[]; mode: "api" | "mock" }) {
   return (
     <section className="screen-card" aria-labelledby="characters-title">
@@ -1166,6 +1294,12 @@ export default function App() {
   });
   const [packExportState, setPackExportState] = useState<PackExportState | null>(null);
   const [tutorialStepIndex, setTutorialStepIndex] = useState(0);
+  const [setupCheckForm, setSetupCheckForm] = useState<SetupCheckForm>(defaultSetupCheckForm);
+  const [setupCheckResult, setSetupCheckResult] = useState<SetupCheckResult | null>(null);
+  const [setupCheckStatus, setSetupCheckStatus] = useState<ConnectionStatus>({
+    message: "Not checked yet.",
+    state: "idle"
+  });
 
   const apiMode = Boolean(settings.apiBaseUrl.trim());
   const activeCharacters = apiMode && apiCharacters.length ? apiCharacters : mockCharacters;
@@ -1222,6 +1356,13 @@ export default function App() {
         state: "error"
       });
     }
+  }
+
+  async function handleRunSetupCheck() {
+    setSetupCheckStatus({ message: "Running mocked setup check...", state: "loading" });
+    const result = await runMockSetupCheck(setupCheckForm);
+    setSetupCheckResult(result);
+    setSetupCheckStatus({ message: "Mock setup check complete.", state: "success" });
   }
 
   async function handleSubmitCharacter() {
@@ -1339,6 +1480,16 @@ export default function App() {
             onDraftSettingsChange={setDraftSettings}
             onSaveSettings={handleSaveSettings}
             onTestConnection={handleTestConnection}
+          />
+        );
+      case "setup":
+        return (
+          <SetupCheckScreen
+            form={setupCheckForm}
+            onFormChange={setSetupCheckForm}
+            onRunCheck={handleRunSetupCheck}
+            result={setupCheckResult}
+            status={setupCheckStatus}
           />
         );
       case "characters":

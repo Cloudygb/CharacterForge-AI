@@ -8,11 +8,25 @@ The dashboard starts in mock mode when no API base URL is set. When a local base
 
 - Welcome
 - API Settings
+- Setup Check
 - Characters
 - Character Editor
 - Character Packs
 - Chat Test
 - Raw JSON Preview
+
+## Setup Check
+
+The Setup Check screen uses a mocked setup-check adapter first so dashboard tests and local demos never call AWS directly. It shows:
+
+- AWS region.
+- Selected Bedrock model.
+- Credential status.
+- Bedrock access status.
+- Existing stack status.
+- Warnings about mock-only results, Bedrock access confirmation, non-default regions, and higher-cost model choices.
+
+This readiness panel is intentionally browser-local for now. Treat its results as guidance only until a future server-side setup-check endpoint performs real AWS, Bedrock, and CloudFormation checks with credentials stored outside the browser.
 
 ## Character Editor
 

@@ -20,6 +20,7 @@ body {
 
 button,
 input,
+select,
 textarea {
   font: inherit;
 }
@@ -209,7 +210,8 @@ p {
 
 .summary-grid,
 .character-list,
-.editor-grid {
+.editor-grid,
+.setup-check-grid {
   display: grid;
   gap: 1rem;
 }
@@ -219,11 +221,17 @@ p {
   margin-top: 1.5rem;
 }
 
+.setup-check-grid {
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  margin-top: 1.5rem;
+}
+
 .summary-card,
 .character-card,
 .chat-message,
 .tutorial-card,
-.setup-safety-panel {
+.setup-safety-panel,
+.setup-warning-list {
   padding: 1rem;
   border: 1px solid rgba(156, 180, 255, 0.14);
   border-radius: 1rem;
@@ -313,6 +321,7 @@ p {
 }
 
 .field input,
+.field select,
 .field textarea {
   width: 100%;
   padding: 0.8rem 0.9rem;
@@ -420,7 +429,8 @@ p {
 
   .summary-grid,
   .editor-grid,
-  .tutorial-safety-grid {
+  .tutorial-safety-grid,
+  .setup-check-grid {
     grid-template-columns: 1fr;
   }
 }
