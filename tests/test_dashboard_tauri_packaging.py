@@ -37,6 +37,13 @@ def test_tauri_config_packages_existing_dashboard_build() -> None:
     assert "msi" in config["bundle"]["targets"]
     assert "nsis" in config["bundle"]["targets"]
     assert config["bundle"]["licenseFile"] == "../../../LICENSE"
+    resources = config["bundle"]["resources"]
+    assert resources["../../../infra"] == "deployment/infra"
+    assert resources["../../../src/characterforge"] == "deployment/src/characterforge"
+    assert resources["../../../src/requirements.txt"] == "deployment/src/requirements.txt"
+    assert resources["../../../pyproject.toml"] == "deployment/pyproject.toml"
+    assert resources["../../../schemas"] == "deployment/schemas"
+    assert resources["../../../LICENSE"] == "deployment/LICENSE"
     nsis = config["bundle"]["windows"]["nsis"]
     assert nsis["installMode"] == "currentUser"
     assert nsis["startMenuFolder"] == "CharacterForgeAI"
@@ -123,6 +130,31 @@ def test_custom_nsis_installer_hook_defines_the_intended_page_flow() -> None:
     assert "messagebox mb_ok" not in normalized
 
 
+def test_tauri_bundles_deployment_resources_for_packaged_start_end_flows() -> None:
+    config = read_json(TAURI / "tauri.conf.json")
+    resources = config["bundle"]["resources"]
+    required_targets = {
+        "deployment/infra/template.yaml": ROOT / "infra" / "template.yaml",
+        "deployment/src/characterforge/app.py": ROOT / "src" / "characterforge" / "app.py",
+        "deployment/src/requirements.txt": ROOT / "src" / "requirements.txt",
+        "deployment/pyproject.toml": ROOT / "pyproject.toml",
+        "deployment/schemas/character-pack.schema.json": ROOT / "schemas" / "character-pack.schema.json",
+        "deployment/schemas/game-binding.schema.json": ROOT / "schemas" / "game-binding.schema.json",
+        "deployment/LICENSE": ROOT / "LICENSE",
+    }
+
+    for source in resources:
+        assert (TAURI / source).resolve().exists(), f"missing bundle source: {source}"
+
+    bundled_destinations = set(resources.values())
+    for target, repo_path in required_targets.items():
+        assert repo_path.exists(), f"missing repo deployment resource for {target}: {repo_path}"
+        assert any(
+            target == destination or target.startswith(f"{destination}/")
+            for destination in bundled_destinations
+        ), f"{target} is not covered by the Tauri resource bundle"
+
+
 def test_tauri_rust_shell_guards_real_deployment_actions() -> None:
     cargo_toml = (TAURI / "Cargo.toml").read_text(encoding="utf-8")
     main_rs = (TAURI / "src" / "main.rs").read_text(encoding="utf-8")
@@ -139,6 +171,14 @@ def test_tauri_rust_shell_guards_real_deployment_actions() -> None:
     assert "start {}" in lib_rs.lower()
     assert "confirmation_text" in lib_rs
     assert "<redacted>" in lib_rs
+    assert "DeploymentResourcePaths" in lib_rs
+    assert "resolve_deployment_resources" in lib_rs
+    assert "CHARACTERFORGEAI_RESOURCE_DIR" in lib_rs
+    assert "deployment/infra/template.yaml" in lib_rs
+    assert "deployment/src/requirements.txt" in lib_rs
+    assert "deployment/schemas/character-pack.schema.json" in lib_rs
+    assert "deployment/LICENSE" in lib_rs
+    assert "current_dir" in lib_rs
     assert "bedrockruntime" not in combined
     assert "aws secret" not in combined
 

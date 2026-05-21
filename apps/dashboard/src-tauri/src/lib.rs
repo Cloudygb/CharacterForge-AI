@@ -10,6 +10,18 @@ use std::path::PathBuf;
 use std::process::Command;
 use std::thread;
 use std::time::Duration;
+use tauri::{AppHandle, Manager};
+
+#[cfg(test)]
+const REQUIRED_DEPLOYMENT_RESOURCE_RELATIVE_PATHS: &[&str] = &[
+    "deployment/infra/template.yaml",
+    "deployment/src/characterforge/app.py",
+    "deployment/src/requirements.txt",
+    "deployment/pyproject.toml",
+    "deployment/schemas/character-pack.schema.json",
+    "deployment/schemas/game-binding.schema.json",
+    "deployment/LICENSE",
+];
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -77,6 +89,98 @@ pub struct DeploymentEndResult {
 pub struct ShellCommand {
     pub program: String,
     pub args: Vec<String>,
+    pub current_dir: Option<PathBuf>,
+}
+
+#[derive(Debug, Clone)]
+pub struct DeploymentResourcePaths {
+    pub root: PathBuf,
+    pub template: PathBuf,
+    pub backend_source: PathBuf,
+    pub requirements: PathBuf,
+    pub pyproject: PathBuf,
+    pub character_pack_schema: PathBuf,
+    pub game_binding_schema: PathBuf,
+    pub license: PathBuf,
+}
+
+impl DeploymentResourcePaths {
+    fn from_resource_root(resource_root: PathBuf) -> Result<Self, String> {
+        let root = resource_root.join("deployment");
+        let paths = Self {
+            template: root.join("infra/template.yaml"),
+            backend_source: root.join("src/characterforge"),
+            requirements: root.join("src/requirements.txt"),
+            pyproject: root.join("pyproject.toml"),
+            character_pack_schema: root.join("schemas/character-pack.schema.json"),
+            game_binding_schema: root.join("schemas/game-binding.schema.json"),
+            license: root.join("LICENSE"),
+            root,
+        };
+        paths.verify_required_resources()?;
+        Ok(paths)
+    }
+
+    fn for_dev_build() -> Result<Self, String> {
+        let repo_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../..")
+            .canonicalize()
+            .map_err(|error| format!("failed to resolve development resource root: {error}"))?;
+        let paths = Self {
+            template: repo_root.join("infra/template.yaml"),
+            backend_source: repo_root.join("src/characterforge"),
+            requirements: repo_root.join("src/requirements.txt"),
+            pyproject: repo_root.join("pyproject.toml"),
+            character_pack_schema: repo_root.join("schemas/character-pack.schema.json"),
+            game_binding_schema: repo_root.join("schemas/game-binding.schema.json"),
+            license: repo_root.join("LICENSE"),
+            root: repo_root,
+        };
+        paths.verify_required_resources()?;
+        Ok(paths)
+    }
+
+    fn verify_required_resources(&self) -> Result<(), String> {
+        for path in [
+            &self.template,
+            &self.backend_source,
+            &self.requirements,
+            &self.pyproject,
+            &self.character_pack_schema,
+            &self.game_binding_schema,
+            &self.license,
+        ] {
+            if !path.exists() {
+                return Err(format!(
+                    "missing packaged deployment resource: {}",
+                    path.display()
+                ));
+            }
+        }
+        Ok(())
+    }
+}
+
+fn resolve_deployment_resources(
+    app: Option<&AppHandle>,
+) -> Result<DeploymentResourcePaths, String> {
+    if let Some(override_dir) = std::env::var_os("CHARACTERFORGEAI_RESOURCE_DIR") {
+        return DeploymentResourcePaths::from_resource_root(PathBuf::from(override_dir));
+    }
+
+    if cfg!(debug_assertions) {
+        return DeploymentResourcePaths::for_dev_build();
+    }
+
+    if let Some(app) = app {
+        let resource_dir = app
+            .path()
+            .resource_dir()
+            .map_err(|error| format!("failed to resolve packaged resource directory: {error}"))?;
+        return DeploymentResourcePaths::from_resource_root(resource_dir);
+    }
+
+    DeploymentResourcePaths::for_dev_build()
 }
 
 #[derive(Debug)]
@@ -125,7 +229,15 @@ impl<S: DeploymentShellAdapter> RealDeploymentCommandAdapter<S> {
     }
 }
 
-pub struct LocalProcessDeploymentShell;
+pub struct LocalProcessDeploymentShell {
+    resource_paths: DeploymentResourcePaths,
+}
+
+impl LocalProcessDeploymentShell {
+    pub fn new(resource_paths: DeploymentResourcePaths) -> Self {
+        Self { resource_paths }
+    }
+}
 
 impl DeploymentShellAdapter for LocalProcessDeploymentShell {
     fn run(
@@ -135,6 +247,12 @@ impl DeploymentShellAdapter for LocalProcessDeploymentShell {
     ) -> Result<ShellCommandResult, String> {
         let mut child = Command::new(&command.program);
         child.args(&command.args);
+        child.current_dir(
+            command
+                .current_dir
+                .as_ref()
+                .unwrap_or(&self.resource_paths.root),
+        );
         if request.credential_mode == "temporary" {
             if let Some(credentials) = &request.temporary_credentials {
                 child.env("AWS_ACCESS_KEY_ID", &credentials.access_key_id);
@@ -513,6 +631,7 @@ fn build_command_plan(request: &DeploymentStartRequest) -> Vec<ShellCommand> {
                 vec!["--region".to_string(), normalized.aws_region.clone()],
             ]
             .concat(),
+            current_dir: None,
         },
         ShellCommand {
             program: "sam".to_string(),
@@ -521,6 +640,7 @@ fn build_command_plan(request: &DeploymentStartRequest) -> Vec<ShellCommand> {
                 "--template-file".to_string(),
                 "infra/template.yaml".to_string(),
             ],
+            current_dir: None,
         },
         ShellCommand {
             program: "sam".to_string(),
@@ -547,6 +667,7 @@ fn build_command_plan(request: &DeploymentStartRequest) -> Vec<ShellCommand> {
                 ],
             ]
             .concat(),
+            current_dir: None,
         },
     ]
 }
@@ -566,6 +687,7 @@ fn describe_stacks_command(request: &DeploymentStartRequest) -> ShellCommand {
     ShellCommand {
         program: "aws".to_string(),
         args,
+        current_dir: None,
     }
 }
 
@@ -584,6 +706,7 @@ fn delete_stack_command(request: &DeploymentStartRequest) -> ShellCommand {
     ShellCommand {
         program: "aws".to_string(),
         args,
+        current_dir: None,
     }
 }
 
@@ -684,18 +807,114 @@ fn preview_deployment_start(request: DeploymentStartRequest) -> DeploymentStartP
 
 #[tauri::command]
 fn start_deployment(
+    app: AppHandle,
     request: DeploymentStartRequest,
     options: DeploymentStartOptions,
 ) -> Result<DeploymentStartResult, String> {
-    RealDeploymentCommandAdapter::new(LocalProcessDeploymentShell).start(request, options)
+    let resource_paths = resolve_deployment_resources(Some(&app))?;
+    RealDeploymentCommandAdapter::new(LocalProcessDeploymentShell::new(resource_paths))
+        .start(request, options)
 }
 
 #[tauri::command]
 fn end_deployment(
+    app: AppHandle,
     request: DeploymentStartRequest,
     options: DeploymentEndOptions,
 ) -> Result<DeploymentEndResult, String> {
-    RealDeploymentCommandAdapter::new(LocalProcessDeploymentShell).end(request, options)
+    let resource_paths = resolve_deployment_resources(Some(&app))?;
+    RealDeploymentCommandAdapter::new(LocalProcessDeploymentShell::new(resource_paths))
+        .end(request, options)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::Path;
+
+    fn write_file(path: &Path, content: &str) {
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent).expect("create test resource parent");
+        }
+        fs::write(path, content).expect("write test resource");
+    }
+
+    fn packaged_resource_root() -> PathBuf {
+        let root = std::env::temp_dir().join(format!(
+            "characterforgeai-packaged-resources-{}",
+            std::process::id()
+        ));
+        let _ = fs::remove_dir_all(&root);
+        write_file(
+            &root.join("deployment/infra/template.yaml"),
+            "Transform: AWS::Serverless-2016-10-31",
+        );
+        write_file(
+            &root.join("deployment/src/characterforge/app.py"),
+            "def handler(event, context): pass",
+        );
+        write_file(
+            &root.join("deployment/src/requirements.txt"),
+            "boto3>=1.34.0",
+        );
+        write_file(
+            &root.join("deployment/pyproject.toml"),
+            "[project]\nname = 'characterforge-ai'",
+        );
+        write_file(
+            &root.join("deployment/schemas/character-pack.schema.json"),
+            "{}",
+        );
+        write_file(
+            &root.join("deployment/schemas/game-binding.schema.json"),
+            "{}",
+        );
+        write_file(&root.join("deployment/LICENSE"), "Required Notice: test");
+        root
+    }
+
+    #[test]
+    fn resolves_required_deployment_resources_in_packaged_mode_without_aws_calls() {
+        let root = packaged_resource_root();
+        let paths =
+            DeploymentResourcePaths::from_resource_root(root.clone()).expect("resources resolve");
+
+        assert_eq!(REQUIRED_DEPLOYMENT_RESOURCE_RELATIVE_PATHS.len(), 7);
+        assert_eq!(paths.root, root.join("deployment"));
+        assert_eq!(paths.template, root.join("deployment/infra/template.yaml"));
+        assert_eq!(
+            paths.backend_source,
+            root.join("deployment/src/characterforge")
+        );
+        assert_eq!(
+            paths.requirements,
+            root.join("deployment/src/requirements.txt")
+        );
+        assert_eq!(paths.pyproject, root.join("deployment/pyproject.toml"));
+        assert_eq!(
+            paths.character_pack_schema,
+            root.join("deployment/schemas/character-pack.schema.json")
+        );
+        assert_eq!(
+            paths.game_binding_schema,
+            root.join("deployment/schemas/game-binding.schema.json")
+        );
+        assert_eq!(paths.license, root.join("deployment/LICENSE"));
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn rejects_packaged_mode_when_a_required_resource_is_missing() {
+        let root = packaged_resource_root();
+        fs::remove_file(root.join("deployment/infra/template.yaml")).expect("remove template");
+
+        let error = DeploymentResourcePaths::from_resource_root(root.clone())
+            .expect_err("missing template fails");
+        assert!(error.contains("template.yaml"));
+
+        let _ = fs::remove_dir_all(root);
+    }
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]

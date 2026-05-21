@@ -41,7 +41,15 @@
         "installerHooks": "installer/characterforgeai.nsh"
       }
     },
-    "licenseFile": "../../../LICENSE"
+    "licenseFile": "../../../LICENSE",
+    "resources": {
+      "../../../infra": "deployment/infra",
+      "../../../src/characterforge": "deployment/src/characterforge",
+      "../../../src/requirements.txt": "deployment/src/requirements.txt",
+      "../../../pyproject.toml": "deployment/pyproject.toml",
+      "../../../schemas": "deployment/schemas",
+      "../../../LICENSE": "deployment/LICENSE"
+    }
   },
   "mainBinaryName": "CharacterForgeAI"
 }
