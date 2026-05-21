@@ -105,7 +105,16 @@ def _event_path(event: Mapping[str, Any]) -> str:
     path = event.get("rawPath") or event.get("path")
     if not isinstance(path, str) or not path.strip():
         raise ValueError("API Gateway event is missing a path.")
-    return path.rstrip("/") or "/"
+    normalized_path = path.rstrip("/") or "/"
+    request_context = event.get("requestContext") or {}
+    stage = request_context.get("stage") if isinstance(request_context, Mapping) else None
+    if isinstance(stage, str) and stage.strip():
+        stage_prefix = f"/{stage.strip()}"
+        if normalized_path == stage_prefix:
+            return "/"
+        if normalized_path.startswith(f"{stage_prefix}/"):
+            return normalized_path[len(stage_prefix) :]
+    return normalized_path
 
 
 def _json_body(event: Mapping[str, Any]) -> JsonDict:

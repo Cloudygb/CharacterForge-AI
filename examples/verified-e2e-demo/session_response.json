@@ -1,0 +1,35 @@
+{
+  "messages": [
+    {
+      "message_id": "msg_7fedfceb811f4e65a933fd862bd08715",
+      "session_id": "session-readme-demo-20260521T003735Z",
+      "character_id": "char_f9d35b183bca42c6859f7300e1f67e75",
+      "player_id": "player-readme-demo",
+      "role": "player",
+      "content": "I can help recover the lost sky map. What do you need me to do?",
+      "created_at": "2026-05-21T00:37:37.286761Z",
+      "actions": [],
+      "emotion": null,
+      "token_usage": null
+    },
+    {
+      "message_id": "msg_2dcf5edd611746a5af91e909dd71aa59",
+      "session_id": "session-readme-demo-20260521T003735Z",
+      "character_id": "char_f9d35b183bca42c6859f7300e1f67e75",
+      "player_id": "player-readme-demo",
+      "role": "assistant",
+      "content": "A deckhand offering to help? You've got guts, or just desperation. Fine, we'll see if you've got the mettle. Meet me on deck. There's a storm brewing, and I need hands to secure the rigging before we take off. If you survive, maybe you earn a place on my crew.",
+      "created_at": "2026-05-21T00:37:37.324986Z",
+      "actions": [
+        {
+          "type": "change_relationship",
+          "payload": {
+            "relationship_change": 1
+          }
+        }
+      ],
+      "emotion": "curious",
+      "token_usage": null
+    }
+  ]
+}

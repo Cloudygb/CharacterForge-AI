@@ -1,0 +1,14 @@
+{
+  "message": "A deckhand offering to help? You've got guts, or just desperation. Fine, we'll see if you've got the mettle. Meet me on deck. There's a storm brewing, and I need hands to secure the rigging before we take off. If you survive, maybe you earn a place on my crew.",
+  "emotion": "curious",
+  "actions": [
+    {
+      "type": "change_relationship",
+      "payload": {
+        "relationship_change": 1
+      }
+    }
+  ],
+  "relationship_delta": 1,
+  "token_usage": null
+}

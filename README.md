@@ -41,6 +41,7 @@ CharacterForge AI demonstrates that backend pattern with a compact AWS serverles
 
 ## Architecture overview
 
+
 ```text
 Game / Tooling Client
         |
@@ -218,6 +219,58 @@ The repository also includes ready-to-run scripts under [`examples/curl/`](examp
 
 ---
 
+## Verified deployed demo evidence
+
+The repository includes collected artifacts from a real end-to-end run against the deployed AWS stack in [`examples/verified-e2e-demo/`](examples/verified-e2e-demo/). The run exercised API Gateway, Lambda, DynamoDB, and Amazon Bedrock Runtime.
+
+Verified API base URL:
+
+```text
+https://<api-id>.execute-api.<region>.amazonaws.com/<stage>
+```
+
+Demo evidence summary:
+
+```text
+POST /characters -> 201
+POST /characters/{character_id}/chat -> 200
+GET /sessions/{session_id}?limit=10 -> 200
+session_message_count=2
+session_roles=player, assistant
+session_preserved_actions=True
+cleanup_session=200
+cleanup_character=204
+```
+
+The Bedrock-backed chat response returned an in-character message plus validated structured action data:
+
+```json
+{
+  "emotion": "curious",
+  "actions": [
+    {
+      "type": "change_relationship",
+      "payload": {
+        "relationship_change": 1
+      }
+    }
+  ],
+  "relationship_delta": 1
+}
+```
+
+Artifacts:
+
+- [`examples/verified-e2e-demo/create_payload.json`](examples/verified-e2e-demo/create_payload.json)
+- [`examples/verified-e2e-demo/create_response.json`](examples/verified-e2e-demo/create_response.json)
+- [`examples/verified-e2e-demo/chat_payload.json`](examples/verified-e2e-demo/chat_payload.json)
+- [`examples/verified-e2e-demo/chat_response.json`](examples/verified-e2e-demo/chat_response.json)
+- [`examples/verified-e2e-demo/session_response.json`](examples/verified-e2e-demo/session_response.json)
+
+The demo session and demo character were cleaned up after evidence collection.
+
+---
+
 ## Local setup
 
 ### Requirements
@@ -368,10 +421,9 @@ pytest --cov=characterforge --cov-report=term-missing -q
 Latest verified result:
 
 ```text
-45 files left unchanged
+46 files left unchanged
 All checks passed!
-171 passed
-TOTAL coverage: 97%
+176 passed in 3.37s
 ```
 
 Testing strategy highlights:
@@ -416,10 +468,12 @@ This project demonstrates practical backend skills that map directly to producti
 ```text
 .
 ├── docs/
+│   ├── assets/                  # Browser-viewable architecture/demo assets
 │   └── aws-deployment.md        # Beginner-friendly AWS deployment guide
 ├── examples/
 │   ├── curl/                    # Local and deployed API curl scripts
 │   ├── game-client-python/      # Offline demo client
+│   ├── verified-e2e-demo/       # Collected deployed AWS demo evidence
 │   └── web-playground/          # Static browser playground
 ├── infra/
 │   └── template.yaml            # AWS SAM serverless stack

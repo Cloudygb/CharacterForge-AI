@@ -212,6 +212,21 @@ def test_app_accepts_api_gateway_v1_events_and_base64_bodies() -> None:
     assert response_body(response)["name"] == "Captain Mira Voss"
 
 
+def test_app_strips_api_gateway_stage_prefix_from_http_api_paths() -> None:
+    from characterforge import app
+
+    event = api_event("POST", "/dev/characters", body=character_payload())
+    event["requestContext"] = {
+        "stage": "dev",
+        "http": {"method": "POST", "path": "/dev/characters"},
+    }
+
+    response = app.handler(event, None)
+
+    assert response["statusCode"] == 201
+    assert response_body(response)["name"] == "Captain Mira Voss"
+
+
 def test_app_returns_bad_request_for_malformed_api_gateway_events() -> None:
     from characterforge import app
 
