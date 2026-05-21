@@ -42,28 +42,7 @@ CharacterForge AI demonstrates that backend pattern with a compact AWS serverles
 ## Architecture overview
 
 
-```text
-Game / Tooling Client
-        |
-        | HTTPS JSON
-        v
-Amazon API Gateway HTTP API
-        |
-        v
-AWS Lambda: characterforge.app.handler
-        |
-        |-- Route request by method/path
-        |-- Validate request bodies with Pydantic
-        |-- Load character profiles and session history
-        |-- Build structured prompts for Bedrock
-        |-- Parse and validate model responses
-        |
-        +--> DynamoDB Characters table
-        |
-        +--> DynamoDB Messages table
-        |
-        +--> Amazon Bedrock Runtime
-```
+The deployed backend uses API Gateway as the public HTTP boundary, a Python Lambda router for character/chat/session requests, DynamoDB for profiles and session history, and Amazon Bedrock Runtime for in-character structured responses.
 
 ### Runtime components
 
@@ -468,7 +447,7 @@ This project demonstrates practical backend skills that map directly to producti
 ```text
 .
 ├── docs/
-│   ├── assets/                  # Browser-viewable architecture/demo assets
+│   ├── assets/                  # Architecture image and demo assets
 │   └── aws-deployment.md        # Beginner-friendly AWS deployment guide
 ├── examples/
 │   ├── curl/                    # Local and deployed API curl scripts
