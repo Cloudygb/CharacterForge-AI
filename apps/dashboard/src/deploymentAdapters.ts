@@ -101,6 +101,7 @@ export type DeploymentOutputsRecord = {
 export interface DeploymentShellAdapter {
   run(command: DeploymentShellCommand): Promise<DeploymentShellCommandResult>;
   saveOutputs(record: DeploymentOutputsRecord): Promise<string>;
+  clearDeploymentConfig(record: Pick<DeploymentOutputsRecord, "stackName" | "region">): Promise<string>;
 }
 
 export interface DeploymentCommandAdapter {
@@ -199,6 +200,8 @@ function redactText(text: string, request: DeploymentStartRequest): string {
   redacted = redacted.replace(/AWS_ACCESS_KEY_ID=[^\s]+/g, "AWS_ACCESS_KEY_ID=<provided locally>");
   redacted = redacted.replace(new RegExp(`${secretAccessKeyName}=[^\\s]+`, "g"), `${secretAccessKeyName}=<redacted>`);
   redacted = redacted.replace(/AWS_SESSION_TOKEN=[^\s]+/g, "AWS_SESSION_TOKEN=<redacted>");
+  redacted = redacted.replace(/\b(token|session token|password|secret)\s+[^\s,;\]}]+/gi, "$1 <redacted>");
+  redacted = redacted.replace(/\b(token|sessionToken|password|secret)[=:][^\s,;\]}]+/gi, "$1=<redacted>");
   return redacted;
 }
 
@@ -233,6 +236,58 @@ function nonSecretOutputs(outputs: DeploymentStackOutput[]): Record<string, stri
     record[output.OutputKey] = output.OutputValue;
   }
   return record;
+}
+
+type StackResourceSummary = {
+  LogicalResourceId?: string;
+  ResourceType?: string;
+  ResourceStatus?: string;
+  ResourceStatusReason?: string;
+};
+
+function parseStackResources(stdout: string): StackResourceSummary[] {
+  const parsed = JSON.parse(stdout) as { StackResources?: StackResourceSummary[] };
+  return parsed.StackResources ?? [];
+}
+
+function retainedResourceLines(resources: StackResourceSummary[], request: DeploymentStartRequest): string[] {
+  return resources
+    .filter((resource) => /FAILED|DELETE_FAILED|UPDATE_FAILED|DELETE_SKIPPED/i.test(resource.ResourceStatus ?? ""))
+    .map((resource) => {
+      const logicalId = resource.LogicalResourceId ?? "UnknownResource";
+      const type = resource.ResourceType ?? "AWS::Unknown::Resource";
+      const status = resource.ResourceStatus ?? "UNKNOWN";
+      const reason = resource.ResourceStatusReason ? ` — ${redactText(resource.ResourceStatusReason, request)}` : "";
+      return `${logicalId} (${type}) - ${status}${reason}`;
+    });
+}
+
+async function appendRetainedResourceGuidance(
+  logs: string[],
+  shell: DeploymentShellAdapter,
+  request: DeploymentStartRequest
+): Promise<void> {
+  const resourcesCommand = buildDescribeStackResourcesCommand(request);
+  logs.push("Checking retained CloudFormation resources after delete failure.");
+  logs.push(commandToLogLine(resourcesCommand, request));
+  const resourcesResult = await shell.run(resourcesCommand);
+  if (resourcesResult.stdout) {
+    logs.push(redactText(resourcesResult.stdout, request));
+  }
+  if (resourcesResult.stderr) {
+    logs.push(redactText(resourcesResult.stderr, request));
+  }
+  if (resourcesResult.exitCode !== 0) {
+    logs.push("Could not inspect retained resources automatically; review stack events in AWS Console before retrying deployment End.");
+    return;
+  }
+  const retained = retainedResourceLines(parseStackResources(resourcesResult.stdout), request);
+  if (retained.length === 0) {
+    logs.push("No DELETE_FAILED retained resources were reported by describe-stack-resources; review stack events for details before retrying.");
+    return;
+  }
+  logs.push("Retained resources requiring manual cleanup:");
+  logs.push(...retained);
 }
 
 function buildDependencyValidationCommands(request: DeploymentStartRequest): DeploymentShellCommand[] {
@@ -300,6 +355,23 @@ function buildDescribeStacksCommand(request: DeploymentStartRequest): Deployment
   };
 }
 
+
+function buildDescribeStackResourcesCommand(request: DeploymentStartRequest): DeploymentShellCommand {
+  const normalized = normalizedRequest(request);
+  return {
+    program: "aws",
+    args: [
+      "cloudformation",
+      "describe-stack-resources",
+      "--stack-name",
+      normalized.stackName,
+      ...profileArgList(request),
+      "--region",
+      normalized.awsRegion
+    ],
+    env: credentialEnv(request)
+  };
+}
 
 function buildDeleteStackCommand(request: DeploymentStartRequest): DeploymentShellCommand {
   const normalized = normalizedRequest(request);
@@ -469,6 +541,8 @@ export function createRealDeploymentEndAdapter(shell: DeploymentShellAdapter): R
           const combined = `${result.stderr}\n${result.stdout}`;
           logs.push(redactText(combined, request));
           if (/does not exist|stack with id .* does not exist|validationerror/i.test(combined)) {
+            const clearedConfigPath = await shell.clearDeploymentConfig({ stackName: normalized.stackName, region: normalized.awsRegion });
+            logs.push(`Cleared local deployment config at ${clearedConfigPath} after CloudFormation reported the stack no longer exists.`);
             return { status: "succeeded", finalStackStatus: "DELETE_COMPLETE", logs };
           }
           return { status: "failed", finalStackStatus: "DESCRIBE_STACKS_FAILED", logs };
@@ -477,10 +551,14 @@ export function createRealDeploymentEndAdapter(shell: DeploymentShellAdapter): R
         finalStackStatus = stack.status;
         logs.push(`CloudFormation stack status: ${finalStackStatus}.`);
         if (successfulDeleteStatuses.has(finalStackStatus)) {
+          const clearedConfigPath = await shell.clearDeploymentConfig({ stackName: normalized.stackName, region: normalized.awsRegion });
+          logs.push(`Cleared local deployment config at ${clearedConfigPath} after CloudFormation delete completed.`);
           return { status: "succeeded", finalStackStatus, logs };
         }
         if (finalStackStatus === "DELETE_FAILED" || /ROLLBACK|FAILED/.test(finalStackStatus)) {
           logs.push(`CloudFormation reported ${finalStackStatus}; review stack events before retrying deployment End.`);
+          await appendRetainedResourceGuidance(logs, shell, request);
+          logs.push("Local deployment config was left in place because deletion did not complete safely.");
           return { status: "failed", finalStackStatus, logs };
         }
       }

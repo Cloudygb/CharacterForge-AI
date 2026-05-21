@@ -195,8 +195,18 @@ describe("deployment adapters", () => {
     expect(shell.savedOutputs).toEqual([]);
   });
 
-  it("reports deployment End failure statuses from mocked polling", async () => {
-    const shell = createMockDeploymentShell({ statuses: ["DELETE_IN_PROGRESS", "DELETE_FAILED"] });
+  it("reports deployment End failure statuses, retained resources, and keeps local config", async () => {
+    const shell = createMockDeploymentShell({
+      statuses: ["DELETE_IN_PROGRESS", "DELETE_FAILED"],
+      retainedResources: [
+        {
+          LogicalResourceId: "CharacterMessagesTable",
+          ResourceType: "AWS::DynamoDB::Table",
+          ResourceStatus: "DELETE_FAILED",
+          ResourceStatusReason: "Table deletion protection is enabled; token real-session-token"
+        }
+      ]
+    });
     const adapter = createRealDeploymentEndAdapter(shell);
 
     const result = await adapter.end(baseRequest, { confirmationText: "END characterforge-ai-dev", exportConfirmed: true });
@@ -204,7 +214,23 @@ describe("deployment adapters", () => {
     expect(result.status).toBe("failed");
     expect(result.finalStackStatus).toBe("DELETE_FAILED");
     expect(result.logs.join("\n")).toContain("CloudFormation reported DELETE_FAILED");
+    expect(result.logs.join("\n")).toContain("Retained resources requiring manual cleanup");
+    expect(result.logs.join("\n")).toContain("CharacterMessagesTable (AWS::DynamoDB::Table) - DELETE_FAILED");
+    expect(result.logs.join("\n")).not.toContain("real-session-token");
     expect(shell.savedOutputs).toEqual([]);
+    expect(shell.clearedDeploymentConfigs).toEqual([]);
+  });
+
+  it("clears local deployment config only after delete succeeds", async () => {
+    const shell = createMockDeploymentShell({ statuses: ["DELETE_IN_PROGRESS", "DELETE_COMPLETE"] });
+    const adapter = createRealDeploymentEndAdapter(shell);
+
+    const result = await adapter.end(baseRequest, { confirmationText: "END characterforge-ai-dev", exportConfirmed: true });
+
+    expect(result.status).toBe("succeeded");
+    expect(result.finalStackStatus).toBe("DELETE_COMPLETE");
+    expect(result.logs.join("\n")).toContain("Cleared local deployment config");
+    expect(shell.clearedDeploymentConfigs).toEqual([{ stackName: "characterforge-ai-dev", region: "us-east-1" }]);
   });
 });
 
@@ -212,17 +238,25 @@ type MockShellOptions = {
   statuses?: string[];
   outputs?: Array<{ OutputKey: string; OutputValue: string }>;
   dependencyFailures?: Partial<Record<"aws" | "sam", string>>;
+  retainedResources?: Array<{
+    LogicalResourceId: string;
+    ResourceType: string;
+    ResourceStatus: string;
+    ResourceStatusReason?: string;
+  }>;
 };
 
 function createMockDeploymentShell(options: MockShellOptions = {}) {
-  const statuses = [...(options.statuses ?? ["CREATE_COMPLETE"])];
+  const statuses = [...(options.statuses ?? ["CREATE_COMPLETE"])] as string[];
   const outputs = options.outputs ?? [];
   const shell: DeploymentShellAdapter & {
     commands: Array<{ program: string; args: string[]; env?: Record<string, string> }>;
     savedOutputs: unknown[];
+    clearedDeploymentConfigs: unknown[];
   } = {
     commands: [],
     savedOutputs: [],
+    clearedDeploymentConfigs: [],
     async run(command) {
       shell.commands.push(command);
       if (command.program === "aws" && command.args.join(" ") === "--version") {
@@ -232,6 +266,13 @@ function createMockDeploymentShell(options: MockShellOptions = {}) {
       if (command.program === "sam" && command.args.join(" ") === "--version") {
         const message = options.dependencyFailures?.sam;
         return message ? { exitCode: 127, stdout: "", stderr: message } : { exitCode: 0, stdout: "SAM CLI, version 1.110.0", stderr: "" };
+      }
+      if (command.program === "aws" && command.args.includes("describe-stack-resources")) {
+        return {
+          exitCode: 0,
+          stdout: JSON.stringify({ StackResources: options.retainedResources ?? [] }),
+          stderr: ""
+        };
       }
       if (command.program === "aws" && command.args.includes("describe-stacks")) {
         const status = statuses.shift() ?? statuses.at(-1) ?? "CREATE_COMPLETE";
@@ -245,6 +286,10 @@ function createMockDeploymentShell(options: MockShellOptions = {}) {
     },
     async saveOutputs(record) {
       shell.savedOutputs.push(record);
+      return `/tmp/${record.stackName}-outputs.json`;
+    },
+    async clearDeploymentConfig(record) {
+      shell.clearedDeploymentConfigs.push(record);
       return `/tmp/${record.stackName}-outputs.json`;
     }
   };

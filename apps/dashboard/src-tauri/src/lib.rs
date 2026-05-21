@@ -85,6 +85,14 @@ pub struct DeploymentEndResult {
     pub logs: Vec<String>,
 }
 
+#[derive(Debug, Clone)]
+struct StackResourceSummary {
+    logical_resource_id: String,
+    resource_type: String,
+    resource_status: String,
+    resource_status_reason: Option<String>,
+}
+
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SetupReadinessRequest {
@@ -335,6 +343,7 @@ pub trait DeploymentShellAdapter {
         region: &str,
         outputs: &BTreeMap<String, String>,
     ) -> Result<String, String>;
+    fn clear_deployment_config(&self, stack_name: &str, region: &str) -> Result<String, String>;
 }
 
 pub trait SetupReadinessShell {
@@ -435,6 +444,19 @@ impl DeploymentShellAdapter for LocalProcessDeploymentShell {
             serde_json::to_vec_pretty(&document).map_err(|error| error.to_string())?,
         )
         .map_err(|error| format!("failed to save outputs: {error}"))?;
+        Ok(path.to_string_lossy().to_string())
+    }
+
+    fn clear_deployment_config(&self, stack_name: &str, region: &str) -> Result<String, String> {
+        let path = user_home_dir()
+            .unwrap_or_else(std::env::temp_dir)
+            .join(".characterforge")
+            .join("deployments")
+            .join(format!("{stack_name}-{region}-outputs.json"));
+        if path.exists() {
+            fs::remove_file(&path)
+                .map_err(|error| format!("failed to clear local deployment config: {error}"))?;
+        }
         Ok(path.to_string_lossy().to_string())
     }
 }
@@ -656,6 +678,12 @@ impl<S: DeploymentShellAdapter> DeploymentCommandAdapter for RealDeploymentComma
                 push_redacted_output(&mut logs, &request, &combined);
                 let lower = combined.to_lowercase();
                 if lower.contains("does not exist") || lower.contains("validationerror") {
+                    let cleared_config_path = self
+                        .shell
+                        .clear_deployment_config(&normalized.stack_name, &normalized.aws_region)?;
+                    logs.push(format!(
+                        "Cleared local deployment config at {cleared_config_path} after CloudFormation reported the stack no longer exists."
+                    ));
                     return Ok(DeploymentEndResult {
                         status: "succeeded".to_string(),
                         final_stack_status: "DELETE_COMPLETE".to_string(),
@@ -675,6 +703,12 @@ impl<S: DeploymentShellAdapter> DeploymentCommandAdapter for RealDeploymentComma
                 "CloudFormation stack status: {final_stack_status}."
             ));
             if final_stack_status == "DELETE_COMPLETE" {
+                let cleared_config_path = self
+                    .shell
+                    .clear_deployment_config(&normalized.stack_name, &normalized.aws_region)?;
+                logs.push(format!(
+                    "Cleared local deployment config at {cleared_config_path} after CloudFormation delete completed."
+                ));
                 return Ok(DeploymentEndResult {
                     status: "succeeded".to_string(),
                     final_stack_status,
@@ -685,6 +719,8 @@ impl<S: DeploymentShellAdapter> DeploymentCommandAdapter for RealDeploymentComma
                 logs.push(format!(
                     "CloudFormation reported {final_stack_status}; review stack events before retrying deployment End."
                 ));
+                append_retained_resource_guidance(&self.shell, &request, &mut logs)?;
+                logs.push("Local deployment config was left in place because deletion did not complete safely.".to_string());
                 return Ok(DeploymentEndResult {
                     status: "failed".to_string(),
                     final_stack_status,
@@ -869,6 +905,25 @@ fn describe_stacks_command(request: &DeploymentStartRequest) -> ShellCommand {
     }
 }
 
+fn describe_stack_resources_command(request: &DeploymentStartRequest) -> ShellCommand {
+    let normalized = NormalizedDeploymentRequest::from(request);
+    let mut args = vec![
+        "cloudformation".to_string(),
+        "describe-stack-resources".to_string(),
+        "--stack-name".to_string(),
+        normalized.stack_name,
+    ];
+    if request.credential_mode != "temporary" {
+        args.extend(["--profile".to_string(), normalized.profile_name]);
+    }
+    args.extend(["--region".to_string(), normalized.aws_region]);
+    ShellCommand {
+        program: "aws".to_string(),
+        args,
+        current_dir: None,
+    }
+}
+
 fn delete_stack_command(request: &DeploymentStartRequest) -> ShellCommand {
     let normalized = NormalizedDeploymentRequest::from(request);
     let mut args = vec![
@@ -924,6 +979,33 @@ fn redact_text(request: &DeploymentStartRequest, text: &str) -> String {
             }
         }
     }
+    for marker in ["AWS_SECRET_ACCESS_KEY=", "AWS_SESSION_TOKEN="] {
+        let mut search_start = 0;
+        while let Some(relative_index) = redacted[search_start..].find(marker) {
+            let index = search_start + relative_index;
+            let value_start = index + marker.len();
+            let value_end = redacted[value_start..]
+                .find(|character: char| {
+                    character.is_whitespace() || [',', ';', ']', '}'].contains(&character)
+                })
+                .map(|offset| value_start + offset)
+                .unwrap_or(redacted.len());
+            redacted.replace_range(value_start..value_end, "<redacted>");
+            search_start = value_start + "<redacted>".len();
+            if search_start >= redacted.len() {
+                break;
+            }
+        }
+    }
+    if let Some(index) = redacted.to_lowercase().find("token ") {
+        let end = redacted[index + 6..]
+            .find(|character: char| {
+                character.is_whitespace() || [',', ';', ']', '}'].contains(&character)
+            })
+            .map(|offset| index + 6 + offset)
+            .unwrap_or(redacted.len());
+        redacted.replace_range(index + 6..end, "<redacted>");
+    }
     redacted
 }
 
@@ -953,6 +1035,87 @@ fn parse_describe_stacks(stdout: &str) -> Result<(String, Vec<(String, String)>)
         None => Vec::new(),
     };
     Ok((status, outputs))
+}
+
+fn parse_stack_resources(stdout: &str) -> Result<Vec<StackResourceSummary>, String> {
+    let value: Value = serde_json::from_str(stdout)
+        .map_err(|error| format!("invalid describe-stack-resources JSON: {error}"))?;
+    let resources = value
+        .get("StackResources")
+        .and_then(Value::as_array)
+        .map(|items| {
+            items
+                .iter()
+                .map(|item| StackResourceSummary {
+                    logical_resource_id: item
+                        .get("LogicalResourceId")
+                        .and_then(Value::as_str)
+                        .unwrap_or("UnknownResource")
+                        .to_string(),
+                    resource_type: item
+                        .get("ResourceType")
+                        .and_then(Value::as_str)
+                        .unwrap_or("AWS::Unknown::Resource")
+                        .to_string(),
+                    resource_status: item
+                        .get("ResourceStatus")
+                        .and_then(Value::as_str)
+                        .unwrap_or("UNKNOWN")
+                        .to_string(),
+                    resource_status_reason: item
+                        .get("ResourceStatusReason")
+                        .and_then(Value::as_str)
+                        .map(str::to_string),
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    Ok(resources)
+}
+
+fn append_retained_resource_guidance<S: DeploymentShellAdapter>(
+    shell: &S,
+    request: &DeploymentStartRequest,
+    logs: &mut Vec<String>,
+) -> Result<(), String> {
+    let resources_command = describe_stack_resources_command(request);
+    logs.push("Checking retained CloudFormation resources after delete failure.".to_string());
+    logs.push(command_to_log_line(request, &resources_command));
+    let resources_result = shell.run(request, &resources_command)?;
+    push_redacted_output(logs, request, &resources_result.stdout);
+    push_redacted_output(logs, request, &resources_result.stderr);
+    if resources_result.exit_code != 0 {
+        logs.push("Could not inspect retained resources automatically; review stack events in AWS Console before retrying deployment End.".to_string());
+        return Ok(());
+    }
+    let retained: Vec<String> = parse_stack_resources(&resources_result.stdout)?
+        .into_iter()
+        .filter(|resource| {
+            resource.resource_status.contains("FAILED")
+                || resource.resource_status == "DELETE_SKIPPED"
+        })
+        .map(|resource| {
+            let reason = resource
+                .resource_status_reason
+                .as_ref()
+                .map(|value| format!(" — {}", redact_text(request, value)))
+                .unwrap_or_default();
+            format!(
+                "{} ({}) - {}{}",
+                resource.logical_resource_id,
+                resource.resource_type,
+                resource.resource_status,
+                reason
+            )
+        })
+        .collect();
+    if retained.is_empty() {
+        logs.push("No DELETE_FAILED retained resources were reported by describe-stack-resources; review stack events for details before retrying.".to_string());
+    } else {
+        logs.push("Retained resources requiring manual cleanup:".to_string());
+        logs.extend(retained);
+    }
+    Ok(())
 }
 
 fn setup_check(
@@ -1571,8 +1734,10 @@ mod tests {
     struct MockDeploymentShell {
         commands: Rc<RefCell<Vec<(String, Vec<String>)>>>,
         saved_outputs: Rc<RefCell<Vec<BTreeMap<String, String>>>>,
+        cleared_configs: Rc<RefCell<Vec<(String, String)>>>,
         statuses: RefCell<VecDeque<String>>,
         outputs: Vec<(String, String)>,
+        retained_resources: Vec<(String, String, String, String)>,
         dependency_failure: Option<(String, String)>,
     }
 
@@ -1581,13 +1746,30 @@ mod tests {
             Self {
                 commands: Rc::new(RefCell::new(Vec::new())),
                 saved_outputs: Rc::new(RefCell::new(Vec::new())),
+                cleared_configs: Rc::new(RefCell::new(Vec::new())),
                 statuses: RefCell::new(statuses.into_iter().map(String::from).collect()),
                 outputs: outputs
                     .into_iter()
                     .map(|(key, value)| (key.to_string(), value.to_string()))
                     .collect(),
+                retained_resources: Vec::new(),
                 dependency_failure: None,
             }
+        }
+
+        fn with_retained_resources(mut self, resources: Vec<(&str, &str, &str, &str)>) -> Self {
+            self.retained_resources = resources
+                .into_iter()
+                .map(|(logical_id, resource_type, status, reason)| {
+                    (
+                        logical_id.to_string(),
+                        resource_type.to_string(),
+                        status.to_string(),
+                        reason.to_string(),
+                    )
+                })
+                .collect();
+            self
         }
 
         fn with_dependency_failure(program: &str, message: &str) -> Self {
@@ -1623,6 +1805,30 @@ mod tests {
                 return Ok(ShellCommandResult {
                     exit_code: 0,
                     stdout: format!("{} test version", command.program),
+                    stderr: String::new(),
+                });
+            }
+            if command.program == "aws"
+                && command
+                    .args
+                    .iter()
+                    .any(|arg| arg == "describe-stack-resources")
+            {
+                let resources: Vec<Value> = self
+                    .retained_resources
+                    .iter()
+                    .map(|(logical_id, resource_type, status, reason)| {
+                        serde_json::json!({
+                            "LogicalResourceId": logical_id,
+                            "ResourceType": resource_type,
+                            "ResourceStatus": status,
+                            "ResourceStatusReason": reason,
+                        })
+                    })
+                    .collect();
+                return Ok(ShellCommandResult {
+                    exit_code: 0,
+                    stdout: serde_json::json!({"StackResources": resources}).to_string(),
                     stderr: String::new(),
                 });
             }
@@ -1663,6 +1869,17 @@ mod tests {
         ) -> Result<String, String> {
             self.saved_outputs.borrow_mut().push(outputs.clone());
             Ok("/tmp/characterforge-ai-dev-outputs.json".to_string())
+        }
+
+        fn clear_deployment_config(
+            &self,
+            stack_name: &str,
+            region: &str,
+        ) -> Result<String, String> {
+            self.cleared_configs
+                .borrow_mut()
+                .push((stack_name.to_string(), region.to_string()));
+            Ok(format!("/tmp/{stack_name}-{region}-outputs.json"))
         }
     }
 
@@ -1761,6 +1978,72 @@ mod tests {
         assert!(saved_outputs.borrow()[0].contains_key("ApiUrl"));
         assert!(saved_outputs.borrow()[0].contains_key("FunctionName"));
         assert!(!saved_outputs.borrow()[0].contains_key("ApiKeyValue"));
+    }
+
+    #[test]
+    fn end_deployment_reports_retained_resources_and_keeps_config_on_delete_failed() {
+        let shell =
+            MockDeploymentShell::new(vec!["DELETE_IN_PROGRESS", "DELETE_FAILED"], Vec::new())
+                .with_retained_resources(vec![(
+                    "CharacterMessagesTable",
+                    "AWS::DynamoDB::Table",
+                    "DELETE_FAILED",
+                    "Table deletion protection is enabled; token real-session-token",
+                )]);
+        let cleared_configs = Rc::clone(&shell.cleared_configs);
+        let saved_outputs = Rc::clone(&shell.saved_outputs);
+        let adapter = RealDeploymentCommandAdapter::new(shell);
+
+        let result = adapter
+            .end(
+                base_deployment_request(),
+                DeploymentEndOptions {
+                    confirmation_text: "END characterforge-ai-dev".to_string(),
+                    export_confirmed: true,
+                    cancelled: None,
+                },
+            )
+            .expect("end result");
+
+        assert_eq!(result.status, "failed");
+        assert_eq!(result.final_stack_status, "DELETE_FAILED");
+        let logs = result.logs.join("\n");
+        assert!(logs.contains("Retained resources requiring manual cleanup"));
+        assert!(logs.contains("CharacterMessagesTable (AWS::DynamoDB::Table) - DELETE_FAILED"));
+        assert!(!logs.contains("real-session-token"));
+        assert!(logs.contains("Local deployment config was left in place"));
+        assert!(cleared_configs.borrow().is_empty());
+        assert!(saved_outputs.borrow().is_empty());
+    }
+
+    #[test]
+    fn end_deployment_clears_local_config_only_after_delete_complete() {
+        let shell =
+            MockDeploymentShell::new(vec!["DELETE_IN_PROGRESS", "DELETE_COMPLETE"], Vec::new());
+        let cleared_configs = Rc::clone(&shell.cleared_configs);
+        let adapter = RealDeploymentCommandAdapter::new(shell);
+
+        let result = adapter
+            .end(
+                base_deployment_request(),
+                DeploymentEndOptions {
+                    confirmation_text: "END characterforge-ai-dev".to_string(),
+                    export_confirmed: true,
+                    cancelled: None,
+                },
+            )
+            .expect("end result");
+
+        assert_eq!(result.status, "succeeded");
+        assert_eq!(result.final_stack_status, "DELETE_COMPLETE");
+        assert!(result
+            .logs
+            .join("\n")
+            .contains("Cleared local deployment config"));
+        assert_eq!(
+            *cleared_configs.borrow(),
+            vec![("characterforge-ai-dev".to_string(), "us-east-1".to_string())]
+        );
     }
 
     #[test]
