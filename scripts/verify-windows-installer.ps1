@@ -3,7 +3,12 @@
 param(
     [string]$InstallerPath,
     [string]$ExpectedInstallerName = "characterforgeai-installer.exe",
-    [int]$ExpectedMinSizeMB = 40,
+    # Tauri NSIS installers do not bundle WebView2 or Rust toolchains; the early
+    # CharacterForgeAI desktop shell is intentionally small. Keep the default as
+    # a smoke-test floor that catches empty/truncated artifacts without failing a
+    # valid lightweight release candidate. Callers can pass a higher value for a
+    # release that starts bundling large runtimes later.
+    [int]$ExpectedMinSizeMB = 1,
     [Nullable[int]]$ExpectedMaxSizeMB,
     [string]$ExpectedInstallDir,
     [switch]$SkipInstalledArtifacts,

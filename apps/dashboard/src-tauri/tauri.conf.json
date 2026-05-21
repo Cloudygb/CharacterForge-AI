@@ -31,6 +31,10 @@
       "msi",
       "nsis"
     ],
+    "icon": [
+      "icons/icon.ico",
+      "icons/icon.png"
+    ],
     "category": "DeveloperTool",
     "shortDescription": "User-friendly desktop app for building, testing, and deploying CharacterForgeAI game characters",
     "longDescription": "Installs the CharacterForgeAI desktop app for game designers, including the guided dashboard experience for character authoring, character packs, chat testing, and guarded local deployment workflows.",

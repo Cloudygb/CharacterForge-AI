@@ -37,6 +37,8 @@ def test_tauri_config_packages_existing_dashboard_build() -> None:
     assert "msi" in config["bundle"]["targets"]
     assert "nsis" in config["bundle"]["targets"]
     assert config["bundle"]["licenseFile"] == "../../../LICENSE"
+    assert "icons/icon.ico" in config["bundle"]["icon"]
+    assert "icons/icon.png" in config["bundle"]["icon"]
     resources = config["bundle"]["resources"]
     assert resources["../../../infra"] == "deployment/infra"
     assert resources["../../../src/characterforge"] == "deployment/src/characterforge"
@@ -48,6 +50,10 @@ def test_tauri_config_packages_existing_dashboard_build() -> None:
     assert nsis["installMode"] == "currentUser"
     assert nsis["startMenuFolder"] == "CharacterForgeAI"
     assert nsis["installerHooks"] == "installer/characterforgeai.nsh"
+
+
+def test_tauri_windows_icon_exists_for_release_builds() -> None:
+    assert (TAURI / "icons" / "icon.ico").is_file()
 
 
 def test_tauri_updater_is_not_enabled_before_signed_release_requirements_are_ready() -> None:
@@ -86,6 +92,9 @@ def test_custom_nsis_installer_hook_is_user_friendly_and_safe() -> None:
     assert "install-aws-sam-cli.ps1" in normalized
     assert "show-docker-guidance.ps1" in normalized
     assert "detect-dependencies.ps1" in normalized
+    assert "${__filedir__}\\detect-dependencies.ps1" in normalized
+    assert "cfai_ensuredefaultchoices" in normalized
+    assert "silent installs skip custom pages" in normalized
 
     forbidden = [
         "requestexecutionlevel admin",
@@ -107,7 +116,7 @@ def test_custom_nsis_installer_hook_defines_the_intended_page_flow() -> None:
 
     expected_order = [
         "page custom cfai_createwelcomepage",
-        "licensedata \"../../../license\"",
+        "licensedata \"license_file\"",
         "page license",
         "page custom cfai_createdependencyvalidationpage cfai_leavedependencyvalidationpage",
         "page custom cfai_createdependencyinstallpage cfai_leavedependencyinstallpage",
@@ -275,6 +284,8 @@ def test_windows_installer_verification_script_checks_staged_and_installed_artif
     assert "dist\\characterforgeai-installer.exe" in normalized
     assert "characterforgeai-installer.exe" in normalized
     assert "expectedminsizemb" in normalized
+    assert "tauri nsis installers do not bundle webview2" in normalized
+    assert "valid lightweight release candidate" in normalized
     assert "get-authenticodesignature" in normalized
     assert "signature status" in normalized
     assert "characterforgeai.exe" in normalized

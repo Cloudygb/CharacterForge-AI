@@ -36,7 +36,10 @@ Var CFAI_LaunchNowCheckbox
 ; 7. Install progress page.
 ; 8. Finish page with a Launch CharacterForgeAI now checkbox.
 Page custom CFAI_CreateWelcomePage
-LicenseData "../../../LICENSE"
+; Tauri stages bundle.licenseFile as `license_file` beside the generated NSIS
+; script before this hook is compiled. Use that staged path instead of a repo-
+; relative path because makensis runs from target/release/nsis/<arch>.
+LicenseData "license_file"
 Page license
 Page custom CFAI_CreateDependencyValidationPage CFAI_LeaveDependencyValidationPage
 Page custom CFAI_CreateDependencyInstallPage CFAI_LeaveDependencyInstallPage
@@ -47,11 +50,11 @@ Page custom CFAI_CreateFinishPage CFAI_LeaveFinishPage
 
 !macro CFAI_ExtractInstallerHelpers
   InitPluginsDir
-  File /oname=$PLUGINSDIR\detect-dependencies.ps1 "installer\detect-dependencies.ps1"
-  File /oname=$PLUGINSDIR\install-webview2-runtime.ps1 "installer\install-webview2-runtime.ps1"
-  File /oname=$PLUGINSDIR\install-aws-cli-v2.ps1 "installer\install-aws-cli-v2.ps1"
-  File /oname=$PLUGINSDIR\install-aws-sam-cli.ps1 "installer\install-aws-sam-cli.ps1"
-  File /oname=$PLUGINSDIR\show-docker-guidance.ps1 "installer\show-docker-guidance.ps1"
+  File /oname=$PLUGINSDIR\detect-dependencies.ps1 "${__FILEDIR__}\detect-dependencies.ps1"
+  File /oname=$PLUGINSDIR\install-webview2-runtime.ps1 "${__FILEDIR__}\install-webview2-runtime.ps1"
+  File /oname=$PLUGINSDIR\install-aws-cli-v2.ps1 "${__FILEDIR__}\install-aws-cli-v2.ps1"
+  File /oname=$PLUGINSDIR\install-aws-sam-cli.ps1 "${__FILEDIR__}\install-aws-sam-cli.ps1"
+  File /oname=$PLUGINSDIR\show-docker-guidance.ps1 "${__FILEDIR__}\show-docker-guidance.ps1"
 !macroend
 
 !macro CFAI_RunDependencyValidation
@@ -80,6 +83,26 @@ Page custom CFAI_CreateFinishPage CFAI_LeaveFinishPage
     nsExec::ExecToLog 'powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$PLUGINSDIR\show-docker-guidance.ps1" -LogPath "${CFAI_LOG_DIR}\docker-guidance.log"'
   ${Else}
     DetailPrint "Dependency installation skipped. CharacterForgeAI can guide setup later."
+  ${EndIf}
+!macroend
+
+!macro CFAI_EnsureDefaultChoices
+  ; Silent installs skip custom pages, so initialize the same safe defaults that
+  ; the welcome page sets for interactive installs.
+  ${If} $CFAI_RunDependencyValidation == ""
+    StrCpy $CFAI_RunDependencyValidation "1"
+  ${EndIf}
+  ${If} $CFAI_RunDependencyInstallers == ""
+    StrCpy $CFAI_RunDependencyInstallers "0"
+  ${EndIf}
+  ${If} $CFAI_CreateDesktopShortcut == ""
+    StrCpy $CFAI_CreateDesktopShortcut "1"
+  ${EndIf}
+  ${If} $CFAI_CreateStartMenuShortcut == ""
+    StrCpy $CFAI_CreateStartMenuShortcut "1"
+  ${EndIf}
+  ${If} $CFAI_LaunchNow == ""
+    StrCpy $CFAI_LaunchNow "0"
   ${EndIf}
 !macroend
 
@@ -258,6 +281,7 @@ FunctionEnd
 !macroend
 
 !macro NSIS_HOOK_POSTINSTALL
+  !insertmacro CFAI_EnsureDefaultChoices
   !insertmacro CFAI_RunDependencyInstallers
   !insertmacro CFAI_ApplyShortcutChoices
 !macroend
