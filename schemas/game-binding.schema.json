@@ -1,0 +1,162 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://characterforge.ai/schemas/game-binding.schema.json",
+  "title": "CharacterForge Game Binding",
+  "description": "Maps CharacterForge action types to methods in a game's existing runtime systems.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "game", "bindings"],
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "const": "1.0"
+    },
+    "game": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "engine"],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "engine": {
+          "type": "string",
+          "minLength": 1
+        },
+        "version": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "bindings": {
+      "type": "object",
+      "description": "Object keyed by CharacterForge action type.",
+      "minProperties": 1,
+      "propertyNames": {
+        "enum": [
+          "give_quest",
+          "advance_quest",
+          "complete_quest",
+          "fail_quest",
+          "start_dialogue",
+          "show_choice",
+          "trigger_scene",
+          "open_shop",
+          "trade_offer",
+          "give_item",
+          "take_item",
+          "give_currency",
+          "take_currency",
+          "set_flag",
+          "clear_flag",
+          "set_variable",
+          "change_variable",
+          "change_relationship",
+          "change_reputation",
+          "change_faction_standing",
+          "spawn_entity",
+          "despawn_entity",
+          "move_entity",
+          "start_combat",
+          "end_combat",
+          "set_npc_hostile",
+          "set_npc_friendly",
+          "apply_condition",
+          "unlock_location",
+          "lock_location",
+          "reveal_location",
+          "teleport_player",
+          "escort_player",
+          "open_door",
+          "close_door",
+          "unlock_door",
+          "lock_door"
+        ]
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/action_binding"
+      }
+    }
+  },
+  "$defs": {
+    "action_binding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["target", "payload_map"],
+      "properties": {
+        "description": {
+          "type": "string",
+          "minLength": 1
+        },
+        "target": {
+          "$ref": "#/$defs/target"
+        },
+        "payload_map": {
+          "type": "object",
+          "description": "Object keyed by game method parameter name.",
+          "minProperties": 1,
+          "additionalProperties": {
+            "$ref": "#/$defs/value_mapping"
+          }
+        },
+        "when_missing": {
+          "type": "string",
+          "enum": ["skip", "error"],
+          "default": "error"
+        }
+      }
+    },
+    "target": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["system", "method"],
+      "properties": {
+        "system": {
+          "type": "string",
+          "minLength": 1
+        },
+        "method": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "value_mapping": {
+      "description": "A source path in the CharacterForge action payload or an explicit mapping object.",
+      "oneOf": [
+        {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^payload\\.[A-Za-z0-9_]+$"
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["source"],
+          "properties": {
+            "source": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^payload\\.[A-Za-z0-9_]+$"
+            },
+            "default": true,
+            "required": {
+              "type": "boolean",
+              "default": true
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["literal"],
+          "properties": {
+            "literal": true
+          }
+        }
+      ]
+    }
+  }
+}

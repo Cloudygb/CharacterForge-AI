@@ -1,0 +1,92 @@
+{
+  "schema_version": "1.0",
+  "game": {
+    "name": "Aesail Highlands RPG",
+    "engine": "Unreal Engine",
+    "version": "prototype"
+  },
+  "bindings": {
+    "give_quest": {
+      "description": "Start a quest that the NPC has offered through an approved payload template.",
+      "target": {
+        "system": "QuestManager",
+        "method": "StartQuest"
+      },
+      "payload_map": {
+        "questId": "payload.quest_id",
+        "title": {
+          "source": "payload.title",
+          "required": false
+        },
+        "rewardItemId": {
+          "source": "payload.reward_item",
+          "required": false
+        }
+      },
+      "when_missing": "error"
+    },
+    "start_combat": {
+      "description": "Launch a combat encounter selected by the character designer.",
+      "target": {
+        "system": "CombatManager",
+        "method": "StartEncounter"
+      },
+      "payload_map": {
+        "encounterId": "payload.encounter_id",
+        "enemyGroupId": "payload.enemy_group_id",
+        "arenaId": {
+          "source": "payload.arena_id",
+          "required": false
+        }
+      },
+      "when_missing": "error"
+    },
+    "give_item": {
+      "description": "Add a reward item to the player's inventory.",
+      "target": {
+        "system": "Inventory",
+        "method": "AddItem"
+      },
+      "payload_map": {
+        "itemId": "payload.item_id",
+        "quantity": {
+          "source": "payload.quantity",
+          "default": 1,
+          "required": false
+        }
+      },
+      "when_missing": "error"
+    },
+    "start_dialogue": {
+      "description": "Open a hand-authored dialogue branch after CharacterForge returns the action.",
+      "target": {
+        "system": "Dialogue",
+        "method": "StartBranch"
+      },
+      "payload_map": {
+        "branchId": "payload.branch_id",
+        "speakerId": {
+          "source": "payload.speaker_id",
+          "required": false
+        }
+      },
+      "when_missing": "error"
+    },
+    "set_flag": {
+      "description": "Set a persistent gameplay flag from an approved template.",
+      "target": {
+        "system": "Flags",
+        "method": "Set"
+      },
+      "payload_map": {
+        "flagName": "payload.flag",
+        "value": {
+          "source": "payload.value",
+          "default": true,
+          "required": false
+        }
+      },
+      "when_missing": "error"
+    }
+  }
+}
