@@ -292,8 +292,74 @@ describe("CharacterForge dashboard", () => {
     }
     expect(screen.getAllByText(/Profile game-dev is configured/i).length).toBeGreaterThan(0);
     expect(screen.getAllByText(/Stack characterforge-demo does not exist yet/i).length).toBeGreaterThan(0);
-    expect(screen.queryByText(/secret/i)).not.toBeInTheDocument();
-    expect(screen.queryByText(/session token/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/raw-secret-value/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/raw-session-token/i)).not.toBeInTheDocument();
+  });
+
+  it("guides credential-safe AWS setup wizard with mocked profile/model output", async () => {
+    const user = userEvent.setup();
+    const invoke = vi.fn().mockImplementation((command: string) => {
+      if (command === "get_app_config") {
+        return Promise.resolve({ firstRunTutorialCompleted: true, firstRunTutorialSkipped: false });
+      }
+      if (command === "check_aws_setup_wizard") {
+        return Promise.resolve({
+          profiles: ["default", "game-dev"],
+          selectedProfile: "game-dev",
+          selectedRegion: "us-west-2",
+          selectedModel: "anthropic.claude-3-haiku-20240307-v1:0",
+          availableModels: ["anthropic.claude-3-haiku-20240307-v1:0", "amazon.nova-micro-v1:0"],
+          bedrockAccessStatus: "ready: model access confirmed by Bedrock control-plane list call",
+          stackPreview: {
+            stackName: "characterforge-demo",
+            region: "us-west-2",
+            profileName: "game-dev",
+            bedrockModel: "anthropic.claude-3-haiku-20240307-v1:0",
+            status: "CREATE_COMPLETE"
+          },
+          warnings: [
+            "Credential values are never stored, logged, or returned by this wizard.",
+            "Bedrock usage and deployed AWS resources may create account charges."
+          ]
+        });
+      }
+      return Promise.reject(new Error(`unexpected command ${command}`));
+    });
+    window.__TAURI__ = { core: { invoke } };
+
+    render(<App />);
+    await user.click(screen.getByRole("button", { name: "Setup Check" }));
+
+    expect(screen.getByRole("heading", { name: /credential-safe aws setup wizard/i })).toBeInTheDocument();
+    expect(screen.getByText(/uses named aws cli profiles/i)).toBeInTheDocument();
+    expect(screen.getByText(/no access keys, secret keys, session tokens, passwords, or auth headers are stored/i)).toBeInTheDocument();
+    expect(screen.getByText(/bedrock and deployed aws resources can create charges/i)).toBeInTheDocument();
+
+    await user.clear(screen.getByLabelText(/aws region/i));
+    await user.type(screen.getByLabelText(/aws region/i), "us-west-2");
+    await user.clear(screen.getByLabelText(/aws profile name/i));
+    await user.type(screen.getByLabelText(/aws profile name/i), "game-dev");
+    await user.clear(screen.getByLabelText(/stack name/i));
+    await user.type(screen.getByLabelText(/stack name/i), "characterforge-demo");
+    await user.click(screen.getByRole("button", { name: /load aws setup wizard/i }));
+
+    expect(await screen.findByText(/aws setup wizard ready/i)).toBeInTheDocument();
+    expect(invoke).toHaveBeenCalledWith("check_aws_setup_wizard", {
+      request: {
+        awsRegion: "us-west-2",
+        bedrockModel: "anthropic.claude-3-haiku-20240307-v1:0",
+        profileName: "game-dev",
+        stackName: "characterforge-demo"
+      }
+    });
+    expect(screen.getByText(/detected aws cli profiles/i)).toBeInTheDocument();
+    expect(screen.getByText(/default, game-dev/i)).toBeInTheDocument();
+    expect(screen.getByText(/model access confirmed/i)).toBeInTheDocument();
+    expect(screen.getByText(/stack preview/i)).toBeInTheDocument();
+    expect(screen.getByText(/CREATE_COMPLETE/i)).toBeInTheDocument();
+    expect(screen.queryByText(/EXAMPLEACCESSKEY123/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/do-not-leak/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/real-session-token/i)).not.toBeInTheDocument();
   });
 
   it("previews the deployment Start flow in dry-run mode without calling AWS or the SDK", async () => {

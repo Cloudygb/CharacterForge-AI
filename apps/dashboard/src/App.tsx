@@ -183,6 +183,23 @@ type SetupCheckResult = {
   warnings: string[];
 };
 
+type AwsSetupWizardResult = {
+  profiles: string[];
+  selectedProfile: string;
+  selectedRegion: string;
+  selectedModel: string;
+  availableModels: string[];
+  bedrockAccessStatus: string;
+  stackPreview: {
+    stackName: string;
+    region: string;
+    profileName: string;
+    bedrockModel: string;
+    status: string;
+  };
+  warnings: string[];
+};
+
 const settingsStorageKey = "characterforge.dashboard.settings";
 const appConfigStorageKey = "characterforge.dashboard.appConfig";
 
@@ -280,15 +297,47 @@ function hasTauriInvoke() {
   return typeof window !== "undefined" && Boolean(window.__TAURI__?.core?.invoke);
 }
 
+function setupRequestPayload(form: SetupCheckForm) {
+  return {
+    awsRegion: form.awsRegion.trim() || defaultSetupCheckForm.awsRegion,
+    bedrockModel: form.bedrockModel,
+    profileName: form.profileName.trim() || defaultSetupCheckForm.profileName,
+    stackName: form.stackName.trim() || defaultSetupCheckForm.stackName
+  };
+}
+
+async function runAwsSetupWizardCheck(form: SetupCheckForm): Promise<AwsSetupWizardResult> {
+  if (hasTauriInvoke()) {
+    return (await window.__TAURI__!.core!.invoke("check_aws_setup_wizard", {
+      request: setupRequestPayload(form)
+    })) as AwsSetupWizardResult;
+  }
+  const payload = setupRequestPayload(form);
+  return {
+    profiles: ["default", payload.profileName].filter((profile, index, profiles) => profiles.indexOf(profile) === index),
+    selectedProfile: payload.profileName,
+    selectedRegion: payload.awsRegion,
+    selectedModel: payload.bedrockModel,
+    availableModels: bedrockModelOptions.map((option) => option.value),
+    bedrockAccessStatus: "mock: model access check is simulated in browser mode",
+    stackPreview: {
+      stackName: payload.stackName,
+      region: payload.awsRegion,
+      profileName: payload.profileName,
+      bedrockModel: payload.bedrockModel,
+      status: "not checked in browser mock mode"
+    },
+    warnings: [
+      "Credential values are never stored, logged, or returned by this wizard.",
+      "Bedrock usage and deployed AWS resources may create account charges."
+    ]
+  };
+}
+
 async function runSetupReadinessCheck(form: SetupCheckForm): Promise<SetupCheckResult> {
   if (hasTauriInvoke()) {
     const readiness = (await window.__TAURI__!.core!.invoke("check_setup_readiness", {
-      request: {
-        awsRegion: form.awsRegion.trim() || defaultSetupCheckForm.awsRegion,
-        bedrockModel: form.bedrockModel,
-        profileName: form.profileName.trim() || defaultSetupCheckForm.profileName,
-        stackName: form.stackName.trim() || defaultSetupCheckForm.stackName
-      }
+      request: setupRequestPayload(form)
     })) as SetupReadinessResult;
     const findDetail = (label: string) => readiness.checks.find((check) => check.label === label)?.detail ?? "Not checked";
     return {
@@ -1017,14 +1066,20 @@ function SetupCheckScreen({
   form,
   onFormChange,
   onRunCheck,
+  onRunAwsSetupWizard,
   result,
-  status
+  status,
+  wizardResult,
+  wizardStatus
 }: {
   form: SetupCheckForm;
   onFormChange: (form: SetupCheckForm) => void;
   onRunCheck: () => void;
+  onRunAwsSetupWizard: () => void;
   result: SetupCheckResult | null;
   status: ConnectionStatus;
+  wizardResult: AwsSetupWizardResult | null;
+  wizardStatus: ConnectionStatus;
 }) {
   return (
     <section className="screen-card" aria-labelledby="setup-check-title">
@@ -1076,6 +1131,35 @@ function SetupCheckScreen({
       <div className="button-row">
         <button type="button" onClick={onRunCheck}>Run setup check</button>
       </div>
+      <section className="tutorial-card" aria-labelledby="aws-setup-wizard-title">
+        <p className="eyebrow">Guided AWS setup</p>
+        <h2 id="aws-setup-wizard-title">Credential-safe AWS setup wizard</h2>
+        <p>
+          This wizard uses named AWS CLI profiles, guides region and Bedrock model selection, and previews the
+          CloudFormation stack settings before you use Start.
+        </p>
+        <div className="setup-check-grid">
+          <article className="summary-card">
+            <span>Credential safety</span>
+            <strong>No access keys, secret keys, session tokens, passwords, or auth headers are stored, logged, or shown.</strong>
+          </article>
+          <article className="summary-card">
+            <span>Cost awareness</span>
+            <strong>Bedrock and deployed AWS resources can create charges; review pricing, budgets, and cleanup plans.</strong>
+          </article>
+          <article className="summary-card">
+            <span>Bedrock access</span>
+            <strong>Checks use the safe Bedrock control-plane model list, not a runtime prompt.</strong>
+          </article>
+        </div>
+        <div className="button-row">
+          <button type="button" onClick={onRunAwsSetupWizard}>Load AWS setup wizard</button>
+        </div>
+        <div className={`connection-status ${wizardStatus.state}`} role="status">
+          {wizardStatus.message}
+        </div>
+        {wizardResult ? <AwsSetupWizardSummary result={wizardResult} /> : null}
+      </section>
       <div className={`connection-status ${status.state}`} role="status">
         {status.message}
       </div>
@@ -1102,6 +1186,37 @@ function SetupCheckScreen({
         <h2 id="setup-warnings-title">Warnings</h2>
         <ul>
           {(result?.warnings ?? ["Mock results only — run the setup check before using this for deployment decisions."]).map((warning) => (
+            <li key={warning}>{warning}</li>
+          ))}
+        </ul>
+      </section>
+    </section>
+  );
+}
+
+function AwsSetupWizardSummary({ result }: { result: AwsSetupWizardResult }) {
+  return (
+    <section className="setup-warning-list" aria-labelledby="aws-setup-summary-title">
+      <h3 id="aws-setup-summary-title">AWS setup wizard summary</h3>
+      <div className="setup-check-grid">
+        <SetupCheckCard label="Detected AWS CLI profiles" value={result.profiles.join(", ") || "No profiles detected"} />
+        <SetupCheckCard label="Selected profile" value={result.selectedProfile} />
+        <SetupCheckCard label="Selected region" value={result.selectedRegion} />
+        <SetupCheckCard label="Selected Bedrock model" value={result.selectedModel} />
+        <SetupCheckCard label="Available Bedrock models" value={result.availableModels.join(", ") || "No models listed"} />
+        <SetupCheckCard label="Bedrock access check" value={result.bedrockAccessStatus} />
+      </div>
+      <section className="notice compact" aria-labelledby="stack-preview-title">
+        <h3 id="stack-preview-title">Stack preview</h3>
+        <p>
+          Stack {result.stackPreview.stackName} in {result.stackPreview.region} using profile {result.stackPreview.profileName}
+          and model {result.stackPreview.bedrockModel}: {result.stackPreview.status}
+        </p>
+      </section>
+      <section className="warning setup-warning-list" aria-labelledby="aws-setup-warning-title">
+        <h3 id="aws-setup-warning-title">Wizard safety notes</h3>
+        <ul>
+          {result.warnings.map((warning) => (
             <li key={warning}>{warning}</li>
           ))}
         </ul>
@@ -1767,6 +1882,11 @@ export default function App() {
   const [showTutorial, setShowTutorial] = useState(true);
   const [setupCheckForm, setSetupCheckForm] = useState<SetupCheckForm>(defaultSetupCheckForm);
   const [setupCheckResult, setSetupCheckResult] = useState<SetupCheckResult | null>(null);
+  const [awsSetupWizardResult, setAwsSetupWizardResult] = useState<AwsSetupWizardResult | null>(null);
+  const [awsSetupWizardStatus, setAwsSetupWizardStatus] = useState<ConnectionStatus>({
+    message: "AWS setup wizard not loaded yet.",
+    state: "idle"
+  });
   const [setupCheckStatus, setSetupCheckStatus] = useState<ConnectionStatus>({
     message: "Not checked yet.",
     state: "idle"
@@ -1896,6 +2016,17 @@ export default function App() {
       });
     } catch (error) {
       setSetupCheckStatus({ message: error instanceof Error ? error.message : "Setup check failed.", state: "error" });
+    }
+  }
+
+  async function handleRunAwsSetupWizard() {
+    setAwsSetupWizardStatus({ message: "Loading credential-safe AWS setup wizard...", state: "loading" });
+    try {
+      const result = await runAwsSetupWizardCheck(setupCheckForm);
+      setAwsSetupWizardResult(result);
+      setAwsSetupWizardStatus({ message: "AWS setup wizard ready.", state: "success" });
+    } catch (error) {
+      setAwsSetupWizardStatus({ message: error instanceof Error ? error.message : "AWS setup wizard failed.", state: "error" });
     }
   }
 
@@ -2100,8 +2231,11 @@ export default function App() {
             form={setupCheckForm}
             onFormChange={setSetupCheckForm}
             onRunCheck={handleRunSetupCheck}
+            onRunAwsSetupWizard={handleRunAwsSetupWizard}
             result={setupCheckResult}
             status={setupCheckStatus}
+            wizardResult={awsSetupWizardResult}
+            wizardStatus={awsSetupWizardStatus}
           />
         );
       case "deployment":

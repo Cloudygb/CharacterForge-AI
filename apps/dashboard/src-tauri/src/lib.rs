@@ -111,6 +111,29 @@ pub struct SetupReadinessResult {
     pub warnings: Vec<String>,
 }
 
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AwsSetupStackPreview {
+    pub stack_name: String,
+    pub region: String,
+    pub profile_name: String,
+    pub bedrock_model: String,
+    pub status: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AwsSetupWizardResult {
+    pub profiles: Vec<String>,
+    pub selected_profile: String,
+    pub selected_region: String,
+    pub selected_model: String,
+    pub available_models: Vec<String>,
+    pub bedrock_access_status: String,
+    pub stack_preview: AwsSetupStackPreview,
+    pub warnings: Vec<String>,
+}
+
 #[derive(Debug, Clone)]
 pub struct SetupReadinessCommandResult {
     pub exit_code: i32,
@@ -927,6 +950,154 @@ fn sanitize_setup_detail(detail: &str) -> String {
     sanitized
 }
 
+fn check_aws_setup_wizard_with_shell<S: SetupReadinessShell>(
+    shell: &S,
+    request: SetupReadinessRequest,
+) -> AwsSetupWizardResult {
+    let region = if request.aws_region.trim().is_empty() {
+        "us-east-1"
+    } else {
+        request.aws_region.trim()
+    };
+    let profile = if request.profile_name.trim().is_empty() {
+        "default"
+    } else {
+        request.profile_name.trim()
+    };
+    let stack_name = if request.stack_name.trim().is_empty() {
+        "characterforge-ai-dev"
+    } else {
+        request.stack_name.trim()
+    };
+
+    let profiles_output = shell.run("aws", &["configure", "list-profiles"]);
+    let mut profiles: Vec<String> = if profiles_output.exit_code == 0 {
+        profiles_output
+            .stdout
+            .lines()
+            .map(str::trim)
+            .filter(|line| !line.is_empty() && !looks_like_secret(line))
+            .map(sanitize_setup_detail)
+            .collect()
+    } else {
+        Vec::new()
+    };
+    profiles.sort();
+    profiles.dedup();
+
+    let profile_region = shell.run("aws", &["configure", "get", "region", "--profile", profile]);
+    let selected_region = if region.is_empty()
+        && profile_region.exit_code == 0
+        && !profile_region.stdout.trim().is_empty()
+    {
+        profile_region.stdout.trim().to_string()
+    } else {
+        region.to_string()
+    };
+
+    let models = shell.run(
+        "aws",
+        &[
+            "bedrock",
+            "list-foundation-models",
+            "--region",
+            &selected_region,
+            "--profile",
+            profile,
+        ],
+    );
+    let available_models = parse_model_ids(&models.stdout);
+    let bedrock_access_status = if models.exit_code == 0
+        && available_models.contains(&request.bedrock_model)
+    {
+        "ready: model access confirmed by Bedrock control-plane list call".to_string()
+    } else if models.exit_code == 0 {
+        "warning: Bedrock list call succeeded, but the selected model was not listed".to_string()
+    } else {
+        format!(
+            "warning: Bedrock model list could not be read ({})",
+            sanitize_setup_detail(first_non_empty(&models.stdout, &models.stderr).as_str())
+        )
+    };
+
+    let stack = shell.run(
+        "aws",
+        &[
+            "cloudformation",
+            "describe-stacks",
+            "--stack-name",
+            stack_name,
+            "--profile",
+            profile,
+            "--region",
+            &selected_region,
+        ],
+    );
+    let stack_status = if stack.exit_code == 0 {
+        parse_stack_status(&stack.stdout).unwrap_or_else(|| "UNKNOWN".to_string())
+    } else if format!("{}\n{}", stack.stderr, stack.stdout)
+        .to_lowercase()
+        .contains("does not exist")
+    {
+        "NOT_CREATED_YET".to_string()
+    } else {
+        "UNREADABLE".to_string()
+    };
+
+    AwsSetupWizardResult {
+        profiles,
+        selected_profile: sanitize_setup_detail(profile),
+        selected_region: sanitize_setup_detail(&selected_region),
+        selected_model: sanitize_setup_detail(&request.bedrock_model),
+        available_models: available_models
+            .into_iter()
+            .map(|model| sanitize_setup_detail(&model))
+            .collect(),
+        bedrock_access_status: sanitize_setup_detail(&bedrock_access_status),
+        stack_preview: AwsSetupStackPreview {
+            stack_name: sanitize_setup_detail(stack_name),
+            region: sanitize_setup_detail(&selected_region),
+            profile_name: sanitize_setup_detail(profile),
+            bedrock_model: sanitize_setup_detail(&request.bedrock_model),
+            status: sanitize_setup_detail(&stack_status),
+        },
+        warnings: vec![
+            "Credential values are never stored, logged, or returned by this wizard.".to_string(),
+            "Bedrock usage and deployed AWS resources may create account charges.".to_string(),
+            "The Bedrock check lists available models only; it does not invoke a model prompt."
+                .to_string(),
+        ],
+    }
+}
+
+fn parse_model_ids(stdout: &str) -> Vec<String> {
+    let parsed: Value = match serde_json::from_str(stdout) {
+        Ok(value) => value,
+        Err(_) => return Vec::new(),
+    };
+    parsed
+        .get("modelSummaries")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|item| item.get("modelId").and_then(Value::as_str))
+        .filter(|model| !looks_like_secret(model))
+        .map(str::to_string)
+        .collect()
+}
+
+fn looks_like_secret(value: &str) -> bool {
+    let lower = value.to_lowercase();
+    value.starts_with("AKIA")
+        || value.starts_with("ASIA")
+        || lower.contains("accesskey")
+        || lower.contains("secret")
+        || lower.contains("session_token")
+        || lower.contains("password")
+        || lower.contains("authorization")
+        || lower.contains("bearer ")
+}
+
 fn check_setup_readiness_with_shell<S: SetupReadinessShell>(
     shell: &S,
     resource_paths: DeploymentResourcePaths,
@@ -1224,6 +1395,11 @@ fn check_setup_readiness(
 }
 
 #[tauri::command]
+fn check_aws_setup_wizard(request: SetupReadinessRequest) -> AwsSetupWizardResult {
+    check_aws_setup_wizard_with_shell(&LocalSetupReadinessShell, request)
+}
+
+#[tauri::command]
 fn preview_deployment_start(request: DeploymentStartRequest) -> DeploymentStartPreview {
     DryRunDeploymentCommandAdapter.preview_start(request)
 }
@@ -1424,6 +1600,81 @@ mod tests {
         let _ = fs::remove_dir_all(root);
     }
     #[test]
+    fn aws_setup_wizard_detects_profiles_models_stack_and_redacts_secret_output() {
+        let shell = MockSetupReadinessShell::new(vec![
+            (
+                "aws",
+                vec!["configure", "list-profiles"],
+                0,
+                "default\ngame-dev\nEXAMPLEACCESSKEY123\n",
+                "",
+            ),
+            (
+                "aws",
+                vec!["configure", "get", "region", "--profile", "game-dev"],
+                0,
+                "us-west-2\n",
+                "",
+            ),
+            (
+                "aws",
+                vec![
+                    "bedrock",
+                    "list-foundation-models",
+                    "--region",
+                    "us-west-2",
+                    "--profile",
+                    "game-dev",
+                ],
+                0,
+                r#"{"modelSummaries":[{"modelId":"anthropic.claude-3-haiku-20240307-v1:0"},{"modelId":"amazon.nova-micro-v1:0"}],"AWS_SECRET_ACCESS_KEY":"do-not-leak"}"#,
+                "",
+            ),
+            (
+                "aws",
+                vec![
+                    "cloudformation",
+                    "describe-stacks",
+                    "--stack-name",
+                    "characterforge-demo",
+                    "--profile",
+                    "game-dev",
+                    "--region",
+                    "us-west-2",
+                ],
+                0,
+                r#"{"Stacks":[{"StackStatus":"CREATE_COMPLETE"}]}"#,
+                "session_token=do-not-leak",
+            ),
+        ]);
+
+        let result = check_aws_setup_wizard_with_shell(
+            &shell,
+            SetupReadinessRequest {
+                aws_region: "us-west-2".to_string(),
+                bedrock_model: "anthropic.claude-3-haiku-20240307-v1:0".to_string(),
+                profile_name: "game-dev".to_string(),
+                stack_name: "characterforge-demo".to_string(),
+            },
+        );
+
+        assert_eq!(
+            result.profiles,
+            vec!["default".to_string(), "game-dev".to_string()]
+        );
+        assert!(result
+            .available_models
+            .contains(&"anthropic.claude-3-haiku-20240307-v1:0".to_string()));
+        assert!(result.bedrock_access_status.contains("ready"));
+        assert_eq!(result.stack_preview.status, "CREATE_COMPLETE");
+        let rendered = serde_json::to_string(&result).expect("serialize wizard result");
+        assert!(!rendered.contains("AKIAIOSFODNN7EXAMPLE"));
+        assert!(!rendered.contains("do-not-leak"));
+        assert!(!rendered.to_lowercase().contains("session_token"));
+        assert_eq!(shell.commands.borrow().len(), 4);
+    }
+
+    #[test]
     fn setup_readiness_uses_mocked_commands_and_redacts_credential_output() {
         let root = packaged_resource_root();
         let shell = MockSetupReadinessShell::new(vec![
@@ -1546,6 +1797,7 @@ pub fn run() {
             get_app_config,
             save_app_config,
             check_setup_readiness,
+            check_aws_setup_wizard,
             preview_deployment_start,
             start_deployment,
             end_deployment
