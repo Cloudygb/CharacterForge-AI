@@ -1,5 +1,5 @@
 import JSZip from "jszip";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import { CharacterForgeClient, type CharacterSummary } from "@characterforge/characterforge-ai";
 
@@ -159,6 +159,11 @@ type TutorialStep = {
   nextLabel: string;
 };
 
+type AppConfig = {
+  firstRunTutorialCompleted: boolean;
+  firstRunTutorialSkipped: boolean;
+};
+
 type SetupCheckForm = {
   awsRegion: string;
   bedrockModel: string;
@@ -179,6 +184,12 @@ type SetupCheckResult = {
 };
 
 const settingsStorageKey = "characterforge.dashboard.settings";
+const appConfigStorageKey = "characterforge.dashboard.appConfig";
+
+const defaultAppConfig: AppConfig = {
+  firstRunTutorialCompleted: false,
+  firstRunTutorialSkipped: false
+};
 
 const screens: Array<{ id: ScreenId; label: string }> = [
   { id: "welcome", label: "Welcome" },
@@ -330,7 +341,7 @@ const firstRunTutorialSteps: TutorialStep[] = [
     title: "Dashboard tour",
     body: "Use Character Packs to import and export local content, Character Editor to shape payloads, and Raw JSON Preview to inspect safe mock state.",
     checklist: ["Keep mock mode until you intentionally connect", "Validate local packs before importing", "Review JSON before sharing artifacts"],
-    nextLabel: "Open API Settings"
+    nextLabel: "Finish tutorial and open API Settings"
   }
 ];
 
@@ -403,6 +414,42 @@ function loadInitialSettings(): ApiSettings {
 
 function saveSettings(settings: ApiSettings) {
   window.localStorage.setItem(settingsStorageKey, JSON.stringify({ apiBaseUrl: settings.apiBaseUrl, apiKey: "" }));
+}
+
+function normalizeAppConfig(config: Partial<AppConfig> | null | undefined): AppConfig {
+  return {
+    firstRunTutorialCompleted: Boolean(config?.firstRunTutorialCompleted),
+    firstRunTutorialSkipped: Boolean(config?.firstRunTutorialSkipped)
+  };
+}
+
+async function loadAppConfig(): Promise<AppConfig> {
+  if (hasTauriInvoke()) {
+    return normalizeAppConfig((await window.__TAURI__!.core!.invoke("get_app_config", {})) as Partial<AppConfig>);
+  }
+  if (typeof window === "undefined") {
+    return defaultAppConfig;
+  }
+  const storedConfig = window.localStorage.getItem(appConfigStorageKey);
+  if (!storedConfig) {
+    return defaultAppConfig;
+  }
+  try {
+    return normalizeAppConfig(JSON.parse(storedConfig) as Partial<AppConfig>);
+  } catch {
+    return defaultAppConfig;
+  }
+}
+
+async function saveAppConfig(config: AppConfig): Promise<AppConfig> {
+  const normalized = normalizeAppConfig(config);
+  if (hasTauriInvoke()) {
+    return normalizeAppConfig(
+      (await window.__TAURI__!.core!.invoke("save_app_config", { config: normalized })) as Partial<AppConfig>
+    );
+  }
+  window.localStorage.setItem(appConfigStorageKey, JSON.stringify(normalized));
+  return normalized;
 }
 
 async function runMockSetupCheck(form: SetupCheckForm): Promise<SetupCheckResult> {
@@ -790,13 +837,31 @@ function downloadJsonFile(payload: unknown): string {
   return URL.createObjectURL(blob);
 }
 
-function WelcomeScreen({ mode, onOpenSettings, onTutorialStepChange, tutorialStepIndex }: { mode: "api" | "mock"; onOpenSettings: () => void; onTutorialStepChange: (stepIndex: number) => void; tutorialStepIndex: number }) {
+function WelcomeScreen({
+  mode,
+  onOpenSettings,
+  onReopenTutorial,
+  onSkipTutorial,
+  onTutorialComplete,
+  onTutorialStepChange,
+  showTutorial,
+  tutorialStepIndex
+}: {
+  mode: "api" | "mock";
+  onOpenSettings: () => void;
+  onReopenTutorial: () => void;
+  onSkipTutorial: () => void;
+  onTutorialComplete: () => void;
+  onTutorialStepChange: (stepIndex: number) => void;
+  showTutorial: boolean;
+  tutorialStepIndex: number;
+}) {
   const tutorialStep = firstRunTutorialSteps[tutorialStepIndex];
   const finalStep = tutorialStepIndex === firstRunTutorialSteps.length - 1;
 
   function handleTutorialNext() {
     if (finalStep) {
-      onOpenSettings();
+      onTutorialComplete();
       return;
     }
     onTutorialStepChange(tutorialStepIndex + 1);
@@ -820,30 +885,46 @@ function WelcomeScreen({ mode, onOpenSettings, onTutorialStepChange, tutorialSte
         <SummaryCard label="Editor action groups" value={actionTemplateConfigs.length.toString()} />
         <SummaryCard label="API mode" value={mode === "api" ? "Connected" : "Mock"} />
       </div>
-      <section className="tutorial-card" aria-labelledby="tutorial-title">
-        <p className="eyebrow">Step {tutorialStepIndex + 1} of {firstRunTutorialSteps.length}</p>
-        <h2 id="tutorial-title">First-run tutorial</h2>
-        <h3>{tutorialStep.title}</h3>
-        <p>{tutorialStep.body}</p>
-        <ul>
-          {tutorialStep.checklist.map((item) => (
-            <li key={item}>{item}</li>
-          ))}
-        </ul>
-        <div className="tutorial-safety-grid" aria-label="First-run safety warnings">
-          <div className="warning">
-            <strong>AWS cost warning</strong>
-            <p>AWS can charge for deployed resources. Set budgets and delete test stacks when finished.</p>
+      {showTutorial ? (
+        <section className="tutorial-card" aria-labelledby="tutorial-title">
+          <p className="eyebrow">Step {tutorialStepIndex + 1} of {firstRunTutorialSteps.length}</p>
+          <h2 id="tutorial-title">First-run tutorial</h2>
+          <h3>{tutorialStep.title}</h3>
+          <p>{tutorialStep.body}</p>
+          <ul>
+            {tutorialStep.checklist.map((item) => (
+              <li key={item}>{item}</li>
+            ))}
+          </ul>
+          <div className="tutorial-safety-grid" aria-label="First-run safety warnings">
+            <div className="warning">
+              <strong>AWS cost warning</strong>
+              <p>AWS can charge for deployed resources. Set budgets and delete test stacks when finished.</p>
+            </div>
+            <div className="warning">
+              <strong>Credential safety warning</strong>
+              <p>Never paste production credentials into browser forms, commits, screenshots, or public demos.</p>
+            </div>
           </div>
-          <div className="warning">
-            <strong>Credential safety warning</strong>
-            <p>Never paste production credentials into browser forms, commits, screenshots, or public demos.</p>
+          <div className="button-row">
+            <button type="button" onClick={handleTutorialNext}>{tutorialStep.nextLabel}</button>
+            <button className="secondary" type="button" onClick={onSkipTutorial}>Skip tutorial</button>
           </div>
-        </div>
-        <div className="button-row">
-          <button type="button" onClick={handleTutorialNext}>{tutorialStep.nextLabel}</button>
-        </div>
-      </section>
+        </section>
+      ) : (
+        <section className="tutorial-card" aria-labelledby="tutorial-reopen-title">
+          <p className="eyebrow">Saved setup preference</p>
+          <h2 id="tutorial-reopen-title">First-run tutorial is saved as completed</h2>
+          <p>
+            CharacterForgeAI will remember this choice in the desktop app config. You can reopen the guided setup any
+            time from this Welcome screen.
+          </p>
+          <div className="button-row">
+            <button type="button" onClick={onReopenTutorial}>Reopen first-run tutorial</button>
+            <button className="secondary" type="button" onClick={onOpenSettings}>Open API Settings</button>
+          </div>
+        </section>
+      )}
     </section>
   );
 }
@@ -1681,7 +1762,9 @@ export default function App() {
     state: "idle"
   });
   const [packExportState, setPackExportState] = useState<PackExportState | null>(null);
+  const [appConfig, setAppConfig] = useState<AppConfig>(defaultAppConfig);
   const [tutorialStepIndex, setTutorialStepIndex] = useState(0);
+  const [showTutorial, setShowTutorial] = useState(true);
   const [setupCheckForm, setSetupCheckForm] = useState<SetupCheckForm>(defaultSetupCheckForm);
   const [setupCheckResult, setSetupCheckResult] = useState<SetupCheckResult | null>(null);
   const [setupCheckStatus, setSetupCheckStatus] = useState<ConnectionStatus>({
@@ -1705,6 +1788,50 @@ export default function App() {
   const editorPayloadResult = useMemo(() => buildCharacterPayload(editorForm), [editorForm]);
   const editorValidationErrors = editorPayloadResult.errors;
   const editorPayload = editorPayloadResult.payload;
+
+  useEffect(() => {
+    let active = true;
+    loadAppConfig()
+      .then((config) => {
+        if (!active) {
+          return;
+        }
+        setAppConfig(config);
+        setShowTutorial(!config.firstRunTutorialCompleted && !config.firstRunTutorialSkipped);
+      })
+      .catch(() => {
+        if (active) {
+          setShowTutorial(true);
+        }
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  function persistAppConfig(nextConfig: AppConfig) {
+    const normalized = normalizeAppConfig(nextConfig);
+    setAppConfig(normalized);
+    void saveAppConfig(normalized).catch(() => {
+      setAppConfig(appConfig);
+    });
+  }
+
+  function handleTutorialComplete() {
+    persistAppConfig({ firstRunTutorialCompleted: true, firstRunTutorialSkipped: false });
+    setShowTutorial(false);
+    setActiveScreen("settings");
+  }
+
+  function handleSkipTutorial() {
+    persistAppConfig({ firstRunTutorialCompleted: true, firstRunTutorialSkipped: true });
+    setShowTutorial(false);
+  }
+
+  function handleReopenTutorial() {
+    setTutorialStepIndex(0);
+    setShowTutorial(true);
+  }
 
   function handleSaveSettings() {
     const nextSettings = {
@@ -2041,7 +2168,11 @@ export default function App() {
           <WelcomeScreen
             mode={apiMode ? "api" : "mock"}
             onOpenSettings={() => setActiveScreen("settings")}
+            onReopenTutorial={handleReopenTutorial}
+            onSkipTutorial={handleSkipTutorial}
+            onTutorialComplete={handleTutorialComplete}
             onTutorialStepChange={setTutorialStepIndex}
+            showTutorial={showTutorial}
             tutorialStepIndex={tutorialStepIndex}
           />
         );

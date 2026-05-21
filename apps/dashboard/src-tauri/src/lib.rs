@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::BTreeMap;
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::thread;
 use std::time::Duration;
@@ -116,6 +116,69 @@ pub struct SetupReadinessCommandResult {
     pub exit_code: i32,
     pub stdout: String,
     pub stderr: String,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AppConfig {
+    pub first_run_tutorial_completed: bool,
+    pub first_run_tutorial_skipped: bool,
+}
+
+impl Default for AppConfig {
+    fn default() -> Self {
+        Self {
+            first_run_tutorial_completed: false,
+            first_run_tutorial_skipped: false,
+        }
+    }
+}
+
+fn app_config_file_from_dir(base_dir: &Path) -> PathBuf {
+    base_dir.join("CharacterForgeAI").join("config.json")
+}
+
+fn resolve_app_config_file(app: Option<&AppHandle>) -> Result<PathBuf, String> {
+    if let Some(override_dir) = std::env::var_os("CHARACTERFORGEAI_CONFIG_DIR") {
+        return Ok(app_config_file_from_dir(&PathBuf::from(override_dir)));
+    }
+    if let Some(appdata) = std::env::var_os("APPDATA") {
+        return Ok(app_config_file_from_dir(&PathBuf::from(appdata)));
+    }
+    if let Some(app) = app {
+        let fallback = app
+            .path()
+            .app_config_dir()
+            .map_err(|error| format!("failed to resolve app config directory: {error}"))?;
+        return Ok(fallback.join("config.json"));
+    }
+    let fallback = user_home_dir()
+        .unwrap_or_else(std::env::temp_dir)
+        .join("AppData/Roaming");
+    Ok(app_config_file_from_dir(&fallback))
+}
+
+fn read_app_config_from_path(path: &Path) -> Result<AppConfig, String> {
+    if !path.exists() {
+        return Ok(AppConfig::default());
+    }
+    let raw = fs::read_to_string(path)
+        .map_err(|error| format!("failed to read CharacterForgeAI config: {error}"))?;
+    serde_json::from_str(&raw)
+        .map_err(|error| format!("failed to parse CharacterForgeAI config: {error}"))
+}
+
+fn write_app_config_to_path(path: &Path, config: AppConfig) -> Result<AppConfig, String> {
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).map_err(|error| {
+            format!("failed to create CharacterForgeAI config directory: {error}")
+        })?;
+    }
+    let raw = serde_json::to_string_pretty(&config)
+        .map_err(|error| format!("failed to serialize CharacterForgeAI config: {error}"))?;
+    fs::write(path, raw)
+        .map_err(|error| format!("failed to write CharacterForgeAI config: {error}"))?;
+    Ok(config)
 }
 
 #[derive(Debug, Clone)]
@@ -1136,6 +1199,18 @@ fn user_home_dir() -> Option<PathBuf> {
 }
 
 #[tauri::command]
+fn get_app_config(app: AppHandle) -> Result<AppConfig, String> {
+    let config_path = resolve_app_config_file(Some(&app))?;
+    read_app_config_from_path(&config_path)
+}
+
+#[tauri::command]
+fn save_app_config(app: AppHandle, config: AppConfig) -> Result<AppConfig, String> {
+    let config_path = resolve_app_config_file(Some(&app))?;
+    write_app_config_to_path(&config_path, config)
+}
+
+#[tauri::command]
 fn check_setup_readiness(
     app: AppHandle,
     request: SetupReadinessRequest,
@@ -1267,6 +1342,43 @@ mod tests {
         );
         write_file(&root.join("deployment/LICENSE"), "Required Notice: test");
         root
+    }
+
+    fn temp_config_dir() -> PathBuf {
+        static NEXT_CONFIG_DIR: AtomicUsize = AtomicUsize::new(0);
+        let root = std::env::temp_dir().join(format!(
+            "characterforgeai-config-{}-{}",
+            std::process::id(),
+            NEXT_CONFIG_DIR.fetch_add(1, Ordering::SeqCst)
+        ));
+        let _ = fs::remove_dir_all(&root);
+        root
+    }
+
+    #[test]
+    fn app_config_defaults_and_persists_to_temp_config_directory() {
+        let config_dir = temp_config_dir();
+        let config_path = app_config_file_from_dir(&config_dir);
+
+        let default_config = read_app_config_from_path(&config_path).expect("read default config");
+        assert!(!default_config.first_run_tutorial_completed);
+        assert!(!default_config.first_run_tutorial_skipped);
+        assert_eq!(config_path, config_dir.join("CharacterForgeAI/config.json"));
+
+        let saved_config = AppConfig {
+            first_run_tutorial_completed: true,
+            first_run_tutorial_skipped: true,
+        };
+        write_app_config_to_path(&config_path, saved_config.clone()).expect("write config");
+
+        let persisted = read_app_config_from_path(&config_path).expect("read persisted config");
+        assert!(persisted.first_run_tutorial_completed);
+        assert!(persisted.first_run_tutorial_skipped);
+        let raw = fs::read_to_string(&config_path).expect("read config json");
+        assert!(raw.contains("firstRunTutorialCompleted"));
+        assert!(raw.contains("firstRunTutorialSkipped"));
+
+        let _ = fs::remove_dir_all(config_dir);
     }
 
     #[test]
@@ -1431,6 +1543,8 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .invoke_handler(tauri::generate_handler![
+            get_app_config,
+            save_app_config,
             check_setup_readiness,
             preview_deployment_start,
             start_deployment,

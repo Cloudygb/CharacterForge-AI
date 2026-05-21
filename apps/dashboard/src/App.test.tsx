@@ -85,12 +85,71 @@ describe("CharacterForge dashboard", () => {
     expect(screen.getByText(/step 4 of 4/i)).toBeInTheDocument();
     expect(screen.getByText(/use character packs to import and export local content/i)).toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: /open api settings/i }));
+    await user.click(screen.getByRole("button", { name: /finish tutorial and open api settings/i }));
     expect(screen.getByRole("heading", { name: /api settings/i })).toBeInTheDocument();
     expect(screen.getByText(/review these safety notes before entering setup values/i)).toBeInTheDocument();
     expect(screen.getByText(/aws cost warning/i)).toBeInTheDocument();
     expect(screen.getByText(/credential safety warning/i)).toBeInTheDocument();
     expect(screen.getByLabelText(/api base url/i)).toBeInTheDocument();
+  });
+
+  it("persists first-run tutorial completion through Tauri config commands", async () => {
+    const user = userEvent.setup();
+    const invoke = vi.fn().mockImplementation((command: string, payload: unknown) => {
+      if (command === "get_app_config") {
+        return Promise.resolve({ firstRunTutorialCompleted: false, firstRunTutorialSkipped: false });
+      }
+      if (command === "save_app_config") {
+        return Promise.resolve(payload && typeof payload === "object" && "config" in payload ? payload.config : {});
+      }
+      return Promise.reject(new Error(`unexpected command ${command}`));
+    });
+    window.__TAURI__ = { core: { invoke } };
+
+    render(<App />);
+
+    expect(await screen.findByRole("heading", { name: /first-run tutorial/i })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /next: safety/i }));
+    await user.click(screen.getByRole("button", { name: /next: credentials/i }));
+    await user.click(screen.getByRole("button", { name: /next: dashboard tour/i }));
+    await user.click(screen.getByRole("button", { name: /finish tutorial and open api settings/i }));
+
+    await waitFor(() =>
+      expect(invoke).toHaveBeenCalledWith("save_app_config", {
+        config: { firstRunTutorialCompleted: true, firstRunTutorialSkipped: false }
+      })
+    );
+  });
+
+  it("allows skipping first-run tutorial and reopening it later", async () => {
+    const user = userEvent.setup();
+    const invoke = vi.fn().mockImplementation((command: string, payload: unknown) => {
+      if (command === "get_app_config") {
+        return Promise.resolve({ firstRunTutorialCompleted: true, firstRunTutorialSkipped: true });
+      }
+      if (command === "save_app_config") {
+        return Promise.resolve(payload && typeof payload === "object" && "config" in payload ? payload.config : {});
+      }
+      return Promise.reject(new Error(`unexpected command ${command}`));
+    });
+    window.__TAURI__ = { core: { invoke } };
+
+    render(<App />);
+
+    await waitFor(() => expect(invoke).toHaveBeenCalledWith("get_app_config", {}));
+    expect(screen.queryByRole("heading", { name: /^first-run tutorial$/i })).not.toBeInTheDocument();
+    expect(screen.getByText(/first-run tutorial is saved as completed/i)).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: /reopen first-run tutorial/i }));
+    expect(screen.getByRole("heading", { name: /first-run tutorial/i })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /skip tutorial/i }));
+
+    await waitFor(() =>
+      expect(invoke).toHaveBeenCalledWith("save_app_config", {
+        config: { firstRunTutorialCompleted: true, firstRunTutorialSkipped: true }
+      })
+    );
+    expect(screen.queryByRole("heading", { name: /^first-run tutorial$/i })).not.toBeInTheDocument();
   });
 
   it("navigates between setup check, character, editor, chat, settings, and JSON preview screens", async () => {
