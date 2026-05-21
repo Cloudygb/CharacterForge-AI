@@ -9,7 +9,7 @@ This directory contains request and response artifacts from a real deployed Char
 | Run ID | `readme-demo-20260521T003735Z` |
 | Stack | `characterforge-ai-dev` |
 | Region | `us-east-1` |
-| API base URL | `https://<api-id>.execute-api.<region>.amazonaws.com/<stage>` |
+| API base URL | Omitted from the public repo; keep stack-specific endpoints in local notes or a secret manager. |
 | Model | `amazon.nova-micro-v1:0` |
 | Demo character | `Captain Mira Voss` |
 | Demo character ID | `char_f9d35b183bca42c6859f7300e1f67e75` |
