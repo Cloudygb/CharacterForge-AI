@@ -478,7 +478,7 @@ This project demonstrates practical backend skills that map directly to producti
 ```text
 .
 ├── apps/
-│   └── dashboard/               # React/Vite dashboard mockup
+│   └── dashboard/               # React/Vite API dashboard and character editor
 ├── docs/
 │   ├── assets/                  # Architecture image and demo assets
 │   ├── game-engines/            # Unity and Unreal integration guides
@@ -525,7 +525,7 @@ Potential next steps for turning the MVP into a production-ready platform:
 - Tenant/project-scoped DynamoDB access patterns and indexes.
 - Optimistic locking for character updates.
 - Streaming chat responses.
-- Admin UI for character editing and action-rule configuration.
+- Richer admin workflows for bulk editing, approvals, and action-rule review.
 - Observability dashboards for latency, errors, token usage, and Bedrock cost.
 - Broader game-engine integration examples.
 
