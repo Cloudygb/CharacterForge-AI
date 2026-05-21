@@ -313,11 +313,20 @@ ruff check src tests examples scripts
 ruff format src tests examples scripts
 ```
 
-### Offline demo client
+### Python game-client demo
 
-The local demo uses in-memory stores and the deterministic mock LLM. It does not require AWS credentials and does not call Bedrock.
+The Python game-client example is safe by default: it runs in mock mode, does not require AWS credentials, and does not call the network. It also shows how a deployed API client sends `x-api-key` and how returned actions are dispatched to game-side handlers.
 
 ```bash
+PYTHONPATH=src python3 examples/game-client-python/demo_client.py
+```
+
+To intentionally call a deployed API Gateway URL, opt into live mode and provide an API key from your environment:
+
+```bash
+export CHARACTERFORGE_DEMO_MODE=live
+export CHARACTERFORGE_API_BASE_URL="https://<api-id>.execute-api.<region>.amazonaws.com/dev"
+export CHARACTERFORGE_API_KEY="<your-api-key-value>"
 PYTHONPATH=src python3 examples/game-client-python/demo_client.py
 ```
 
