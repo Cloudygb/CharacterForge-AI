@@ -752,7 +752,7 @@ function WelcomeScreen({ mode, onOpenSettings, onTutorialStepChange, tutorialSte
   return (
     <section className="screen-card" aria-labelledby="welcome-title">
       <p className="eyebrow">{mode === "api" ? "API-connected dashboard" : "Mock dashboard"}</p>
-      <h1 id="welcome-title">Welcome to CharacterForge Dashboard</h1>
+      <h1 id="welcome-title">Welcome to CharacterForgeAI</h1>
       <p>
         Review character profiles, inspect action payloads, and test the dashboard flow before wiring deeper edit and
         chat actions into the deployed CharacterForge API.

@@ -53,7 +53,7 @@ describe("CharacterForge dashboard", () => {
   it("uses mock data by default and starts with a first-run tutorial before setup forms", () => {
     render(<App />);
 
-    expect(screen.getByRole("heading", { name: /welcome to characterforge dashboard/i })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: /welcome to characterforgeai/i })).toBeInTheDocument();
     expect(screen.getByText(/mock dashboard/i)).toBeInTheDocument();
     expect(screen.getByText(/no api base url is set/i)).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: /first-run tutorial/i })).toBeInTheDocument();

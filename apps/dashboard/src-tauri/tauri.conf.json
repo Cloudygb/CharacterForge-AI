@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "CharacterForge Dashboard",
+  "productName": "CharacterForgeAI",
   "version": "0.1.0",
-  "identifier": "com.characterforge.dashboard",
+  "identifier": "com.cloudygb.characterforgeai",
   "build": {
     "beforeDevCommand": "npm run dev",
     "beforeBuildCommand": "npm run build",
@@ -12,7 +12,7 @@
   "app": {
     "windows": [
       {
-        "title": "CharacterForge Dashboard",
+        "title": "CharacterForgeAI",
         "width": 1280,
         "height": 820,
         "minWidth": 960,
@@ -27,9 +27,19 @@
   },
   "bundle": {
     "active": true,
-    "targets": ["msi", "nsis"],
+    "targets": [
+      "msi",
+      "nsis"
+    ],
     "category": "DeveloperTool",
-    "shortDescription": "Desktop shell for the CharacterForge AI dashboard",
-    "longDescription": "Packages the existing CharacterForge AI React dashboard as a local desktop app. It does not deploy AWS resources."
-  }
+    "shortDescription": "User-friendly desktop app for building, testing, and deploying CharacterForgeAI game characters",
+    "longDescription": "Installs the CharacterForgeAI desktop app for game designers, including the guided dashboard experience for character authoring, character packs, chat testing, and guarded local deployment workflows.",
+    "windows": {
+      "nsis": {
+        "installMode": "both",
+        "startMenuFolder": "CharacterForgeAI"
+      }
+    }
+  },
+  "mainBinaryName": "CharacterForgeAI"
 }

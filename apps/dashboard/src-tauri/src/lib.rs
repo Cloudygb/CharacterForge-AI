@@ -1,4 +1,4 @@
-// Desktop deployment shell for the CharacterForge dashboard.
+// Desktop deployment shell for CharacterForgeAI.
 // Preview is dry-run only. Real Start is guarded by explicit confirmation,
 // redacts credentials from logs, polls CloudFormation, and stores only
 // non-secret stack outputs in a local user file.
@@ -708,5 +708,5 @@ pub fn run() {
             end_deployment
         ])
         .run(tauri::generate_context!())
-        .expect("error while running CharacterForge Dashboard");
+        .expect("error while running CharacterForgeAI");
 }

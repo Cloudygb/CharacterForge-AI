@@ -1,6 +1,6 @@
-# CharacterForge Dashboard
+# CharacterForgeAI Desktop App
 
-React/Vite/TypeScript dashboard for CharacterForge AI.
+React/Vite/TypeScript desktop dashboard for CharacterForgeAI.
 
 The dashboard starts in mock mode when no API base URL is set. When a local base URL and API key are entered in the API Settings screen, the app uses the CharacterForge TypeScript SDK client to test the connection, list characters, and submit character profile create/update payloads to the API.
 
@@ -55,7 +55,7 @@ Only the explicit import action calls the CharacterForge API. Loading, validatin
 
 ## Desktop app
 
-The dashboard can also run as a local Tauri desktop app. The Tauri shell packages the existing React/Vite build and does not deploy AWS resources or create cloud infrastructure.
+CharacterForgeAI runs as a local Tauri desktop app. The Tauri shell packages the existing React/Vite build and does not deploy AWS resources or create cloud infrastructure during installation.
 
 Local desktop commands:
 
@@ -74,7 +74,7 @@ npm run build
 
 ### Windows installer
 
-To produce a Windows installer, run the build from a Windows environment with Rust, Node.js, npm, and the Tauri Windows prerequisites installed:
+To produce a Windows installer for release, run the build from a Windows environment with Rust, Node.js, npm, and the Tauri Windows prerequisites installed:
 
 ```powershell
 cd apps/dashboard
@@ -88,7 +88,7 @@ Tauri writes Windows installer artifacts under:
 apps/dashboard/src-tauri/target/release/bundle/
 ```
 
-The Tauri config currently enables both `msi` and `nsis` bundle targets. Building the desktop app packages the local dashboard only; it does not deploy AWS resources, run SAM, create CloudFormation stacks, or request Bedrock access.
+The Tauri config enables both `msi` and `nsis` bundle targets. The NSIS installer is the release path for `characterforgeai-installer.exe`; staging it does not deploy AWS resources, run SAM, create CloudFormation stacks, or request Bedrock access.
 
 ## Local commands
 
@@ -108,3 +108,19 @@ CHARACTERFORGE_API_KEY=<your-api-key-value>
 ```
 
 Do not paste production API keys into source files, browser bundles, committed config, screenshots, or frontend tests. The dashboard keeps the typed API key in component state for the current browser session and does not persist it to localStorage. Public deployments should use a trusted backend/proxy for secret storage instead of exposing keys to browser clients.
+
+### Release artifact staging
+
+After `npm run desktop:build` creates the NSIS installer, stage the public download name with:
+
+```bash
+npm run desktop:stage-installer
+```
+
+This copies the newest NSIS `.exe` to the repository root as:
+
+```text
+dist/characterforgeai-installer.exe
+```
+
+The installed desktop executable is configured as `CharacterForgeAI.exe`.
