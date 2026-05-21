@@ -13,6 +13,12 @@ def build_bedrock_prompt(
     """Build the complete prompt sent to Amazon Bedrock for a character chat turn."""
 
     enabled_action_rules = [rule for rule in character.action_rules if rule.enabled]
+    enabled_action_types = {rule.type for rule in enabled_action_rules}
+    approved_payload_templates = [
+        template
+        for template in character.payload_templates
+        if template.action_type in enabled_action_types
+    ]
     game_context = json.dumps(chat_request.context, indent=2, sort_keys=True)
     response_schema = json.dumps(
         {
@@ -21,7 +27,11 @@ def build_bedrock_prompt(
             "actions": [
                 {
                     "type": "One enabled action type from the action rules, or omit actions.",
-                    "payload": "Object containing action-specific data for the game client.",
+                    "template_id": (
+                        "One approved template_id for this action type, or omit when no action "
+                        "is triggered."
+                    ),
+                    "payload": "Exact payload_template object from the selected approved template.",
                 }
             ],
             "relationship_delta": "Optional integer relationship change, or null.",
@@ -53,6 +63,15 @@ def build_bedrock_prompt(
             "",
             "## Enabled Action Rules",
             _format_action_rules(enabled_action_rules),
+            "",
+            "## Approved Payload Templates",
+            "Choose only from these approved payload templates when triggering an action.",
+            "Return the selected template_id with the action.",
+            (
+                "Return the exact payload_template object as the action payload; do not invent or "
+                "rename payload fields."
+            ),
+            _format_payload_templates(approved_payload_templates),
             "",
             "## Current Player Message",
             f"Current player message: {chat_request.message}",
@@ -91,3 +110,29 @@ def _format_action_rules(action_rules: Sequence[object]) -> str:
         return "No actions are enabled for this character. Return an empty actions array."
 
     return "\n".join(f"- {rule.type}: {rule.trigger_instructions}" for rule in action_rules)
+
+
+def _format_payload_templates(payload_templates: Sequence[object]) -> str:
+    if not payload_templates:
+        return "No approved payload templates are available. Return an empty actions array."
+
+    lines = []
+    for template in payload_templates:
+        payload_json = json.dumps(template.payload_template, indent=2, sort_keys=True)
+        lines.append(
+            "\n".join(
+                [
+                    f"- template_id: {template.template_id}",
+                    f"  action_type: {template.action_type}",
+                    f"  description: {template.description}",
+                    "  payload_template:",
+                    _indent(payload_json, spaces=4),
+                ]
+            )
+        )
+    return "\n".join(lines)
+
+
+def _indent(text: str, *, spaces: int) -> str:
+    prefix = " " * spaces
+    return "\n".join(f"{prefix}{line}" for line in text.splitlines())

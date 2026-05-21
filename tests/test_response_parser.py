@@ -2,7 +2,7 @@ from datetime import UTC, datetime
 
 import pytest
 
-from characterforge.models.action import CharacterActionRule
+from characterforge.models.action import ActionPayloadTemplate, CharacterActionRule
 from characterforge.models.character import CharacterProfile
 from characterforge.models.chat import ChatResponse
 from characterforge.services.response_parser import LLMResponseParseError, parse_chat_response
@@ -36,6 +36,33 @@ def make_character_profile() -> CharacterProfile:
                 type="set_flag",
                 enabled=False,
                 trigger_instructions="Only set the secret flag after the citadel boss is defeated.",
+            ),
+        ],
+        payload_templates=[
+            ActionPayloadTemplate(
+                template_id="ruins_quest_offer",
+                action_type="give_quest",
+                description="Payload to offer the ruins investigation quest.",
+                payload_template={
+                    "quest_id": "ember_ruins",
+                    "title": "Investigate the Ember Hollow ruins",
+                    "reward_item": "tempered_pickaxe",
+                },
+            ),
+            ActionPayloadTemplate(
+                template_id="blacksmith_shop",
+                action_type="open_shop",
+                description="Payload to open Mira's blacksmith shop inventory.",
+                payload_template={
+                    "shop_id": "mira_blacksmith",
+                    "inventory_tag": "tools_and_armor",
+                },
+            ),
+            ActionPayloadTemplate(
+                template_id="secret_flag",
+                action_type="set_flag",
+                description="Payload for a disabled secret flag action.",
+                payload_template={"flag": "citadel_boss_defeated"},
             ),
         ],
         created_at=now,
@@ -94,6 +121,70 @@ def test_parse_chat_response_rejects_actions_not_enabled_for_character() -> None
 
     assert "set_flag" in str(error.value)
     assert "Mira Ashforge" in str(error.value)
+
+
+def test_parse_chat_response_uses_approved_payload_when_template_id_is_returned() -> None:
+    response = parse_chat_response(
+        raw_text=(
+            '{"message": "Take this work if your courage holds.", '
+            '"actions": [{"type": "give_quest", '
+            '"template_id": "ruins_quest_offer", '
+            '"payload": {"quest_id": "wrong", "extra": "ignored"}}]}'
+        ),
+        character=make_character_profile(),
+    )
+
+    assert response.actions[0].type == "give_quest"
+    assert response.actions[0].payload == {
+        "quest_id": "ember_ruins",
+        "title": "Investigate the Ember Hollow ruins",
+        "reward_item": "tempered_pickaxe",
+    }
+
+
+def test_parse_chat_response_rejects_unknown_template_ids() -> None:
+    with pytest.raises(LLMResponseParseError, match="unknown template_id") as error:
+        parse_chat_response(
+            raw_text=(
+                '{"message": "Take this work.", '
+                '"actions": [{"type": "give_quest", '
+                '"template_id": "not_a_real_template", "payload": {}}]}'
+            ),
+            character=make_character_profile(),
+        )
+
+    assert "not_a_real_template" in str(error.value)
+
+
+def test_parse_chat_response_rejects_template_action_mismatches() -> None:
+    with pytest.raises(LLMResponseParseError, match="does not match action type") as error:
+        parse_chat_response(
+            raw_text=(
+                '{"message": "The shop is open.", '
+                '"actions": [{"type": "open_shop", '
+                '"template_id": "ruins_quest_offer", "payload": {}}]}'
+            ),
+            character=make_character_profile(),
+        )
+
+    assert "ruins_quest_offer" in str(error.value)
+    assert "open_shop" in str(error.value)
+    assert "give_quest" in str(error.value)
+
+
+def test_parse_chat_response_rejects_disabled_template_action_types() -> None:
+    with pytest.raises(LLMResponseParseError, match="not enabled") as error:
+        parse_chat_response(
+            raw_text=(
+                '{"message": "The secret is marked.", '
+                '"actions": [{"type": "set_flag", '
+                '"template_id": "secret_flag", "payload": {}}]}'
+            ),
+            character=make_character_profile(),
+        )
+
+    assert "set_flag" in str(error.value)
+    assert "secret_flag" not in str(error.value)
 
 
 def test_parse_chat_response_rejects_missing_required_fields() -> None:

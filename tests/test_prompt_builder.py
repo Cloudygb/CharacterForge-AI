@@ -1,6 +1,6 @@
 from datetime import UTC, datetime
 
-from characterforge.models.action import CharacterActionRule
+from characterforge.models.action import ActionPayloadTemplate, CharacterActionRule
 from characterforge.models.character import CharacterProfile
 from characterforge.models.chat import ChatRequest, MessageRecord
 from characterforge.services.prompt_builder import build_bedrock_prompt
@@ -34,6 +34,33 @@ def make_character_profile() -> CharacterProfile:
                 type="set_flag",
                 enabled=False,
                 trigger_instructions="Only set the secret flag after the citadel boss is defeated.",
+            ),
+        ],
+        payload_templates=[
+            ActionPayloadTemplate(
+                template_id="ruins_quest_offer",
+                action_type="give_quest",
+                description="Payload to offer the ruins investigation quest.",
+                payload_template={
+                    "quest_id": "ember_ruins",
+                    "title": "Investigate the Ember Hollow ruins",
+                    "reward_item": "tempered_pickaxe",
+                },
+            ),
+            ActionPayloadTemplate(
+                template_id="blacksmith_shop",
+                action_type="open_shop",
+                description="Payload to open Mira's blacksmith shop inventory.",
+                payload_template={
+                    "shop_id": "mira_blacksmith",
+                    "inventory_tag": "tools_and_armor",
+                },
+            ),
+            ActionPayloadTemplate(
+                template_id="secret_flag",
+                action_type="set_flag",
+                description="Payload for a disabled secret flag action.",
+                payload_template={"flag": "citadel_boss_defeated"},
             ),
         ],
         created_at=now,
@@ -120,6 +147,50 @@ def test_build_bedrock_prompt_includes_only_enabled_action_rules_and_triggers() 
     assert "Open the shop if the player asks to buy tools or armor." in prompt
     assert "set_flag" not in prompt
     assert "Only set the secret flag after the citadel boss is defeated." not in prompt
+
+
+def test_build_bedrock_prompt_includes_approved_payload_templates() -> None:
+    prompt = build_bedrock_prompt(
+        character=make_character_profile(),
+        chat_request=make_chat_request(),
+        recent_messages=[],
+    )
+
+    assert "## Approved Payload Templates" in prompt
+    assert "Choose only from these approved payload templates when triggering an action." in prompt
+    assert "ruins_quest_offer" in prompt
+    assert "blacksmith_shop" in prompt
+    assert "secret_flag" not in prompt
+    assert "Payload for a disabled secret flag action." not in prompt
+
+
+def test_build_bedrock_prompt_includes_template_payload_fields_and_trigger_instructions() -> None:
+    prompt = build_bedrock_prompt(
+        character=make_character_profile(),
+        chat_request=make_chat_request(),
+        recent_messages=[],
+    )
+
+    assert "Offer the ruins quest if the player asks how to help." in prompt
+    assert "Open the shop if the player asks to buy tools or armor." in prompt
+    assert '"quest_id": "ember_ruins"' in prompt
+    assert '"title": "Investigate the Ember Hollow ruins"' in prompt
+    assert '"reward_item": "tempered_pickaxe"' in prompt
+    assert '"shop_id": "mira_blacksmith"' in prompt
+    assert '"inventory_tag": "tools_and_armor"' in prompt
+
+
+def test_build_bedrock_prompt_tells_model_to_return_template_id_and_exact_payload() -> None:
+    prompt = build_bedrock_prompt(
+        character=make_character_profile(),
+        chat_request=make_chat_request(),
+        recent_messages=[],
+    )
+
+    assert "Return the selected template_id with the action." in prompt
+    assert "Return the exact payload_template object as the action payload" in prompt
+    assert '"template_id"' in prompt
+    assert '"payload"' in prompt
 
 
 def test_build_bedrock_prompt_includes_required_json_response_schema() -> None:
