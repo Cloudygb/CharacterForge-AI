@@ -218,7 +218,6 @@ manager, or deployment-specific configuration.
 
 The repository includes collected artifacts from a real end-to-end run against the deployed AWS stack in [`examples/verified-e2e-demo/`](examples/verified-e2e-demo/). The run exercised API Gateway, Lambda, DynamoDB, and Amazon Bedrock Runtime.
 
-Verified API base URL: intentionally omitted from the public repo. The deployed API requires `x-api-key`, but the stack-specific hostname is still deployment data and should stay in local notes or a secret manager, not Git.
 
 Demo evidence summary:
 
