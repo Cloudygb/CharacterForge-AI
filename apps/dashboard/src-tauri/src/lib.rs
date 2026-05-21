@@ -484,6 +484,27 @@ impl<S: DeploymentShellAdapter> DeploymentCommandAdapter for RealDeploymentComma
             normalized.stack_name, normalized.aws_region
         )];
 
+        logs.push("Validating local deployment dependencies before Start.".to_string());
+        for command in dependency_validation_commands() {
+            logs.push(command_to_log_line(&request, &command));
+            let result = self.shell.run(&request, &command)?;
+            push_redacted_output(&mut logs, &request, &result.stdout);
+            push_redacted_output(&mut logs, &request, &result.stderr);
+            if result.exit_code != 0 {
+                logs.push(format!(
+                    "Dependency validation failed for {} with exit code {}.",
+                    command.program, result.exit_code
+                ));
+                return Ok(DeploymentStartResult {
+                    status: "failed".to_string(),
+                    final_stack_status: "DEPENDENCY_VALIDATION_FAILED".to_string(),
+                    logs,
+                    saved_outputs_path: None,
+                    outputs: None,
+                });
+            }
+        }
+
         for command in build_command_plan(&request) {
             logs.push(command_to_log_line(&request, &command));
             let result = self.shell.run(&request, &command)?;
@@ -750,6 +771,21 @@ fn build_preview(request: DeploymentStartRequest) -> DeploymentStartPreview {
             "Temporary credential values are never echoed in command previews.".to_string(),
         ],
     }
+}
+
+fn dependency_validation_commands() -> Vec<ShellCommand> {
+    vec![
+        ShellCommand {
+            program: "aws".to_string(),
+            args: vec!["--version".to_string()],
+            current_dir: None,
+        },
+        ShellCommand {
+            program: "sam".to_string(),
+            args: vec!["--version".to_string()],
+            current_dir: None,
+        },
+    ]
 }
 
 fn build_command_plan(request: &DeploymentStartRequest) -> Vec<ShellCommand> {
@@ -1432,6 +1468,7 @@ mod tests {
     use std::cell::RefCell;
     use std::collections::VecDeque;
     use std::path::Path;
+    use std::rc::Rc;
     use std::sync::atomic::{AtomicUsize, Ordering};
 
     type MockSetupCommand = (
@@ -1529,6 +1566,201 @@ mod tests {
         ));
         let _ = fs::remove_dir_all(&root);
         root
+    }
+
+    struct MockDeploymentShell {
+        commands: Rc<RefCell<Vec<(String, Vec<String>)>>>,
+        saved_outputs: Rc<RefCell<Vec<BTreeMap<String, String>>>>,
+        statuses: RefCell<VecDeque<String>>,
+        outputs: Vec<(String, String)>,
+        dependency_failure: Option<(String, String)>,
+    }
+
+    impl MockDeploymentShell {
+        fn new(statuses: Vec<&str>, outputs: Vec<(&str, &str)>) -> Self {
+            Self {
+                commands: Rc::new(RefCell::new(Vec::new())),
+                saved_outputs: Rc::new(RefCell::new(Vec::new())),
+                statuses: RefCell::new(statuses.into_iter().map(String::from).collect()),
+                outputs: outputs
+                    .into_iter()
+                    .map(|(key, value)| (key.to_string(), value.to_string()))
+                    .collect(),
+                dependency_failure: None,
+            }
+        }
+
+        fn with_dependency_failure(program: &str, message: &str) -> Self {
+            Self {
+                dependency_failure: Some((program.to_string(), message.to_string())),
+                ..Self::new(vec!["CREATE_COMPLETE"], Vec::new())
+            }
+        }
+    }
+
+    impl DeploymentShellAdapter for MockDeploymentShell {
+        fn run(
+            &self,
+            _request: &DeploymentStartRequest,
+            command: &ShellCommand,
+        ) -> Result<ShellCommandResult, String> {
+            self.commands
+                .borrow_mut()
+                .push((command.program.clone(), command.args.clone()));
+            if command.args == ["--version"] {
+                if self
+                    .dependency_failure
+                    .as_ref()
+                    .is_some_and(|(program, _)| program == &command.program)
+                {
+                    let message = self.dependency_failure.as_ref().unwrap().1.clone();
+                    return Ok(ShellCommandResult {
+                        exit_code: 127,
+                        stdout: String::new(),
+                        stderr: message,
+                    });
+                }
+                return Ok(ShellCommandResult {
+                    exit_code: 0,
+                    stdout: format!("{} test version", command.program),
+                    stderr: String::new(),
+                });
+            }
+            if command.program == "aws" && command.args.iter().any(|arg| arg == "describe-stacks") {
+                let status = self
+                    .statuses
+                    .borrow_mut()
+                    .pop_front()
+                    .unwrap_or_else(|| "CREATE_COMPLETE".to_string());
+                let outputs: Vec<Value> = if status.ends_with("COMPLETE") {
+                    self.outputs
+                        .iter()
+                        .map(|(key, value)| serde_json::json!({"OutputKey": key, "OutputValue": value}))
+                        .collect()
+                } else {
+                    Vec::new()
+                };
+                return Ok(ShellCommandResult {
+                    exit_code: 0,
+                    stdout:
+                        serde_json::json!({"Stacks":[{"StackStatus": status, "Outputs": outputs}]})
+                            .to_string(),
+                    stderr: String::new(),
+                });
+            }
+            Ok(ShellCommandResult {
+                exit_code: 0,
+                stdout: format!("{} ok", command.program),
+                stderr: String::new(),
+            })
+        }
+
+        fn save_outputs(
+            &self,
+            _stack_name: &str,
+            _region: &str,
+            outputs: &BTreeMap<String, String>,
+        ) -> Result<String, String> {
+            self.saved_outputs.borrow_mut().push(outputs.clone());
+            Ok("/tmp/characterforge-ai-dev-outputs.json".to_string())
+        }
+    }
+
+    fn base_deployment_request() -> DeploymentStartRequest {
+        DeploymentStartRequest {
+            aws_region: "us-east-1".to_string(),
+            bedrock_model: "amazon.nova-micro-v1:0".to_string(),
+            stack_name: "characterforge-ai-dev".to_string(),
+            environment_name: "dev".to_string(),
+            credential_mode: "profile".to_string(),
+            profile_name: "default".to_string(),
+            temporary_credentials: None,
+        }
+    }
+
+    #[test]
+    fn start_deployment_validates_dependencies_before_sam_commands() {
+        let shell = MockDeploymentShell::with_dependency_failure("sam", "SAM CLI missing");
+        let commands = Rc::clone(&shell.commands);
+        let saved_outputs = Rc::clone(&shell.saved_outputs);
+        let adapter = RealDeploymentCommandAdapter::new(shell);
+
+        let result = adapter
+            .start(
+                base_deployment_request(),
+                DeploymentStartOptions {
+                    confirmation_text: "START characterforge-ai-dev".to_string(),
+                },
+            )
+            .expect("start result");
+
+        assert_eq!(result.status, "failed");
+        assert_eq!(result.final_stack_status, "DEPENDENCY_VALIDATION_FAILED");
+        assert!(result
+            .logs
+            .join("\n")
+            .contains("Validating local deployment dependencies before Start"));
+        assert!(result.logs.join("\n").contains("SAM CLI missing"));
+        assert_eq!(
+            *commands.borrow(),
+            vec![
+                ("aws".to_string(), vec!["--version".to_string()]),
+                ("sam".to_string(), vec!["--version".to_string()]),
+            ]
+        );
+        assert!(saved_outputs.borrow().is_empty());
+    }
+
+    #[test]
+    fn start_deployment_polls_stack_redacts_logs_and_saves_non_secret_outputs() {
+        let shell = MockDeploymentShell::new(
+            vec!["CREATE_COMPLETE"],
+            vec![
+                (
+                    "ApiUrl",
+                    "https://mock.execute-api.us-east-1.amazonaws.com/dev",
+                ),
+                ("ApiKeyValue", "do-not-save-this-secret"),
+                ("FunctionName", "characterforge-dev-handler"),
+            ],
+        );
+        let commands = Rc::clone(&shell.commands);
+        let saved_outputs = Rc::clone(&shell.saved_outputs);
+        let adapter = RealDeploymentCommandAdapter::new(shell);
+        let mut request = base_deployment_request();
+        request.credential_mode = "temporary".to_string();
+        request.profile_name = String::new();
+        request.temporary_credentials = Some(TemporaryDeploymentCredentials {
+            access_key_id: "TEMPACCESSKEY123456".to_string(),
+            secret_access_key: "real-secret-value".to_string(),
+            session_token: "real-session-token".to_string(),
+        });
+
+        let result = adapter
+            .start(
+                request,
+                DeploymentStartOptions {
+                    confirmation_text: "START characterforge-ai-dev".to_string(),
+                },
+            )
+            .expect("start result");
+
+        assert_eq!(result.status, "succeeded");
+        assert_eq!(result.final_stack_status, "CREATE_COMPLETE");
+        assert!(result
+            .logs
+            .join("\n")
+            .contains("AWS_SECRET_ACCESS_KEY=<redacted>"));
+        assert!(!result.logs.join("\n").contains("real-secret-value"));
+        assert!(!result.logs.join("\n").contains("real-session-token"));
+        assert_eq!(commands.borrow()[0].0, "aws");
+        assert_eq!(commands.borrow()[0].1, vec!["--version".to_string()]);
+        assert_eq!(commands.borrow()[1].0, "sam");
+        assert_eq!(commands.borrow()[4].1[0], "deploy");
+        assert_eq!(saved_outputs.borrow().len(), 1);
+        assert!(saved_outputs.borrow()[0].contains_key("ApiUrl"));
+        assert!(saved_outputs.borrow()[0].contains_key("FunctionName"));
+        assert!(!saved_outputs.borrow()[0].contains_key("ApiKeyValue"));
     }
 
     #[test]

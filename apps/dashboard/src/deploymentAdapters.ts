@@ -235,6 +235,14 @@ function nonSecretOutputs(outputs: DeploymentStackOutput[]): Record<string, stri
   return record;
 }
 
+function buildDependencyValidationCommands(request: DeploymentStartRequest): DeploymentShellCommand[] {
+  const env = credentialEnv(request);
+  return [
+    { program: "aws", args: ["--version"], env },
+    { program: "sam", args: ["--version"], env }
+  ];
+}
+
 function buildCommandPlan(request: DeploymentStartRequest): DeploymentShellCommand[] {
   const normalized = normalizedRequest(request);
   const env = credentialEnv(request);
@@ -354,6 +362,21 @@ export function createRealDeploymentStartAdapter(shell: DeploymentShellAdapter):
       }
 
       const logs = [`Confirmed real deployment Start for ${normalized.stackName} in ${normalized.awsRegion}.`];
+      logs.push("Validating local deployment dependencies before Start.");
+      for (const command of buildDependencyValidationCommands(request)) {
+        logs.push(commandToLogLine(command, request));
+        const result = await shell.run(command);
+        if (result.stdout) {
+          logs.push(redactText(result.stdout, request));
+        }
+        if (result.stderr) {
+          logs.push(redactText(result.stderr, request));
+        }
+        if (result.exitCode !== 0) {
+          logs.push(`Dependency validation failed for ${command.program} with exit code ${result.exitCode}.`);
+          return { status: "failed", finalStackStatus: "DEPENDENCY_VALIDATION_FAILED", logs };
+        }
+      }
       for (const command of buildCommandPlan(request)) {
         logs.push(commandToLogLine(command, request));
         const result = await shell.run(command);

@@ -68,6 +68,20 @@ describe("deployment adapters", () => {
     expect(shell.savedOutputs).toEqual([]);
   });
 
+  it("validates AWS CLI and SAM CLI before real deployment Start commands run", async () => {
+    const shell = createMockDeploymentShell({ dependencyFailures: { sam: "SAM CLI missing" } });
+    const adapter = createRealDeploymentStartAdapter(shell);
+
+    const result = await adapter.start(baseRequest, { confirmationText: "START characterforge-ai-dev" });
+
+    expect(result.status).toBe("failed");
+    expect(result.finalStackStatus).toBe("DEPENDENCY_VALIDATION_FAILED");
+    expect(result.logs.join("\n")).toContain("Validating local deployment dependencies before Start");
+    expect(result.logs.join("\n")).toContain("SAM CLI missing");
+    expect(shell.commands.map((command) => `${command.program} ${command.args.join(" ")}`)).toEqual(["aws --version", "sam --version"]);
+    expect(shell.savedOutputs).toEqual([]);
+  });
+
   it("runs the real Start command sequence with mocked commands, polls stack status, redacts logs, and saves non-secret outputs", async () => {
     const shell = createMockDeploymentShell({
       statuses: ["CREATE_IN_PROGRESS", "CREATE_COMPLETE"],
@@ -95,9 +109,9 @@ describe("deployment adapters", () => {
 
     expect(result.status).toBe("succeeded");
     expect(result.finalStackStatus).toBe("CREATE_COMPLETE");
-    expect(shell.commands.map((command) => command.program)).toEqual(["aws", "sam", "sam", "aws", "aws", "aws"]);
-    expect(shell.commands[2].args).toContain("deploy");
-    expect(shell.commands[2].env).toMatchObject({
+    expect(shell.commands.map((command) => command.program)).toEqual(["aws", "sam", "aws", "sam", "sam", "aws", "aws", "aws"]);
+    expect(shell.commands[4].args).toContain("deploy");
+    expect(shell.commands[4].env).toMatchObject({
       AWS_ACCESS_KEY_ID: "TEMPACCESSKEY123456",
       AWS_SECRET_ACCESS_KEY: "real-secret-value",
       AWS_SESSION_TOKEN: "real-session-token"
@@ -197,6 +211,7 @@ describe("deployment adapters", () => {
 type MockShellOptions = {
   statuses?: string[];
   outputs?: Array<{ OutputKey: string; OutputValue: string }>;
+  dependencyFailures?: Partial<Record<"aws" | "sam", string>>;
 };
 
 function createMockDeploymentShell(options: MockShellOptions = {}) {
@@ -210,6 +225,14 @@ function createMockDeploymentShell(options: MockShellOptions = {}) {
     savedOutputs: [],
     async run(command) {
       shell.commands.push(command);
+      if (command.program === "aws" && command.args.join(" ") === "--version") {
+        const message = options.dependencyFailures?.aws;
+        return message ? { exitCode: 127, stdout: "", stderr: message } : { exitCode: 0, stdout: "aws-cli/2.15.0", stderr: "" };
+      }
+      if (command.program === "sam" && command.args.join(" ") === "--version") {
+        const message = options.dependencyFailures?.sam;
+        return message ? { exitCode: 127, stdout: "", stderr: message } : { exitCode: 0, stdout: "SAM CLI, version 1.110.0", stderr: "" };
+      }
       if (command.program === "aws" && command.args.includes("describe-stacks")) {
         const status = statuses.shift() ?? statuses.at(-1) ?? "CREATE_COMPLETE";
         return {
