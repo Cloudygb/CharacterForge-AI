@@ -1,10 +1,10 @@
 # CharacterForge AI
 
-**CharacterForge AI** is a serverless Python backend for building AI-powered game characters that can speak in-character, remember session history, and return validated, machine-readable game actions.
+**CharacterForge AI** is a user-friendly game AI platform for building, testing, packaging, and deploying AI-powered game characters. It combines a serverless AWS backend API, a React/Tauri dashboard, guided AWS setup screens, portable character packs, SDK integrations, and desktop Start/End deployment controls.
 
-It is designed as an API-first portfolio project for game AI tooling: a designer defines an NPC profile once, a game or application sends player dialogue through the API, and the backend returns both natural-language roleplay and structured action data that a game client can safely consume.
+Designers can author an NPC once, package it with reusable action payloads, test it in the dashboard, and hand it to a game client through a clean API. Developers can integrate the same character through curl examples, a TypeScript SDK, Unity/Unreal guides, or direct HTTP calls. The backend returns both natural-language roleplay and validated, machine-readable gameplay actions.
 
-> **Portfolio focus:** Python backend engineering, AWS Lambda/API Gateway, DynamoDB data modeling, Amazon Bedrock integration, Pydantic validation, prompt orchestration, structured LLM responses, OpenAPI documentation, and high-coverage automated testing.
+> **Portfolio focus:** product-minded game AI tooling, Python backend engineering, AWS Lambda/API Gateway, DynamoDB data modeling, Amazon Bedrock integration, React/Tauri dashboard UX, Pydantic validation, prompt orchestration, structured LLM responses, OpenAPI documentation, and high-coverage automated testing.
 
 ---
 
@@ -18,11 +18,21 @@ LLM-powered NPCs are most useful when they are not just chatbots. A game client 
 - **Machine-readable** — able to trigger quests, trades, relationship changes, scene events, flags, inventory updates, and other gameplay systems.
 - **Validated** — parsed and checked before anything is returned to the caller.
 
-CharacterForge AI demonstrates that backend pattern with a compact AWS serverless MVP.
+CharacterForge AI turns that backend pattern into a small platform: author characters locally, test them through the dashboard, package reusable content, and deploy the runtime to AWS when you are ready.
 
 ---
 
 ## Current capabilities
+
+### Game AI platform experience
+
+- **Dashboard-first workflow:** use the React/Vite dashboard to configure API settings, run setup checks, edit character profiles, preview JSON payloads, import/export character packs, test chat, and inspect raw responses.
+- **Desktop deployment controls:** run the dashboard as a Tauri desktop app with guarded Start/End controls for local SAM/CloudFormation deployment workflows. Browser-only mode stays dry-run; real cloud commands are routed through the trusted desktop shell.
+- **Guided AWS setup:** walk through region, Bedrock model, credential readiness, stack status, deployment preview, and cost warnings before touching live AWS resources.
+- **Portable character packs:** share pack metadata, character documents, payload templates, and binding files as local JSON bundles.
+- **Game integration paths:** use the TypeScript SDK, curl examples, static web playground, Python demo client, and Unity/Unreal guides to wire returned actions into gameplay systems.
+
+### Backend API and infrastructure
 
 - Create, list, retrieve, update, and delete structured character profiles.
 - Configure character personality, backstory, speaking style, goals, world context, roleplay rules, and allowed actions.
@@ -33,18 +43,20 @@ CharacterForge AI demonstrates that backend pattern with a compact AWS serverles
 - Persist character profiles and session messages in DynamoDB.
 - Retrieve or clear saved session history.
 - Run offline with in-memory stores and a deterministic mock LLM for tests and local demos.
-- Explore the API flow in a dependency-free static web playground.
-- Use a minimal TypeScript SDK client for character CRUD, chat, session history, and action dispatching.
-- Follow Unity and Unreal integration guides for API call flow, action dispatching, and safe gameplay binding patterns.
-- Use a React/Vite dashboard for API settings, mocked AWS setup checks, SDK-backed connection tests, character listing, character editing previews, local character pack import/export, chat testing, raw JSON inspection, and optional Tauri desktop packaging.
-- Share portable character packs with pack metadata, characters, payload templates, and binding files.
-- Deploy with AWS SAM to Lambda, API Gateway, DynamoDB, and Amazon Bedrock Runtime.
+- Deploy with AWS SAM/CloudFormation to Lambda, API Gateway, DynamoDB, Amazon Bedrock Runtime, API Gateway access logs, and a CloudWatch dashboard.
 - Document the HTTP API with `openapi.yaml` and curl examples.
 
 ---
 
 ## Architecture overview
 
+
+CharacterForge is organized around a local authoring/deployment experience and a cloud-hosted game AI runtime:
+
+- **Dashboard layer:** React/Vite web UI plus optional Tauri desktop shell for setup checks, pack workflows, SDK-backed API calls, and guarded deployment controls.
+- **Backend API layer:** API Gateway REST API and a Python Lambda router for character, chat, and session requests.
+- **Data and AI layer:** DynamoDB stores character profiles/session history, while Amazon Bedrock Runtime generates structured in-character responses.
+- **Observability layer:** CloudWatch dashboard widgets and API Gateway/Lambda log links provide a ready-made production visibility starting point.
 
 The deployed backend uses API Gateway as the public HTTP boundary, a Python Lambda router for character/chat/session requests, DynamoDB for profiles and session history, and Amazon Bedrock Runtime for in-character structured responses.
 
@@ -61,7 +73,7 @@ The deployed backend uses API Gateway as the public HTTP boundary, a Python Lamb
 | Response parser | `src/characterforge/services/response_parser.py` | Parses model JSON and rejects malformed or unauthorized actions. |
 | Persistence | `src/characterforge/services/dynamodb_store.py` | DynamoDB-backed character and session stores. |
 | LLM clients | `src/characterforge/services/bedrock_client.py`, `llm_client.py` | Real Bedrock Runtime client plus deterministic mock client. |
-| Infrastructure | `infra/template.yaml` | AWS SAM template for Lambda, HTTP API, DynamoDB, IAM, and Bedrock permissions. |
+| Infrastructure | `infra/template.yaml` | AWS SAM template for Lambda, REST API usage plans, DynamoDB, IAM, Bedrock permissions, access logs, and CloudWatch dashboard resources. |
 
 ### DynamoDB design
 
@@ -374,16 +386,20 @@ Do not commit real deployed API key values.
 
 ---
 
-## AWS deployment summary
+## Guided AWS setup and deployment summary
 
-The full beginner-friendly deployment guide is in [`docs/aws-deployment.md`](docs/aws-deployment.md). At a high level:
+The full beginner-friendly deployment guide is in [`docs/aws-deployment.md`](docs/aws-deployment.md). CharacterForge uses SAM/CloudFormation directly for the current deployment MVP; no Terraform architecture is required or included.
+
+At a high level:
 
 1. Install AWS CLI v2, AWS SAM CLI, Docker, Python, and Git.
-2. Configure an AWS profile and region.
+2. Configure an AWS profile and region without committing credential files or key values.
 3. Request access to the selected Amazon Bedrock model, such as `amazon.nova-micro-v1:0` in `us-east-1`.
-4. Validate the SAM template.
-5. Build and deploy the stack with SAM.
-6. Use the `ApiUrl` stack output as `API_BASE_URL` and retrieve the API Gateway key value into `CHARACTERFORGE_API_KEY` for curl examples.
+4. Use the dashboard setup screen to review region, model, credential readiness, stack status, and cost warnings.
+5. Validate the SAM template.
+6. Build and deploy the stack with SAM, either manually or through the guarded desktop Start flow.
+7. Use the `ApiUrl` stack output as `API_BASE_URL` and retrieve the API Gateway key value into `CHARACTERFORGE_API_KEY` for curl examples.
+8. Use the desktop End flow when you want to tear down the stack; export or back up needed data before deletion.
 
 ```bash
 aws cloudformation validate-template \
@@ -400,8 +416,10 @@ The SAM template creates:
 - Lambda function using `characterforge.app.handler`.
 - DynamoDB table for character profiles.
 - DynamoDB table for session messages.
+- API Gateway access log group with bounded retention.
+- CloudWatch dashboard widgets for Lambda, API Gateway, DynamoDB throttles, and log links.
 - IAM permissions scoped to the project tables and Bedrock Runtime invocation.
-- CloudFormation outputs for the API URL, API key ID, Lambda function name, and table names.
+- CloudFormation outputs for the API URL, API key ID, Lambda function name, table names, access log group, and dashboard name.
 
 Important deployment parameters:
 
@@ -412,7 +430,16 @@ Important deployment parameters:
 | `BedrockRegion` | `us-east-1` | Region where Bedrock Runtime is called. |
 | `RecentHistoryLimit` | `20` | Number of recent messages included in prompt context. |
 
-> **Cost note:** Lambda, API Gateway, DynamoDB, and Bedrock can incur AWS charges. The template uses pay-per-request DynamoDB for MVP simplicity, but Bedrock chat calls are real paid model invocations.
+> **Cost note:** Lambda, API Gateway, DynamoDB, CloudWatch logs/dashboards, and Bedrock can incur AWS charges. The template uses pay-per-request DynamoDB for MVP simplicity, but Bedrock chat calls are real paid model invocations. Use the End flow or manual CloudFormation deletion when you no longer need the stack.
+
+### Desktop Start/End controls
+
+The dashboard's desktop deployment flow is intentionally conservative:
+
+- **Start** previews the exact SAM/CloudFormation intent, checks local AWS inputs, redacts temporary credential values, and polls CloudFormation stack status after deployment starts.
+- **End** requires typed confirmation for the target stack, prompts for export/backup before deletion, redacts logs, and surfaces rollback or `DELETE_FAILED` guidance instead of hiding partial failures.
+- Browser-only dashboard mode does not run real AWS commands. Real deployment actions are only available through the local desktop shell adapter.
+- No Terraform layer is needed for this platform step; the documented local deployment engine uses SAM and CloudFormation directly.
 
 ---
 
@@ -428,12 +455,13 @@ ruff check src tests examples scripts
 pytest --cov=characterforge --cov-report=term-missing -q
 ```
 
-Latest verified result:
+Latest verified local result:
 
 ```text
-46 files left unchanged
-All checks passed!
-176 passed in 3.37s
+pytest -q -> 228 passed in 68.56s
+pytest tests/test_public_artifacts_security.py -q -> 1 passed
+Dashboard JSON validation -> dashboard json valid; resources 9
+git diff --check -> passed
 ```
 
 Testing strategy highlights:
@@ -461,13 +489,14 @@ Do not run the smoke test in automated unit test suites; it calls the real Bedro
 
 This project demonstrates practical backend skills that map directly to production cloud engineering work:
 
+- **Product-oriented platform UX:** Connects backend API work to a dashboard, guided setup flow, character packs, SDK examples, and desktop deployment lifecycle controls.
 - **Serverless API design:** Built a Lambda/API Gateway backend with explicit route handling and API Gateway event adaptation.
-- **AWS infrastructure:** Modeled Lambda, HTTP API, DynamoDB tables, IAM policies, and Bedrock Runtime access in AWS SAM.
+- **AWS infrastructure:** Modeled Lambda, REST API usage plans, DynamoDB tables, IAM policies, Bedrock Runtime access, API Gateway logs, and CloudWatch dashboard resources in AWS SAM.
 - **DynamoDB modeling:** Designed separate profile and append-only session-history tables around concrete access patterns.
 - **LLM integration:** Wrapped Amazon Bedrock Runtime behind a testable interface with model/region configuration.
 - **Prompt engineering:** Constructed deterministic prompts from structured character data, game context, conversation history, and designer-authored action rules.
 - **Structured output validation:** Parsed model JSON into typed schemas and rejected malformed or unauthorized game actions before returning them to clients.
-- **Testability:** Kept AWS, persistence, and LLM dependencies injectable so unit tests run offline and deterministically.
+- **Testability:** Kept AWS, persistence, deployment adapters, and LLM dependencies injectable so unit tests run offline and deterministically.
 - **Quality gates:** Uses Ruff formatting/linting and pytest coverage across source, examples, scripts, infrastructure tests, and docs checks.
 - **API documentation:** Maintains OpenAPI documentation and curl examples for local and deployed workflows.
 
@@ -526,7 +555,8 @@ Potential next steps for turning the MVP into a production-ready platform:
 - Optimistic locking for character updates.
 - Streaming chat responses.
 - Richer admin workflows for bulk editing, approvals, and action-rule review.
-- Observability dashboards for latency, errors, token usage, and Bedrock cost.
+- Sanitized dashboard screenshots/GIFs that replace the current README placeholders.
+- CloudWatch alarms and deeper cost/token usage reporting.
 - Broader game-engine integration examples.
 
 ---
