@@ -147,3 +147,55 @@ def test_sam_template_defines_dynamodb_keys_and_permissions() -> None:
         "bedrock:InvokeModel",
         "bedrock:InvokeModelWithResponseStream",
     ]
+
+
+def test_sam_template_defines_cloudwatch_dashboard_widgets_and_log_links() -> None:
+    template = load_template()
+    resources = template["Resources"]
+
+    dashboard = resources["CharacterForgeCloudWatchDashboard"]
+    assert dashboard["Type"] == "AWS::CloudWatch::Dashboard"
+    assert dashboard["Properties"]["DashboardName"] == {"Fn::Sub": "CharacterForge-${EnvironmentName}-observability"}
+
+    body = dashboard["Properties"]["DashboardBody"]
+    assert "Fn::Sub" in body
+    dashboard_body = body["Fn::Sub"]
+
+    assert "CharacterForge Lambda Invocations and Errors" in dashboard_body
+    assert "CharacterForge Lambda Duration" in dashboard_body
+    assert "CharacterForge API Gateway Requests and Errors" in dashboard_body
+    assert "CharacterForge DynamoDB Throttles" in dashboard_body
+    assert "CharacterForge Log Links" in dashboard_body
+
+    for metric_name in [
+        "Invocations",
+        "Errors",
+        "Duration",
+        "Count",
+        "4XXError",
+        "5XXError",
+        "ReadThrottleEvents",
+        "WriteThrottleEvents",
+    ]:
+        assert metric_name in dashboard_body
+
+    assert "/aws/lambda/${CharacterForgeFunction}" in dashboard_body
+    assert "/aws/apigateway/CharacterForge-${EnvironmentName}" in dashboard_body
+    assert "${AWS::Region}" in dashboard_body
+    assert "${CharacterForgeApi}" in dashboard_body
+    assert "${CharactersTable}" in dashboard_body
+    assert "${MessagesTable}" in dashboard_body
+
+
+def test_sam_template_defines_dashboard_supporting_log_group_outputs() -> None:
+    template = load_template()
+    resources = template["Resources"]
+    outputs = template["Outputs"]
+
+    access_log_group = resources["CharacterForgeApiAccessLogGroup"]
+    assert access_log_group["Type"] == "AWS::Logs::LogGroup"
+    assert access_log_group["Properties"]["LogGroupName"] == {"Fn::Sub": "/aws/apigateway/CharacterForge-${EnvironmentName}"}
+    assert access_log_group["Properties"]["RetentionInDays"] == 14
+
+    assert outputs["CloudWatchDashboardName"]["Value"] == {"Ref": "CharacterForgeCloudWatchDashboard"}
+    assert outputs["ApiAccessLogGroupName"]["Value"] == {"Fn::Sub": "/aws/apigateway/CharacterForge-${EnvironmentName}"}

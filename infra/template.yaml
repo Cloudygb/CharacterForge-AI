@@ -47,9 +47,19 @@ Resources:
   CharacterForgeApi:
     Type: AWS::Serverless::Api
     Properties:
+      Name: !Sub CharacterForge-${EnvironmentName}-api
       Description: REST API for CharacterForge AI MVP endpoints.
       StageName: !Ref EnvironmentName
       EndpointConfiguration: REGIONAL
+      AccessLogSetting:
+        DestinationArn: !GetAtt CharacterForgeApiAccessLogGroup.Arn
+        Format: '{"requestId":"$context.requestId","ip":"$context.identity.sourceIp","requestTime":"$context.requestTime","httpMethod":"$context.httpMethod","resourcePath":"$context.resourcePath","status":"$context.status","protocol":"$context.protocol","responseLength":"$context.responseLength","integrationLatency":"$context.integrationLatency","errorMessage":"$context.error.message"}'
+      MethodSettings:
+        - ResourcePath: /*
+          HttpMethod: '*'
+          MetricsEnabled: true
+          LoggingLevel: ERROR
+          DataTraceEnabled: false
       Cors:
         AllowMethods: "'GET,POST,PUT,DELETE,OPTIONS'"
         AllowHeaders: "'Content-Type,Authorization,x-api-key'"
@@ -226,6 +236,110 @@ Resources:
         - Key: Environment
           Value: !Ref EnvironmentName
 
+  CharacterForgeApiAccessLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub /aws/apigateway/CharacterForge-${EnvironmentName}
+      RetentionInDays: 14
+      Tags:
+        - Key: Application
+          Value: CharacterForgeAI
+        - Key: Environment
+          Value: !Ref EnvironmentName
+
+  CharacterForgeCloudWatchDashboard:
+    Type: AWS::CloudWatch::Dashboard
+    Properties:
+      DashboardName: !Sub CharacterForge-${EnvironmentName}-observability
+      DashboardBody: !Sub |
+        {
+          "widgets": [
+            {
+              "type": "metric",
+              "x": 0,
+              "y": 0,
+              "width": 12,
+              "height": 6,
+              "properties": {
+                "title": "CharacterForge Lambda Invocations and Errors",
+                "region": "${AWS::Region}",
+                "view": "timeSeries",
+                "stacked": false,
+                "metrics": [
+                  [ "AWS/Lambda", "Invocations", "FunctionName", "${CharacterForgeFunction}", { "stat": "Sum", "label": "Invocations" } ],
+                  [ ".", "Errors", ".", ".", { "stat": "Sum", "label": "Errors" } ]
+                ],
+                "period": 300
+              }
+            },
+            {
+              "type": "metric",
+              "x": 12,
+              "y": 0,
+              "width": 12,
+              "height": 6,
+              "properties": {
+                "title": "CharacterForge Lambda Duration",
+                "region": "${AWS::Region}",
+                "view": "timeSeries",
+                "metrics": [
+                  [ "AWS/Lambda", "Duration", "FunctionName", "${CharacterForgeFunction}", { "stat": "Average", "label": "Average duration" } ],
+                  [ ".", ".", ".", ".", { "stat": "p95", "label": "p95 duration" } ]
+                ],
+                "period": 300,
+                "yAxis": { "left": { "label": "Milliseconds" } }
+              }
+            },
+            {
+              "type": "metric",
+              "x": 0,
+              "y": 6,
+              "width": 12,
+              "height": 6,
+              "properties": {
+                "title": "CharacterForge API Gateway Requests and Errors",
+                "region": "${AWS::Region}",
+                "view": "timeSeries",
+                "metrics": [
+                  [ "AWS/ApiGateway", "Count", "ApiName", "CharacterForge-${EnvironmentName}-api", "Stage", "${EnvironmentName}", { "stat": "Sum", "label": "Requests" } ],
+                  [ ".", "4XXError", ".", ".", ".", ".", { "stat": "Sum", "label": "4XX errors" } ],
+                  [ ".", "5XXError", ".", ".", ".", ".", { "stat": "Sum", "label": "5XX errors" } ]
+                ],
+                "period": 300
+              }
+            },
+            {
+              "type": "metric",
+              "x": 12,
+              "y": 6,
+              "width": 12,
+              "height": 6,
+              "properties": {
+                "title": "CharacterForge DynamoDB Throttles",
+                "region": "${AWS::Region}",
+                "view": "timeSeries",
+                "metrics": [
+                  [ "AWS/DynamoDB", "ReadThrottleEvents", "TableName", "${CharactersTable}", { "stat": "Sum", "label": "Characters read throttles" } ],
+                  [ ".", "WriteThrottleEvents", ".", ".", { "stat": "Sum", "label": "Characters write throttles" } ],
+                  [ ".", "ReadThrottleEvents", ".", "${MessagesTable}", { "stat": "Sum", "label": "Messages read throttles" } ],
+                  [ ".", "WriteThrottleEvents", ".", ".", { "stat": "Sum", "label": "Messages write throttles" } ]
+                ],
+                "period": 300
+              }
+            },
+            {
+              "type": "text",
+              "x": 0,
+              "y": 12,
+              "width": 24,
+              "height": 4,
+              "properties": {
+                "markdown": "# CharacterForge Log Links\n- Lambda logs: [/aws/lambda/${CharacterForgeFunction}](https://${AWS::Region}.console.aws.amazon.com/cloudwatch/home?region=${AWS::Region}#logsV2:log-groups/log-group/$252Faws$252Flambda$252F${CharacterForgeFunction})\n- API access logs: [/aws/apigateway/CharacterForge-${EnvironmentName}](https://${AWS::Region}.console.aws.amazon.com/cloudwatch/home?region=${AWS::Region}#logsV2:log-groups/log-group/$252Faws$252Fapigateway$252FCharacterForge-${EnvironmentName})\n- REST API: ${CharacterForgeApi} in stage ${EnvironmentName}"
+              }
+            }
+          ]
+        }
+
 Outputs:
   ApiUrl:
     Description: Base URL for the deployed CharacterForge REST API stage.
@@ -246,3 +360,11 @@ Outputs:
   MessagesTableName:
     Description: DynamoDB table storing session message history.
     Value: !Ref MessagesTable
+
+  CloudWatchDashboardName:
+    Description: Name of the CloudWatch dashboard for deployed CharacterForge observability.
+    Value: !Ref CharacterForgeCloudWatchDashboard
+
+  ApiAccessLogGroupName:
+    Description: CloudWatch Logs group for API Gateway access logs.
+    Value: !Sub /aws/apigateway/CharacterForge-${EnvironmentName}
