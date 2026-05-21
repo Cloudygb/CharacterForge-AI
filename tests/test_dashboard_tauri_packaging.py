@@ -36,8 +36,49 @@ def test_tauri_config_packages_existing_dashboard_build() -> None:
     assert config["build"]["devUrl"] == "http://localhost:5173"
     assert "msi" in config["bundle"]["targets"]
     assert "nsis" in config["bundle"]["targets"]
-    assert config["bundle"]["windows"]["nsis"]["installMode"] == "both"
-    assert config["bundle"]["windows"]["nsis"]["startMenuFolder"] == "CharacterForgeAI"
+    nsis = config["bundle"]["windows"]["nsis"]
+    assert nsis["installMode"] == "currentUser"
+    assert nsis["startMenuFolder"] == "CharacterForgeAI"
+    assert nsis["installerHooks"] == "installer/characterforgeai.nsh"
+
+
+def test_custom_nsis_installer_hook_is_user_friendly_and_safe() -> None:
+    hook_path = TAURI / "installer" / "characterforgeai.nsh"
+    hook = hook_path.read_text(encoding="utf-8")
+    normalized = hook.lower()
+
+    assert "nsis_hook_preinstall" in normalized
+    assert "nsis_hook_postinstall" in normalized
+    assert "welcome to characterforgeai" in normalized
+    assert "choose where characterforgeai is installed" in normalized
+    assert "check your computer for required tools" in normalized
+    assert "install missing tools" in normalized
+    assert "webview2" in normalized
+    assert "aws cli v2" in normalized
+    assert "aws sam cli" in normalized
+    assert "docker desktop" in normalized
+    assert "desktop shortcut" in normalized
+    assert "start menu" in normalized
+    assert "launch characterforgeai" in normalized
+    assert "requestexecutionlevel user" in normalized
+    assert "install-webview2-runtime.ps1" in normalized
+    assert "install-aws-cli-v2.ps1" in normalized
+    assert "install-aws-sam-cli.ps1" in normalized
+    assert "show-docker-guidance.ps1" in normalized
+    assert "detect-dependencies.ps1" in normalized
+
+    forbidden = [
+        "requestexecutionlevel admin",
+        "aws configure",
+        "sam deploy",
+        "aws cloudformation",
+        "password",
+        "secret_access_key",
+        "session_token",
+        "access_key",
+    ]
+    for term in forbidden:
+        assert term not in normalized
 
 
 def test_tauri_rust_shell_guards_real_deployment_actions() -> None:
