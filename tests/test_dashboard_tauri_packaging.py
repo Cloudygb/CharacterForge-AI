@@ -217,3 +217,53 @@ def test_windows_installer_build_script_runs_local_checks_and_stages_nsis_artifa
     assert "sam " not in normalized
     assert "aws " not in normalized
     assert "cloudformation" not in normalized
+
+
+def test_windows_installer_verification_script_checks_staged_and_installed_artifacts() -> None:
+    script_path = ROOT / "scripts" / "verify-windows-installer.ps1"
+    script = script_path.read_text(encoding="utf-8")
+    normalized = script.lower()
+
+    assert "#requires -version 5.1" in normalized
+    assert "dist\\characterforgeai-installer.exe" in normalized
+    assert "characterforgeai-installer.exe" in normalized
+    assert "expectedminsizemb" in normalized
+    assert "get-authenticodesignature" in normalized
+    assert "signature status" in normalized
+    assert "characterforgeai.exe" in normalized
+    assert "appdata" in normalized
+    assert "programfiles" in normalized
+    assert "start menu" in normalized
+    assert "desktop shortcut" in normalized
+    assert "skipinstalledartifacts" in normalized
+    assert "convertto-json" in normalized
+
+    forbidden = [
+        "sam deploy",
+        "aws cloudformation",
+        "aws configure",
+        "docker run",
+        "secret_access_key",
+        "session_token",
+        "access_key",
+    ]
+    for term in forbidden:
+        assert term not in normalized
+
+
+def test_clean_machine_installer_checklist_stays_out_of_public_docs() -> None:
+    checklist_path = ROOT / "scripts" / "windows-installer-clean-machine-checklist.md"
+    checklist = checklist_path.read_text(encoding="utf-8")
+    normalized = checklist.lower()
+
+    assert checklist_path.exists()
+    assert not (ROOT / "docs" / "windows-installer-clean-machine-checklist.md").exists()
+    assert "clean-machine windows installer verification checklist" in normalized
+    assert "scripts/verify-windows-installer.ps1" in normalized
+    assert "dist/characterforgeai-installer.exe" in normalized
+    assert "characterforgeai.exe" in normalized
+    assert "signature status" in normalized
+    assert "start menu" in normalized
+    assert "desktop shortcut" in normalized
+    assert "do not run sam deploy" in normalized
+    assert "do not run aws cloudformation" in normalized
