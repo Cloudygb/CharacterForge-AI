@@ -49,6 +49,10 @@ Thumbs.db
 *.log
 logs/
 
+# Node / TypeScript
+node_modules/
+npm-debug.log*
+
 # Local artifacts
 .tmp/
 tmp/

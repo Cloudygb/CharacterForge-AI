@@ -34,6 +34,7 @@ CharacterForge AI demonstrates that backend pattern with a compact AWS serverles
 - Retrieve or clear saved session history.
 - Run offline with in-memory stores and a deterministic mock LLM for tests and local demos.
 - Explore the API flow in a dependency-free static web playground.
+- Use a minimal TypeScript SDK client for character CRUD, chat, session history, and action dispatching.
 - Share portable character packs with pack metadata, characters, payload templates, and binding files.
 - Deploy with AWS SAM to Lambda, API Gateway, DynamoDB, and Amazon Bedrock Runtime.
 - Document the HTTP API with `openapi.yaml` and curl examples.
@@ -491,6 +492,8 @@ This project demonstrates practical backend skills that map directly to producti
 │   ├── bedrock_smoke_test.py    # Optional real Bedrock Runtime smoke test
 │   ├── character_pack_export.py # Local JSON character pack exporter
 │   └── character_pack_import.py # Local JSON character pack validator/import dry run
+├── sdk/
+│   └── typescript/              # Minimal TypeScript SDK package
 ├── src/characterforge/
 │   ├── app.py                   # Lambda entry point and router
 │   ├── handlers/                # Character, chat, and session handlers
