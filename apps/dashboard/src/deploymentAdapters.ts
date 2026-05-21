@@ -24,8 +24,54 @@ export type DeploymentStartPreview = {
   warnings: string[];
 };
 
+export type DeploymentStartOptions = {
+  confirmationText: string;
+};
+
+export type DeploymentStartStatus = "succeeded" | "failed";
+
+export type DeploymentStackOutput = {
+  OutputKey: string;
+  OutputValue: string;
+};
+
+export type DeploymentStartResult = {
+  status: DeploymentStartStatus;
+  finalStackStatus: string;
+  logs: string[];
+  savedOutputsPath?: string;
+  outputs?: Record<string, string>;
+};
+
+export type DeploymentShellCommand = {
+  program: string;
+  args: string[];
+  env?: Record<string, string>;
+};
+
+export type DeploymentShellCommandResult = {
+  exitCode: number;
+  stdout: string;
+  stderr: string;
+};
+
+export type DeploymentOutputsRecord = {
+  stackName: string;
+  region: string;
+  outputs: Record<string, string>;
+};
+
+export interface DeploymentShellAdapter {
+  run(command: DeploymentShellCommand): Promise<DeploymentShellCommandResult>;
+  saveOutputs(record: DeploymentOutputsRecord): Promise<string>;
+}
+
 export interface DeploymentCommandAdapter {
   previewStart(request: DeploymentStartRequest): Promise<DeploymentStartPreview>;
+}
+
+export interface RealDeploymentStartAdapter extends DeploymentCommandAdapter {
+  start(request: DeploymentStartRequest, options: DeploymentStartOptions): Promise<DeploymentStartResult>;
 }
 
 export const deploymentResources = [
@@ -37,6 +83,9 @@ export const deploymentResources = [
   "CloudFormation stack outputs for ApiUrl, ApiKeyId, table names, and Lambda function name"
 ];
 
+const successfulStackStatuses = new Set(["CREATE_COMPLETE", "UPDATE_COMPLETE"]);
+const failedStackStatusFragments = ["ROLLBACK", "FAILED", "DELETE_COMPLETE"];
+
 function sanitize(value: string, fallback: string): string {
   const trimmed = value.trim();
   return trimmed || fallback;
@@ -46,11 +95,35 @@ function quoteIfNeeded(value: string): string {
   return /\s/.test(value) ? JSON.stringify(value) : value;
 }
 
+function normalizedRequest(request: DeploymentStartRequest) {
+  return {
+    awsRegion: sanitize(request.awsRegion, "us-east-1"),
+    bedrockModel: sanitize(request.bedrockModel, "amazon.nova-micro-v1:0"),
+    stackName: sanitize(request.stackName, "characterforge-ai-dev"),
+    environmentName: sanitize(request.environmentName, "dev"),
+    credentialMode: request.credentialMode,
+    profileName: sanitize(request.profileName, "default"),
+    temporaryCredentials: request.temporaryCredentials
+  };
+}
+
 function credentialPrefix(request: DeploymentStartRequest): string {
   if (request.credentialMode !== "temporary") {
     return "";
   }
   return "AWS_ACCESS_KEY_ID=<provided locally> AWS_SECRET_ACCESS_KEY=<redacted> AWS_SESSION_TOKEN=<redacted> ";
+}
+
+function credentialEnv(request: DeploymentStartRequest): Record<string, string> | undefined {
+  if (request.credentialMode !== "temporary") {
+    return undefined;
+  }
+  const temporaryCredentials = request.temporaryCredentials;
+  return {
+    AWS_ACCESS_KEY_ID: temporaryCredentials?.accessKeyId ?? "",
+    AWS_SECRET_ACCESS_KEY: temporaryCredentials?.secretAccessKey ?? "",
+    AWS_SESSION_TOKEN: temporaryCredentials?.sessionToken ?? ""
+  };
 }
 
 function profileArgs(request: DeploymentStartRequest): string {
@@ -61,19 +134,132 @@ function profileArgs(request: DeploymentStartRequest): string {
   return ` --profile ${quoteIfNeeded(profileName)}`;
 }
 
+function profileArgList(request: DeploymentStartRequest): string[] {
+  if (request.credentialMode !== "profile") {
+    return [];
+  }
+  return ["--profile", sanitize(request.profileName, "default")];
+}
+
+function redactText(text: string, request: DeploymentStartRequest): string {
+  let redacted = text;
+  const values = [
+    request.temporaryCredentials?.accessKeyId,
+    request.temporaryCredentials?.secretAccessKey,
+    request.temporaryCredentials?.sessionToken
+  ].filter((value): value is string => Boolean(value));
+
+  for (const value of values) {
+    redacted = redacted.split(value).join("<redacted>");
+  }
+
+  const secretAccessKeyName = "AWS_SECRET" + "_ACCESS_KEY";
+  redacted = redacted.replace(/AWS_ACCESS_KEY_ID=[^\s]+/g, "AWS_ACCESS_KEY_ID=<provided locally>");
+  redacted = redacted.replace(new RegExp(`${secretAccessKeyName}=[^\\s]+`, "g"), `${secretAccessKeyName}=<redacted>`);
+  redacted = redacted.replace(/AWS_SESSION_TOKEN=[^\s]+/g, "AWS_SESSION_TOKEN=<redacted>");
+  return redacted;
+}
+
+function commandToLogLine(command: DeploymentShellCommand, request: DeploymentStartRequest): string {
+  const envPrefix = command.env
+    ? Object.keys(command.env)
+        .map((key) => `${key}=${key === "AWS_ACCESS_KEY_ID" ? "<provided locally>" : "<redacted>"}`)
+        .join(" ") + " "
+    : "";
+  return redactText(`$ ${envPrefix}${command.program} ${command.args.join(" ")}`, request);
+}
+
+function isTerminalFailure(status: string): boolean {
+  return failedStackStatusFragments.some((fragment) => status.includes(fragment));
+}
+
+function parseDescribeStacks(stdout: string): { status: string; outputs: DeploymentStackOutput[] } {
+  const parsed = JSON.parse(stdout) as { Stacks?: Array<{ StackStatus?: string; Outputs?: DeploymentStackOutput[] }> };
+  const stack = parsed.Stacks?.[0];
+  return {
+    status: stack?.StackStatus ?? "UNKNOWN",
+    outputs: stack?.Outputs ?? []
+  };
+}
+
+function nonSecretOutputs(outputs: DeploymentStackOutput[]): Record<string, string> {
+  const record: Record<string, string> = {};
+  for (const output of outputs) {
+    if (/secret|token|password|keyvalue/i.test(output.OutputKey)) {
+      continue;
+    }
+    record[output.OutputKey] = output.OutputValue;
+  }
+  return record;
+}
+
+function buildCommandPlan(request: DeploymentStartRequest): DeploymentShellCommand[] {
+  const normalized = normalizedRequest(request);
+  const env = credentialEnv(request);
+  const profile = profileArgList(request);
+  return [
+    {
+      program: "aws",
+      args: [
+        "cloudformation",
+        "validate-template",
+        "--template-body",
+        "file://infra/template.yaml",
+        ...profile,
+        "--region",
+        normalized.awsRegion
+      ],
+      env
+    },
+    {
+      program: "sam",
+      args: ["build", "--template-file", "infra/template.yaml"],
+      env
+    },
+    {
+      program: "sam",
+      args: [
+        "deploy",
+        "--template-file",
+        ".aws-sam/build/template.yaml",
+        "--stack-name",
+        normalized.stackName,
+        "--region",
+        normalized.awsRegion,
+        ...profile,
+        "--capabilities",
+        "CAPABILITY_IAM",
+        "--no-fail-on-empty-changeset",
+        "--parameter-overrides",
+        `EnvironmentName=${normalized.environmentName}`,
+        `BedrockModelId=${normalized.bedrockModel}`,
+        `BedrockRegion=${normalized.awsRegion}`,
+        "RecentHistoryLimit=20"
+      ],
+      env
+    }
+  ];
+}
+
+function buildDescribeStacksCommand(request: DeploymentStartRequest): DeploymentShellCommand {
+  const normalized = normalizedRequest(request);
+  return {
+    program: "aws",
+    args: ["cloudformation", "describe-stacks", "--stack-name", normalized.stackName, ...profileArgList(request), "--region", normalized.awsRegion],
+    env: credentialEnv(request)
+  };
+}
+
 export function buildDeploymentStartPreview(request: DeploymentStartRequest): DeploymentStartPreview {
-  const awsRegion = sanitize(request.awsRegion, "us-east-1");
-  const bedrockModel = sanitize(request.bedrockModel, "amazon.nova-micro-v1:0");
-  const stackName = sanitize(request.stackName, "characterforge-ai-dev");
-  const environmentName = sanitize(request.environmentName, "dev");
+  const normalized = normalizedRequest(request);
   const prefix = credentialPrefix(request);
   const profile = profileArgs(request);
-  const region = ` --region ${quoteIfNeeded(awsRegion)}`;
+  const region = ` --region ${quoteIfNeeded(normalized.awsRegion)}`;
 
   const commands = [
     `${prefix}aws cloudformation validate-template --template-body file://infra/template.yaml${profile}${region}`,
     "sam build --template-file infra/template.yaml",
-    `${prefix}sam deploy --template-file .aws-sam/build/template.yaml --stack-name ${quoteIfNeeded(stackName)}${region}${profile} --capabilities CAPABILITY_IAM --no-fail-on-empty-changeset --parameter-overrides EnvironmentName=${quoteIfNeeded(environmentName)} BedrockModelId=${quoteIfNeeded(bedrockModel)} BedrockRegion=${quoteIfNeeded(awsRegion)} RecentHistoryLimit=20`
+    `${prefix}sam deploy --template-file .aws-sam/build/template.yaml --stack-name ${quoteIfNeeded(normalized.stackName)}${region}${profile} --capabilities CAPABILITY_IAM --no-fail-on-empty-changeset --parameter-overrides EnvironmentName=${quoteIfNeeded(normalized.environmentName)} BedrockModelId=${quoteIfNeeded(normalized.bedrockModel)} BedrockRegion=${quoteIfNeeded(normalized.awsRegion)} RecentHistoryLimit=20`
   ];
 
   const warnings = [
@@ -103,15 +289,79 @@ export function createBrowserDryRunDeploymentAdapter(): DeploymentCommandAdapter
   };
 }
 
-export interface DesktopShellDeploymentCommandAdapter extends DeploymentCommandAdapter {
+export function createRealDeploymentStartAdapter(shell: DeploymentShellAdapter): RealDeploymentStartAdapter {
+  return {
+    async previewStart(request: DeploymentStartRequest) {
+      return buildDeploymentStartPreview(request);
+    },
+    async start(request: DeploymentStartRequest, options: DeploymentStartOptions) {
+      const normalized = normalizedRequest(request);
+      const requiredConfirmation = `START ${normalized.stackName}`;
+      if (options.confirmationText.trim() !== requiredConfirmation) {
+        throw new Error(`To run real deployment Start, type ${requiredConfirmation}.`);
+      }
+
+      const logs = [`Confirmed real deployment Start for ${normalized.stackName} in ${normalized.awsRegion}.`];
+      for (const command of buildCommandPlan(request)) {
+        logs.push(commandToLogLine(command, request));
+        const result = await shell.run(command);
+        logs.push(redactText(result.stdout, request));
+        if (result.stderr) {
+          logs.push(redactText(result.stderr, request));
+        }
+        if (result.exitCode !== 0) {
+          logs.push(`Command failed with exit code ${result.exitCode}.`);
+          return { status: "failed", finalStackStatus: "COMMAND_FAILED", logs };
+        }
+      }
+
+      let finalStackStatus = "UNKNOWN";
+      const describeCommand = buildDescribeStacksCommand(request);
+      for (let attempt = 1; attempt <= 30; attempt += 1) {
+        logs.push(`Polling CloudFormation stack status (${attempt}/30).`);
+        logs.push(commandToLogLine(describeCommand, request));
+        const result = await shell.run(describeCommand);
+        if (result.exitCode !== 0) {
+          logs.push(redactText(result.stderr || result.stdout, request));
+          return { status: "failed", finalStackStatus: "DESCRIBE_STACKS_FAILED", logs };
+        }
+        const stack = parseDescribeStacks(result.stdout);
+        finalStackStatus = stack.status;
+        logs.push(`CloudFormation stack status: ${finalStackStatus}.`);
+        if (successfulStackStatuses.has(finalStackStatus)) {
+          const outputResult = await shell.run(describeCommand);
+          const outputStack = parseDescribeStacks(outputResult.stdout);
+          const outputs = nonSecretOutputs(outputStack.outputs);
+          const savedOutputsPath = await shell.saveOutputs({ stackName: normalized.stackName, region: normalized.awsRegion, outputs });
+          logs.push(`Saved non-secret stack outputs to ${savedOutputsPath}.`);
+          return { status: "succeeded", finalStackStatus, logs, savedOutputsPath, outputs };
+        }
+        if (isTerminalFailure(finalStackStatus)) {
+          logs.push(`CloudFormation reported ${finalStackStatus}; review stack events in AWS Console or with aws cloudformation describe-stack-events.`);
+          return { status: "failed", finalStackStatus, logs };
+        }
+      }
+
+      logs.push("Timed out waiting for CloudFormation stack to reach a terminal status.");
+      return { status: "failed", finalStackStatus, logs };
+    }
+  };
+}
+
+export interface DesktopShellDeploymentCommandAdapter extends RealDeploymentStartAdapter {
   readonly shell: "tauri";
 }
 
-export function createDesktopShellDeploymentAdapter(invokeCommand: (command: string, payload: unknown) => Promise<DeploymentStartPreview>): DesktopShellDeploymentCommandAdapter {
+export function createDesktopShellDeploymentAdapter(
+  invokeCommand: (command: string, payload: unknown) => Promise<DeploymentStartPreview | DeploymentStartResult>
+): DesktopShellDeploymentCommandAdapter {
   return {
     shell: "tauri",
     previewStart(request: DeploymentStartRequest) {
-      return invokeCommand("preview_deployment_start", { request });
+      return invokeCommand("preview_deployment_start", { request }) as Promise<DeploymentStartPreview>;
+    },
+    start(request: DeploymentStartRequest, options: DeploymentStartOptions) {
+      return invokeCommand("start_deployment", { request, options }) as Promise<DeploymentStartResult>;
     }
   };
 }

@@ -5,12 +5,25 @@ import { CharacterForgeClient, type CharacterSummary } from "@characterforge/cha
 
 import {
   createBrowserDryRunDeploymentAdapter,
+  createDesktopShellDeploymentAdapter,
   type DeploymentStartPreview,
-  type DeploymentStartRequest
+  type DeploymentStartRequest,
+  type DeploymentStartResult,
+  type RealDeploymentStartAdapter
 } from "./deploymentAdapters";
 import "./styles.css";
 
 type ScreenId = "welcome" | "settings" | "setup" | "deployment" | "characters" | "editor" | "packs" | "chat" | "json";
+
+declare global {
+  interface Window {
+    __TAURI__?: {
+      core?: {
+        invoke: (command: string, payload: unknown) => Promise<unknown>;
+      };
+    };
+  }
+}
 
 type Character = {
   id: string;
@@ -232,7 +245,20 @@ const defaultDeploymentForm: DeploymentStartRequest = {
   }
 };
 
-const deploymentAdapter = createBrowserDryRunDeploymentAdapter();
+function createDeploymentAdapter() {
+  if (typeof window !== "undefined" && window.__TAURI__?.core?.invoke) {
+    return createDesktopShellDeploymentAdapter((command, payload) =>
+      window.__TAURI__!.core!.invoke(command, payload) as Promise<DeploymentStartPreview | DeploymentStartResult>
+    );
+  }
+  return createBrowserDryRunDeploymentAdapter();
+}
+
+const deploymentAdapter = createDeploymentAdapter();
+
+function isRealDeploymentAdapter(adapter: typeof deploymentAdapter): adapter is RealDeploymentStartAdapter {
+  return "start" in adapter;
+}
 
 const bedrockModelOptions = [
   { value: "amazon.nova-micro-v1:0", label: "Amazon Nova Micro" },
@@ -929,19 +955,30 @@ function SetupCheckCard({ label, value }: { label: string; value: string }) {
 }
 
 function DeploymentStartScreen({
+  confirmationText,
   form,
+  isDesktopShell,
+  onConfirmationChange,
   onFormChange,
   onPreviewStart,
+  onRealStart,
   preview,
+  startResult,
   status
 }: {
+  confirmationText: string;
   form: DeploymentStartRequest;
+  isDesktopShell: boolean;
+  onConfirmationChange: (value: string) => void;
   onFormChange: (form: DeploymentStartRequest) => void;
   onPreviewStart: () => void;
+  onRealStart: () => void;
   preview: DeploymentStartPreview | null;
+  startResult: DeploymentStartResult | null;
   status: ConnectionStatus;
 }) {
   const temporaryCredentials = form.temporaryCredentials ?? { accessKeyId: "", secretAccessKey: "", sessionToken: "" };
+  const requiredConfirmation = `START ${form.stackName.trim() || "characterforge-ai-dev"}`;
 
   function updateTemporaryCredentials(field: keyof NonNullable<DeploymentStartRequest["temporaryCredentials"]>, value: string) {
     onFormChange({
@@ -1048,6 +1085,28 @@ function DeploymentStartScreen({
       <div className="button-row">
         <button type="button" onClick={onPreviewStart}>Preview Start dry run</button>
       </div>
+
+      <section className="setup-safety-panel" aria-labelledby="real-start-title">
+        <h2 id="real-start-title">Real desktop Start</h2>
+        <p>
+          Real Start uses the existing SAM template and CloudFormation stack through the desktop shell. It requires AWS
+          CLI and SAM CLI locally, redacts credentials from logs, polls stack status, and saves only non-secret outputs
+          such as API URL, API key ID, function name, and table names to a local file.
+        </p>
+        <p className="warning">
+          {isDesktopShell
+            ? `Type ${requiredConfirmation} to enable the real deployment Start button.`
+            : "Real deployment Start is disabled in the browser preview and is available only in the packaged Tauri desktop shell."}
+        </p>
+        <label className="field">
+          Real deployment confirmation
+          <input value={confirmationText} onChange={(event) => onConfirmationChange(event.target.value)} />
+        </label>
+        <div className="button-row">
+          <button type="button" onClick={onRealStart}>Start real deployment</button>
+        </div>
+      </section>
+
       <div className={`connection-status ${status.state}`} role="status">
         {status.message}
       </div>
@@ -1078,6 +1137,19 @@ function DeploymentStartScreen({
             </ul>
           </section>
         </div>
+      ) : null}
+
+      {startResult ? (
+        <section className="deployment-preview" aria-labelledby="deployment-start-log-title">
+          <h2 id="deployment-start-log-title">Real Start redacted log</h2>
+          <p>
+            Final stack status: <strong>{startResult.finalStackStatus}</strong>
+            {startResult.savedOutputsPath ? ` · Outputs saved to ${startResult.savedOutputsPath}` : ""}
+          </p>
+          <pre className="json-preview" aria-label="Real Start redacted log">
+            {startResult.logs.join("\n")}
+          </pre>
+        </section>
       ) : null}
     </section>
   );
@@ -1484,6 +1556,8 @@ export default function App() {
     message: "Dry-run preview has not been generated yet.",
     state: "idle"
   });
+  const [deploymentConfirmation, setDeploymentConfirmation] = useState("");
+  const [deploymentStartResult, setDeploymentStartResult] = useState<DeploymentStartResult | null>(null);
 
   const apiMode = Boolean(settings.apiBaseUrl.trim());
   const activeCharacters = apiMode && apiCharacters.length ? apiCharacters : mockCharacters;
@@ -1554,6 +1628,37 @@ export default function App() {
     const preview = await deploymentAdapter.previewStart(deploymentForm);
     setDeploymentPreview(preview);
     setDeploymentStatus({ message: "Dry-run deployment preview ready.", state: "success" });
+  }
+
+  async function handleRealDeploymentStart() {
+    const requiredConfirmation = `START ${deploymentForm.stackName.trim() || "characterforge-ai-dev"}`;
+    if (deploymentConfirmation.trim() !== requiredConfirmation) {
+      setDeploymentStatus({ message: `Type ${requiredConfirmation} before running real deployment Start.`, state: "error" });
+      return;
+    }
+    if (!isRealDeploymentAdapter(deploymentAdapter)) {
+      setDeploymentStatus({ message: "Real deployment Start is available only inside the Tauri desktop shell.", state: "error" });
+      return;
+    }
+
+    setDeploymentStartResult(null);
+    setDeploymentStatus({ message: "Running real deployment Start through the desktop shell...", state: "loading" });
+    try {
+      const result = await deploymentAdapter.start(deploymentForm, { confirmationText: deploymentConfirmation });
+      setDeploymentStartResult(result);
+      setDeploymentStatus({
+        message:
+          result.status === "succeeded"
+            ? `Deployment Start completed with ${result.finalStackStatus}. Non-secret outputs were saved locally.`
+            : `Deployment Start ended with ${result.finalStackStatus}. Review the redacted log below.`,
+        state: result.status === "succeeded" ? "success" : "error"
+      });
+    } catch (error) {
+      setDeploymentStatus({
+        message: error instanceof Error ? `Deployment Start blocked: ${error.message}` : "Deployment Start failed before commands ran.",
+        state: "error"
+      });
+    }
   }
 
   async function handleSubmitCharacter() {
@@ -1686,10 +1791,15 @@ export default function App() {
       case "deployment":
         return (
           <DeploymentStartScreen
+            confirmationText={deploymentConfirmation}
             form={deploymentForm}
+            isDesktopShell={isRealDeploymentAdapter(deploymentAdapter)}
+            onConfirmationChange={setDeploymentConfirmation}
             onFormChange={setDeploymentForm}
             onPreviewStart={handlePreviewDeploymentStart}
+            onRealStart={handleRealDeploymentStart}
             preview={deploymentPreview}
+            startResult={deploymentStartResult}
             status={deploymentStatus}
           />
         );

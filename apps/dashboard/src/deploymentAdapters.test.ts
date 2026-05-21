@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 
-import { createBrowserDryRunDeploymentAdapter, type DeploymentStartRequest } from "./deploymentAdapters";
+import {
+  createBrowserDryRunDeploymentAdapter,
+  createRealDeploymentStartAdapter,
+  type DeploymentShellAdapter,
+  type DeploymentStartRequest
+} from "./deploymentAdapters";
 
 const baseRequest: DeploymentStartRequest = {
   awsRegion: "us-east-1",
@@ -51,4 +56,111 @@ describe("deployment adapters", () => {
     expect(joinedCommands).not.toContain("real-secret-value");
     expect(joinedCommands).not.toContain("real-session-token");
   });
+
+  it("requires explicit confirmation before real deployment Start can execute", async () => {
+    const shell = createMockDeploymentShell();
+    const adapter = createRealDeploymentStartAdapter(shell);
+
+    await expect(adapter.start(baseRequest, { confirmationText: "deploy" })).rejects.toThrow(/type START characterforge-ai-dev/i);
+
+    expect(shell.commands).toEqual([]);
+    expect(shell.savedOutputs).toEqual([]);
+  });
+
+  it("runs the real Start command sequence with mocked commands, polls stack status, redacts logs, and saves non-secret outputs", async () => {
+    const shell = createMockDeploymentShell({
+      statuses: ["CREATE_IN_PROGRESS", "CREATE_COMPLETE"],
+      outputs: [
+        { OutputKey: "ApiUrl", OutputValue: "https://mock.execute-api.us-east-1.amazonaws.com/dev" },
+        { OutputKey: "ApiKeyId", OutputValue: "abc123" },
+        { OutputKey: "ApiKeyValue", OutputValue: "do-not-save-this-secret" },
+        { OutputKey: "FunctionName", OutputValue: "characterforge-dev-handler" }
+      ]
+    });
+    const adapter = createRealDeploymentStartAdapter(shell);
+
+    const result = await adapter.start(
+      {
+        ...baseRequest,
+        credentialMode: "temporary",
+        temporaryCredentials: {
+          accessKeyId: "TEMPACCESSKEY123456",
+          secretAccessKey: "real-secret-value",
+          sessionToken: "real-session-token"
+        }
+      },
+      { confirmationText: "START characterforge-ai-dev" }
+    );
+
+    expect(result.status).toBe("succeeded");
+    expect(result.finalStackStatus).toBe("CREATE_COMPLETE");
+    expect(shell.commands.map((command) => command.program)).toEqual(["aws", "sam", "sam", "aws", "aws", "aws"]);
+    expect(shell.commands[2].args).toContain("deploy");
+    expect(shell.commands[2].env).toMatchObject({
+      AWS_ACCESS_KEY_ID: "TEMPACCESSKEY123456",
+      AWS_SECRET_ACCESS_KEY: "real-secret-value",
+      AWS_SESSION_TOKEN: "real-session-token"
+    });
+    expect(result.logs.join("\n")).toContain("AWS_SECRET_ACCESS_KEY=<redacted>");
+    expect(result.logs.join("\n")).not.toContain("real-secret-value");
+    expect(result.logs.join("\n")).not.toContain("real-session-token");
+    expect(result.savedOutputsPath).toMatch(/characterforge-ai-dev.*outputs\.json$/);
+    expect(shell.savedOutputs).toEqual([
+      {
+        stackName: "characterforge-ai-dev",
+        region: "us-east-1",
+        outputs: {
+          ApiUrl: "https://mock.execute-api.us-east-1.amazonaws.com/dev",
+          ApiKeyId: "abc123",
+          FunctionName: "characterforge-dev-handler"
+        }
+      }
+    ]);
+  });
+
+  it("reports rollback stack statuses from mocked polling without saving outputs", async () => {
+    const shell = createMockDeploymentShell({ statuses: ["CREATE_IN_PROGRESS", "ROLLBACK_COMPLETE"] });
+    const adapter = createRealDeploymentStartAdapter(shell);
+
+    const result = await adapter.start(baseRequest, { confirmationText: "START characterforge-ai-dev" });
+
+    expect(result.status).toBe("failed");
+    expect(result.finalStackStatus).toBe("ROLLBACK_COMPLETE");
+    expect(result.logs.join("\n")).toContain("CloudFormation reported ROLLBACK_COMPLETE");
+    expect(shell.savedOutputs).toEqual([]);
+  });
 });
+
+type MockShellOptions = {
+  statuses?: string[];
+  outputs?: Array<{ OutputKey: string; OutputValue: string }>;
+};
+
+function createMockDeploymentShell(options: MockShellOptions = {}) {
+  const statuses = [...(options.statuses ?? ["CREATE_COMPLETE"])];
+  const outputs = options.outputs ?? [];
+  const shell: DeploymentShellAdapter & {
+    commands: Array<{ program: string; args: string[]; env?: Record<string, string> }>;
+    savedOutputs: unknown[];
+  } = {
+    commands: [],
+    savedOutputs: [],
+    async run(command) {
+      shell.commands.push(command);
+      if (command.program === "aws" && command.args.includes("describe-stacks")) {
+        const status = statuses.shift() ?? statuses.at(-1) ?? "CREATE_COMPLETE";
+        return {
+          exitCode: 0,
+          stdout: JSON.stringify({ Stacks: [{ StackStatus: status, Outputs: status.endsWith("COMPLETE") ? outputs : [] }] }),
+          stderr: ""
+        };
+      }
+      return { exitCode: 0, stdout: `${command.program} ${command.args.join(" ")} ok`, stderr: "" };
+    },
+    async saveOutputs(record) {
+      shell.savedOutputs.push(record);
+      return `/tmp/${record.stackName}-outputs.json`;
+    }
+  };
+  return shell;
+}
