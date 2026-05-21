@@ -221,7 +221,9 @@ p {
 
 .summary-card,
 .character-card,
-.chat-message {
+.chat-message,
+.tutorial-card,
+.setup-safety-panel {
   padding: 1rem;
   border: 1px solid rgba(156, 180, 255, 0.14);
   border-radius: 1rem;
@@ -239,6 +241,35 @@ p {
 
 .summary-card strong {
   font-size: 1.8rem;
+}
+
+.tutorial-card,
+.setup-safety-panel {
+  display: grid;
+  gap: 1rem;
+  margin-top: 1.5rem;
+}
+
+.tutorial-card h3,
+.tutorial-card ul,
+.setup-safety-panel p {
+  margin: 0;
+}
+
+.tutorial-card li {
+  margin-bottom: 0.35rem;
+  color: #dbe8ff;
+}
+
+.tutorial-safety-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem;
+}
+
+.tutorial-safety-grid .warning,
+.setup-safety-panel .warning {
+  margin: 0;
 }
 
 .character-list {
@@ -388,7 +419,8 @@ p {
   }
 
   .summary-grid,
-  .editor-grid {
+  .editor-grid,
+  .tutorial-safety-grid {
     grid-template-columns: 1fr;
   }
 }

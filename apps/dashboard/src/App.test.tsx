@@ -40,6 +40,7 @@ describe("CharacterForge dashboard", () => {
       "API Settings",
       "Characters",
       "Character Editor",
+      "Character Packs",
       "Chat Test",
       "Raw JSON Preview"
     ]) {
@@ -47,12 +48,46 @@ describe("CharacterForge dashboard", () => {
     }
   });
 
-  it("uses mock data by default and warns that no live API calls are made", () => {
+  it("uses mock data by default and starts with a first-run tutorial before setup forms", () => {
     render(<App />);
 
     expect(screen.getByRole("heading", { name: /welcome to characterforge dashboard/i })).toBeInTheDocument();
     expect(screen.getByText(/mock dashboard/i)).toBeInTheDocument();
     expect(screen.getByText(/no api base url is set/i)).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: /first-run tutorial/i })).toBeInTheDocument();
+    expect(screen.getByText(/mock mode keeps this walkthrough safe/i)).toBeInTheDocument();
+    expect(screen.getByText(/aws can charge for deployed resources/i)).toBeInTheDocument();
+    expect(screen.getByText(/never paste production credentials/i)).toBeInTheDocument();
+    expect(screen.queryByLabelText(/api base url/i)).not.toBeInTheDocument();
+  });
+
+  it("walks through mock first-run tutorial screens before opening setup", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+
+    expect(screen.getByText(/step 1 of 4/i)).toBeInTheDocument();
+    expect(screen.getByText(/mock mode keeps this walkthrough safe/i)).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: /next: safety/i }));
+    expect(screen.getByText(/step 2 of 4/i)).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: /aws can charge for deployed resources/i })).toBeInTheDocument();
+    expect(screen.getAllByText(/set budgets and delete test stacks/i).length).toBeGreaterThan(0);
+
+    await user.click(screen.getByRole("button", { name: /next: credentials/i }));
+    expect(screen.getByText(/step 3 of 4/i)).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: /never paste production credentials/i })).toBeInTheDocument();
+    expect(screen.getByText(/browser fields are for local test keys only/i)).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: /next: dashboard tour/i }));
+    expect(screen.getByText(/step 4 of 4/i)).toBeInTheDocument();
+    expect(screen.getByText(/use character packs to import and export local content/i)).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: /open api settings/i }));
+    expect(screen.getByRole("heading", { name: /api settings/i })).toBeInTheDocument();
+    expect(screen.getByText(/review these safety notes before entering setup values/i)).toBeInTheDocument();
+    expect(screen.getByText(/aws cost warning/i)).toBeInTheDocument();
+    expect(screen.getByText(/credential safety warning/i)).toBeInTheDocument();
+    expect(screen.getByLabelText(/api base url/i)).toBeInTheDocument();
   });
 
   it("navigates between character, editor, chat, settings, and JSON preview screens", async () => {
@@ -69,6 +104,10 @@ describe("CharacterForge dashboard", () => {
     expect(screen.getByRole("heading", { name: /character editor/i })).toBeInTheDocument();
     expect(screen.getByLabelText(/character name/i)).toHaveValue("Captain Mira Voss");
     expect(screen.getByText(/allowed action types/i)).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Character Packs" }));
+    expect(screen.getByRole("heading", { name: /character packs/i })).toBeInTheDocument();
+    expect(screen.getByText(/load a local pack/i)).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "Chat Test" }));
     expect(screen.getByRole("heading", { name: /chat test/i })).toBeInTheDocument();
@@ -281,5 +320,132 @@ describe("CharacterForge dashboard", () => {
     );
     expect(createCharacterMock).not.toHaveBeenCalled();
     expect(await screen.findByText(/updated character profile/i)).toBeInTheDocument();
+  });
+
+  it("loads a local JSON character pack, validates it, previews contents, imports selected characters, and exports selected data", async () => {
+    const user = userEvent.setup();
+    createCharacterMock.mockResolvedValue({ character_id: "char_imported" });
+    const createObjectUrlMock = vi.fn((blob: Blob) => {
+      void blob;
+      return "blob:character-pack-export";
+    });
+    const revokeObjectUrlMock = vi.fn();
+    vi.stubGlobal("URL", { ...URL, createObjectURL: createObjectUrlMock, revokeObjectURL: revokeObjectUrlMock });
+
+    const packBundle = {
+      schema_version: "1.0",
+      slug: "local-test-pack",
+      name: "Local Test Pack",
+      description: "A browser-local pack for dashboard import tests.",
+      version: "1.0.0",
+      authors: [{ name: "Pack Author" }],
+      license: "Test License",
+      tags: ["local", "test"],
+      characters: [
+        { id: "mira", path: "characters/mira.json", name: "Captain Mira Voss" },
+        { id: "thalen", path: "characters/thalen.json", name: "Archivist Thalen" }
+      ],
+      bindings: [{ id: "rpg", path: "bindings/rpg.json", name: "RPG Binding" }],
+      character_documents: {
+        "characters/mira.json": {
+          name: "Captain Mira Voss",
+          description: "A skyship captain.",
+          personality: ["brave"],
+          backstory: "Former officer.",
+          speaking_style: "Clipped nautical phrasing.",
+          goals: ["protect her crew"],
+          world_context: "Aether skies.",
+          rules: ["Stay in character."],
+          allowed_actions: ["give_quest"],
+          action_rules: [{ type: "give_quest", enabled: true, trigger_instructions: "Offer work." }],
+          payload_templates: [
+            {
+              template_id: "mira-quest",
+              action_type: "give_quest",
+              description: "Quest payload.",
+              payload_template: { quest_id: "storm_compass" }
+            }
+          ]
+        },
+        "characters/thalen.json": {
+          name: "Archivist Thalen",
+          description: "A ruins scholar.",
+          personality: ["careful"],
+          backstory: "Keeper of maps.",
+          speaking_style: "Precise and quiet.",
+          goals: ["protect the archive"],
+          world_context: "Aether skies.",
+          rules: ["Stay in character."],
+          allowed_actions: ["set_flag"],
+          action_rules: [{ type: "set_flag", enabled: true, trigger_instructions: "Mark discoveries." }],
+          payload_templates: [
+            {
+              template_id: "thalen-flag",
+              action_type: "set_flag",
+              description: "Flag payload.",
+              payload_template: { flag_id: "archive_clue_found", value: true }
+            }
+          ]
+        }
+      },
+      binding_documents: {
+        "bindings/rpg.json": { bindings: { give_quest: { target: { system: "QuestManager" } } } }
+      }
+    };
+
+    render(<App />);
+
+    await user.click(screen.getByRole("button", { name: "API Settings" }));
+    await user.type(screen.getByLabelText(/api base url/i), "https://api.example.test/dev");
+    await user.click(screen.getByRole("button", { name: /save settings/i }));
+    await user.click(screen.getByRole("button", { name: "Character Packs" }));
+
+    const fileInput = screen.getByLabelText(/load pack json, folder, or zip/i);
+    fireEvent.change(fileInput, {
+      target: { files: [new File([JSON.stringify(packBundle)], "character-pack.json", { type: "application/json" })] }
+    });
+
+    expect(await screen.findByText(/validated local test pack/i)).toBeInTheDocument();
+    expect(screen.getByText(/2 characters/i)).toBeInTheDocument();
+    expect(screen.getByText(/1 binding/i)).toBeInTheDocument();
+    expect(screen.getByText("Captain Mira Voss")).toBeInTheDocument();
+    expect(screen.getByText("Archivist Thalen")).toBeInTheDocument();
+    expect(screen.getByLabelText(/pack preview json/i)).toHaveTextContent('"slug": "local-test-pack"');
+
+    await user.click(screen.getByRole("checkbox", { name: /archivist thalen/i }));
+    await user.click(screen.getByRole("button", { name: /import selected characters/i }));
+
+    expect(createCharacterMock).toHaveBeenCalledTimes(1);
+    expect(createCharacterMock).toHaveBeenCalledWith(
+      { baseUrl: "https://api.example.test/dev", apiKey: undefined },
+      expect.objectContaining({ name: "Captain Mira Voss", payload_templates: expect.any(Array) })
+    );
+    expect(await screen.findByText(/imported 1 character/i)).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: /export selected characters/i }));
+
+    expect(createObjectUrlMock).toHaveBeenCalledTimes(1);
+    const exportedBlob = createObjectUrlMock.mock.calls[0][0] as Blob;
+    const exportedJson = JSON.parse(await exportedBlob.text());
+    expect(exportedJson.characters).toEqual([{ id: "mira", path: "characters/mira.json", name: "Captain Mira Voss" }]);
+    expect(exportedJson.character_documents["characters/mira.json"].payload_templates[0].template_id).toBe("mira-quest");
+    expect(exportedJson.binding_documents["bindings/rpg.json"].bindings.give_quest.target.system).toBe("QuestManager");
+    expect(screen.getByLabelText(/export preview json/i)).toHaveTextContent('"character_documents"');
+
+    vi.unstubAllGlobals();
+  });
+
+  it("validates local pack files before import", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+
+    await user.click(screen.getByRole("button", { name: "Character Packs" }));
+    fireEvent.change(screen.getByLabelText(/load pack json, folder, or zip/i), {
+      target: { files: [new File([JSON.stringify({ name: "Broken Pack" })], "broken-pack.json", { type: "application/json" })] }
+    });
+
+    expect(await screen.findByText(/pack schema_version must be 1.0/i)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /import selected characters/i })).toBeDisabled();
+    expect(createCharacterMock).not.toHaveBeenCalled();
   });
 });

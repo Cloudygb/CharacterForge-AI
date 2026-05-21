@@ -1,10 +1,11 @@
+import JSZip from "jszip";
 import { useMemo, useState } from "react";
 
 import { CharacterForgeClient, type CharacterSummary } from "@characterforge/characterforge-ai";
 
 import "./styles.css";
 
-type ScreenId = "welcome" | "settings" | "characters" | "editor" | "chat" | "json";
+type ScreenId = "welcome" | "settings" | "characters" | "editor" | "packs" | "chat" | "json";
 
 type Character = {
   id: string;
@@ -86,6 +87,56 @@ type CharacterPayload = {
   }>;
 };
 
+type PackFileReference = {
+  id: string;
+  path: string;
+  name?: string;
+  description?: string;
+};
+
+type CharacterPackManifest = {
+  schema_version: string;
+  slug: string;
+  name: string;
+  description: string;
+  version: string;
+  authors: Array<{ name: string; url?: string }>;
+  license: string;
+  tags: string[];
+  characters: PackFileReference[];
+  bindings?: PackFileReference[];
+  assets?: PackFileReference[];
+  content_warnings?: string[];
+  minimum_characterforge_version?: string;
+  character_documents?: Record<string, CharacterPayload>;
+  binding_documents?: Record<string, unknown>;
+};
+
+type LoadedPack = {
+  manifest: CharacterPackManifest;
+  characterDocuments: Record<string, CharacterPayload>;
+  bindingDocuments: Record<string, unknown>;
+  errors: string[];
+};
+
+type PackStatus = {
+  message: string;
+  state: "idle" | "loading" | "success" | "error";
+};
+
+type PackExportState = {
+  fileName: string;
+  objectUrl: string;
+  preview: CharacterPackManifest;
+};
+
+type TutorialStep = {
+  title: string;
+  body: string;
+  checklist: string[];
+  nextLabel: string;
+};
+
 const settingsStorageKey = "characterforge.dashboard.settings";
 
 const screens: Array<{ id: ScreenId; label: string }> = [
@@ -93,6 +144,7 @@ const screens: Array<{ id: ScreenId; label: string }> = [
   { id: "settings", label: "API Settings" },
   { id: "characters", label: "Characters" },
   { id: "editor", label: "Character Editor" },
+  { id: "packs", label: "Character Packs" },
   { id: "chat", label: "Chat Test" },
   { id: "json", label: "Raw JSON Preview" }
 ];
@@ -137,6 +189,33 @@ const actionTemplateConfigs: ActionTemplateConfig[] = [
     templateId: "flag_template",
     description: "Flag action payload template",
     defaultJson: '{"flag_id":"learned_sky_map_rumor","value":true}'
+  }
+];
+
+const firstRunTutorialSteps: TutorialStep[] = [
+  {
+    title: "Mock mode keeps this walkthrough safe",
+    body: "Start in mock state so you can tour CharacterForge without creating AWS resources or sending live API requests.",
+    checklist: ["Review the dashboard screens", "Open sample characters", "Try local pack previews before any live setup"],
+    nextLabel: "Next: Safety"
+  },
+  {
+    title: "AWS can charge for deployed resources",
+    body: "Even small Lambda, API Gateway, DynamoDB, CloudWatch, or storage experiments can create usage charges after deployment.",
+    checklist: ["Set budgets and delete test stacks when finished", "Use the AWS free tier only as a limit guide", "Check billing before sharing a demo"],
+    nextLabel: "Next: Credentials"
+  },
+  {
+    title: "Never paste production credentials",
+    body: "Browser fields are for local test keys only. Production games should call a trusted backend or proxy that keeps secrets server-side.",
+    checklist: ["Do not commit API keys", "Do not screenshot real secrets", "Rotate any key that may have been exposed"],
+    nextLabel: "Next: Dashboard tour"
+  },
+  {
+    title: "Dashboard tour",
+    body: "Use Character Packs to import and export local content, Character Editor to shape payloads, and Raw JSON Preview to inspect safe mock state.",
+    checklist: ["Keep mock mode until you intentionally connect", "Validate local packs before importing", "Review JSON before sharing artifacts"],
+    nextLabel: "Open API Settings"
   }
 ];
 
@@ -344,7 +423,230 @@ function buildCharacterPayload(form: CharacterEditorForm): { errors: string[]; p
   return { errors, payload: errors.length ? null : payload };
 }
 
-function WelcomeScreen({ mode }: { mode: "api" | "mock" }) {
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function isCharacterPayload(value: unknown): value is CharacterPayload {
+  if (!isRecord(value)) {
+    return false;
+  }
+  return (
+    typeof value.name === "string" &&
+    typeof value.description === "string" &&
+    Array.isArray(value.personality) &&
+    typeof value.backstory === "string" &&
+    typeof value.speaking_style === "string" &&
+    Array.isArray(value.goals) &&
+    typeof value.world_context === "string" &&
+    Array.isArray(value.rules) &&
+    Array.isArray(value.allowed_actions) &&
+    Array.isArray(value.action_rules) &&
+    Array.isArray(value.payload_templates)
+  );
+}
+
+function isPackFileReference(value: unknown): value is PackFileReference {
+  return isRecord(value) && typeof value.id === "string" && typeof value.path === "string";
+}
+
+function isCharacterPackManifest(value: unknown): value is CharacterPackManifest {
+  if (!isRecord(value)) {
+    return false;
+  }
+  return (
+    value.schema_version === "1.0" &&
+    typeof value.slug === "string" &&
+    typeof value.name === "string" &&
+    typeof value.description === "string" &&
+    typeof value.version === "string" &&
+    Array.isArray(value.authors) &&
+    typeof value.license === "string" &&
+    Array.isArray(value.tags) &&
+    Array.isArray(value.characters) &&
+    value.characters.every(isPackFileReference)
+  );
+}
+
+function validatePackBundle(pack: unknown): LoadedPack {
+  const errors: string[] = [];
+  if (!isCharacterPackManifest(pack)) {
+    const maybePack = isRecord(pack) ? pack : {};
+    if (maybePack.schema_version !== "1.0") {
+      errors.push("Pack schema_version must be 1.0.");
+    }
+    if (typeof maybePack.slug !== "string") {
+      errors.push("Pack slug is required.");
+    }
+    if (!Array.isArray(maybePack.characters)) {
+      errors.push("Pack must include a characters list.");
+    }
+    return {
+      manifest: {
+        schema_version: "1.0",
+        slug: "invalid-pack",
+        name: typeof maybePack.name === "string" ? maybePack.name : "Invalid pack",
+        description: "Invalid local pack.",
+        version: "0.0.0",
+        authors: [],
+        license: "Unknown",
+        tags: [],
+        characters: []
+      },
+      characterDocuments: {},
+      bindingDocuments: {},
+      errors
+    };
+  }
+
+  const characterDocuments = pack.character_documents ?? {};
+  const bindingDocuments = pack.binding_documents ?? {};
+  for (const characterRef of pack.characters) {
+    const document = characterDocuments[characterRef.path];
+    if (!document) {
+      errors.push(`Missing character document at ${characterRef.path}.`);
+    } else if (!isCharacterPayload(document)) {
+      errors.push(`Character document ${characterRef.path} is not a valid CharacterForge character payload.`);
+    }
+  }
+  for (const bindingRef of pack.bindings ?? []) {
+    if (bindingDocuments[bindingRef.path] === undefined) {
+      errors.push(`Missing binding document at ${bindingRef.path}.`);
+    }
+  }
+
+  return { manifest: pack, characterDocuments, bindingDocuments, errors };
+}
+
+function fileRelativePath(file: File): string {
+  const fileWithPath = file as File & { webkitRelativePath?: string };
+  return fileWithPath.webkitRelativePath || file.name;
+}
+
+async function readFileText(file: File): Promise<string> {
+  if (typeof file.text === "function") {
+    return file.text();
+  }
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result ?? ""));
+    reader.onerror = () => reject(reader.error ?? new Error("Unable to read file."));
+    reader.readAsText(file);
+  });
+}
+
+async function readJsonFile(file: File): Promise<unknown> {
+  return JSON.parse(await readFileText(file)) as unknown;
+}
+
+async function loadPackFromFileList(files: FileList | File[]): Promise<LoadedPack> {
+  const fileArray = Array.from(files);
+  if (!fileArray.length) {
+    return validatePackBundle({});
+  }
+
+  const zipFile = fileArray.find((file) => file.name.toLowerCase().endsWith(".zip"));
+  if (zipFile) {
+    const zip = await JSZip.loadAsync(zipFile);
+    const jsonEntries: Record<string, unknown> = {};
+    for (const [path, entry] of Object.entries(zip.files)) {
+      if (!entry.dir && path.toLowerCase().endsWith(".json")) {
+        jsonEntries[path] = JSON.parse(await entry.async("string")) as unknown;
+      }
+    }
+    const manifestPath = Object.keys(jsonEntries).find((path) => path.endsWith("character-pack.json"));
+    const manifest = manifestPath ? jsonEntries[manifestPath] : jsonEntries[Object.keys(jsonEntries)[0]];
+    return hydratePackManifest(manifest, jsonEntries, manifestPath ?? "");
+  }
+
+  if (fileArray.length === 1) {
+    return hydratePackManifest(await readJsonFile(fileArray[0]), {}, "");
+  }
+
+  const jsonEntries: Record<string, unknown> = {};
+  for (const file of fileArray.filter((candidate) => candidate.name.toLowerCase().endsWith(".json"))) {
+    jsonEntries[fileRelativePath(file)] = await readJsonFile(file);
+  }
+  const manifestPath = Object.keys(jsonEntries).find((path) => path.endsWith("character-pack.json"));
+  const manifest = manifestPath ? jsonEntries[manifestPath] : jsonEntries[Object.keys(jsonEntries)[0]];
+  return hydratePackManifest(manifest, jsonEntries, manifestPath ?? "");
+}
+
+function hydratePackManifest(manifest: unknown, jsonEntries: Record<string, unknown>, manifestPath: string): LoadedPack {
+  if (!isRecord(manifest)) {
+    return validatePackBundle(manifest);
+  }
+  const basePath = manifestPath.includes("/") ? manifestPath.slice(0, manifestPath.lastIndexOf("/") + 1) : "";
+  const candidatePack = { ...manifest } as CharacterPackManifest;
+  const existingCharacterDocuments = isRecord(candidatePack.character_documents) ? candidatePack.character_documents : {};
+  const existingBindingDocuments = isRecord(candidatePack.binding_documents) ? candidatePack.binding_documents : {};
+  const characterDocuments: Record<string, CharacterPayload> = {};
+  const bindingDocuments: Record<string, unknown> = {};
+
+  if (Array.isArray(candidatePack.characters)) {
+    for (const ref of candidatePack.characters.filter(isPackFileReference)) {
+      const entry = existingCharacterDocuments[ref.path] ?? jsonEntries[`${basePath}${ref.path}`] ?? jsonEntries[ref.path];
+      if (entry !== undefined) {
+        characterDocuments[ref.path] = entry as CharacterPayload;
+      }
+    }
+  }
+  if (Array.isArray(candidatePack.bindings)) {
+    for (const ref of candidatePack.bindings.filter(isPackFileReference)) {
+      const entry = existingBindingDocuments[ref.path] ?? jsonEntries[`${basePath}${ref.path}`] ?? jsonEntries[ref.path];
+      if (entry !== undefined) {
+        bindingDocuments[ref.path] = entry;
+      }
+    }
+  }
+
+  return validatePackBundle({ ...candidatePack, character_documents: characterDocuments, binding_documents: bindingDocuments });
+}
+
+function buildExportPack(source: LoadedPack, selectedCharacterIds: string[]): CharacterPackManifest {
+  const selectedCharacters = source.manifest.characters.filter((character) => selectedCharacterIds.includes(character.id));
+  return {
+    schema_version: "1.0",
+    slug: `${source.manifest.slug}-dashboard-export`,
+    name: `${source.manifest.name} Dashboard Export`,
+    description: `Local dashboard export from ${source.manifest.name}.`,
+    version: source.manifest.version,
+    authors: source.manifest.authors,
+    license: source.manifest.license,
+    tags: source.manifest.tags,
+    content_warnings: source.manifest.content_warnings ?? [],
+    minimum_characterforge_version: source.manifest.minimum_characterforge_version,
+    characters: selectedCharacters,
+    bindings: source.manifest.bindings ?? [],
+    assets: [],
+    character_documents: Object.fromEntries(
+      selectedCharacters.map((character) => [character.path, source.characterDocuments[character.path]]).filter(([, document]) => document)
+    ),
+    binding_documents: source.bindingDocuments
+  };
+}
+
+function downloadJsonFile(payload: unknown): string {
+  const json = formatJson(payload);
+  const blob = new Blob([json], { type: "application/json" }) as Blob & { text?: () => Promise<string> };
+  if (typeof blob.text !== "function") {
+    blob.text = async () => json;
+  }
+  return URL.createObjectURL(blob);
+}
+
+function WelcomeScreen({ mode, onOpenSettings, onTutorialStepChange, tutorialStepIndex }: { mode: "api" | "mock"; onOpenSettings: () => void; onTutorialStepChange: (stepIndex: number) => void; tutorialStepIndex: number }) {
+  const tutorialStep = firstRunTutorialSteps[tutorialStepIndex];
+  const finalStep = tutorialStepIndex === firstRunTutorialSteps.length - 1;
+
+  function handleTutorialNext() {
+    if (finalStep) {
+      onOpenSettings();
+      return;
+    }
+    onTutorialStepChange(tutorialStepIndex + 1);
+  }
+
   return (
     <section className="screen-card" aria-labelledby="welcome-title">
       <p className="eyebrow">{mode === "api" ? "API-connected dashboard" : "Mock dashboard"}</p>
@@ -363,6 +665,30 @@ function WelcomeScreen({ mode }: { mode: "api" | "mock" }) {
         <SummaryCard label="Editor action groups" value={actionTemplateConfigs.length.toString()} />
         <SummaryCard label="API mode" value={mode === "api" ? "Connected" : "Mock"} />
       </div>
+      <section className="tutorial-card" aria-labelledby="tutorial-title">
+        <p className="eyebrow">Step {tutorialStepIndex + 1} of {firstRunTutorialSteps.length}</p>
+        <h2 id="tutorial-title">First-run tutorial</h2>
+        <h3>{tutorialStep.title}</h3>
+        <p>{tutorialStep.body}</p>
+        <ul>
+          {tutorialStep.checklist.map((item) => (
+            <li key={item}>{item}</li>
+          ))}
+        </ul>
+        <div className="tutorial-safety-grid" aria-label="First-run safety warnings">
+          <div className="warning">
+            <strong>AWS cost warning</strong>
+            <p>AWS can charge for deployed resources. Set budgets and delete test stacks when finished.</p>
+          </div>
+          <div className="warning">
+            <strong>Credential safety warning</strong>
+            <p>Never paste production credentials into browser forms, commits, screenshots, or public demos.</p>
+          </div>
+        </div>
+        <div className="button-row">
+          <button type="button" onClick={handleTutorialNext}>{tutorialStep.nextLabel}</button>
+        </div>
+      </section>
     </section>
   );
 }
@@ -397,6 +723,23 @@ function ApiSettingsScreen({
         Add a CharacterForge API base URL and API key to load live character summaries. Leave the base URL blank to keep
         using mock mode.
       </p>
+      <div className="setup-safety-panel" aria-label="Setup safety warnings">
+        <p className="eyebrow">Review these safety notes before entering setup values</p>
+        <div className="warning">
+          <strong>AWS cost warning</strong>
+          <p>
+            AWS can charge for deployed resources such as Lambda, API Gateway, DynamoDB, CloudWatch logs, and storage.
+            Set budgets and delete test stacks when finished.
+          </p>
+        </div>
+        <div className="warning">
+          <strong>Credential safety warning</strong>
+          <p>
+            Never paste production credentials into this browser demo. Use local test keys only, do not persist keys in
+            committed files, and put production secrets behind a trusted backend.
+          </p>
+        </div>
+      </div>
       <label className="field">
         API base URL
         <input
@@ -595,6 +938,144 @@ function CharacterEditorScreen({
   );
 }
 
+function CharacterPacksScreen({
+  exportState,
+  loadedPack,
+  onExportSelected,
+  onFileLoad,
+  onImportSelected,
+  onSelectionChange,
+  selectedCharacterIds,
+  status
+}: {
+  exportState: PackExportState | null;
+  loadedPack: LoadedPack | null;
+  onExportSelected: () => void;
+  onFileLoad: (files: FileList | null) => void;
+  onImportSelected: () => void;
+  onSelectionChange: (characterIds: string[]) => void;
+  selectedCharacterIds: string[];
+  status: PackStatus;
+}) {
+  const validPack = loadedPack && !loadedPack.errors.length ? loadedPack : null;
+
+  function toggleCharacter(characterId: string) {
+    onSelectionChange(
+      selectedCharacterIds.includes(characterId)
+        ? selectedCharacterIds.filter((selectedId) => selectedId !== characterId)
+        : [...selectedCharacterIds, characterId]
+    );
+  }
+
+  return (
+    <section className="screen-card" aria-labelledby="packs-title">
+      <p className="eyebrow">Local pack tools</p>
+      <h1 id="packs-title">Character Packs</h1>
+      <p>
+        Load a local pack JSON file, extracted pack folder, or zip archive in the browser, validate it, preview contents,
+        import selected characters, and export selected characters with payload templates and bindings.
+      </p>
+      <div className="notice compact">
+        File parsing and export generation happen locally in the browser. Only the Import button calls the configured
+        CharacterForge API.
+      </div>
+      <label className="field">
+        Load pack JSON, folder, or zip
+        <input
+          accept=".json,.zip,application/json,application/zip"
+          multiple
+          onChange={(event) => onFileLoad(event.target.files)}
+          type="file"
+        />
+      </label>
+      <label className="field">
+        Load extracted pack folder
+        <input
+          multiple
+          onChange={(event) => onFileLoad(event.target.files)}
+          type="file"
+          {...({ webkitdirectory: "" } as Record<string, string>)}
+        />
+      </label>
+      <div className={`connection-status ${status.state}`} role={status.state === "error" ? "alert" : "status"}>
+        {status.message}
+      </div>
+      {loadedPack?.errors.length ? (
+        <div className="connection-status error" role="alert">
+          {loadedPack.errors.map((error) => (
+            <div key={error}>{error}</div>
+          ))}
+        </div>
+      ) : null}
+      {validPack ? (
+        <>
+          <div className="summary-grid">
+            <SummaryCard label="Pack" value={validPack.manifest.name} />
+            <SummaryCard label="Characters" value={`${validPack.manifest.characters.length} characters`} />
+            <SummaryCard label="Bindings" value={`${validPack.manifest.bindings?.length ?? 0} binding${(validPack.manifest.bindings?.length ?? 0) === 1 ? "" : "s"}`} />
+          </div>
+          <div className="character-list">
+            {validPack.manifest.characters.map((character) => (
+              <article className="character-card" key={character.id}>
+                <div>
+                  <label className="checkbox-field">
+                    <input
+                      checked={selectedCharacterIds.includes(character.id)}
+                      onChange={() => toggleCharacter(character.id)}
+                      type="checkbox"
+                    />
+                    {character.name ?? character.id}
+                  </label>
+                  <p>{character.description ?? validPack.characterDocuments[character.path]?.description}</p>
+                </div>
+                <span className="status-pill">{character.id}</span>
+                <p>
+                  Payload templates: {validPack.characterDocuments[character.path]?.payload_templates.length ?? 0} · Actions: {validPack.characterDocuments[character.path]?.allowed_actions.join(", ")}
+                </p>
+              </article>
+            ))}
+          </div>
+          <div className="button-row">
+            <button disabled={!selectedCharacterIds.length} onClick={onImportSelected} type="button">
+              Import selected characters
+            </button>
+            <button disabled={!selectedCharacterIds.length} onClick={onExportSelected} type="button">
+              Export selected characters
+            </button>
+            {exportState ? (
+              <a className="download-link" download={exportState.fileName} href={exportState.objectUrl}>
+                Download {exportState.fileName}
+              </a>
+            ) : null}
+          </div>
+          <h2>Pack preview JSON</h2>
+          <pre aria-label="Pack preview JSON" className="json-preview">
+            {formatJson({ ...validPack.manifest, character_documents: validPack.characterDocuments, binding_documents: validPack.bindingDocuments })}
+          </pre>
+          {exportState ? (
+            <>
+              <h2>Export preview JSON</h2>
+              <pre aria-label="Export preview JSON" className="json-preview">
+                {formatJson(exportState.preview)}
+              </pre>
+            </>
+          ) : null}
+        </>
+      ) : null}
+      {!validPack ? (
+        <div className="button-row">
+          <button disabled type="button">
+            Import selected characters
+          </button>
+          <button disabled type="button">
+            Export selected characters
+          </button>
+        </div>
+      ) : null}
+    </section>
+  );
+}
+
 function ChatTestScreen() {
   return (
     <section className="screen-card" aria-labelledby="chat-title">
@@ -677,6 +1158,14 @@ export default function App() {
     message: "Ready to preview and submit a character profile.",
     state: "idle"
   });
+  const [loadedPack, setLoadedPack] = useState<LoadedPack | null>(null);
+  const [selectedPackCharacterIds, setSelectedPackCharacterIds] = useState<string[]>([]);
+  const [packStatus, setPackStatus] = useState<PackStatus>({
+    message: "Choose a local pack JSON file, extracted folder, or zip archive to begin.",
+    state: "idle"
+  });
+  const [packExportState, setPackExportState] = useState<PackExportState | null>(null);
+  const [tutorialStepIndex, setTutorialStepIndex] = useState(0);
 
   const apiMode = Boolean(settings.apiBaseUrl.trim());
   const activeCharacters = apiMode && apiCharacters.length ? apiCharacters : mockCharacters;
@@ -764,6 +1253,82 @@ export default function App() {
     }
   }
 
+  async function handlePackFileLoad(files: FileList | null) {
+    if (!files?.length) {
+      return;
+    }
+    setPackStatus({ message: "Reading local character pack files...", state: "loading" });
+    setPackExportState(null);
+    try {
+      const nextPack = await loadPackFromFileList(files);
+      setLoadedPack(nextPack);
+      if (nextPack.errors.length) {
+        setSelectedPackCharacterIds([]);
+        setPackStatus({ message: "Local character pack validation failed.", state: "error" });
+      } else {
+        setSelectedPackCharacterIds(nextPack.manifest.characters.map((character) => character.id));
+        setPackStatus({
+          message: `Validated ${nextPack.manifest.name}: pack ready for preview.`,
+          state: "success"
+        });
+      }
+    } catch (error) {
+      setLoadedPack(null);
+      setSelectedPackCharacterIds([]);
+      setPackStatus({
+        message: error instanceof Error ? `Could not read local pack: ${error.message}` : "Could not read local pack.",
+        state: "error"
+      });
+    }
+  }
+
+  async function handleImportPackCharacters() {
+    if (!loadedPack || loadedPack.errors.length || !selectedPackCharacterIds.length) {
+      setPackStatus({ message: "Select valid pack characters before importing.", state: "error" });
+      return;
+    }
+    if (!settings.apiBaseUrl.trim()) {
+      setPackStatus({ message: "API base URL is required before importing selected pack characters.", state: "error" });
+      return;
+    }
+
+    setPackStatus({ message: "Importing selected pack characters through the TypeScript SDK...", state: "loading" });
+    try {
+      const client = new CharacterForgeClient({ baseUrl: settings.apiBaseUrl, apiKey: settings.apiKey || undefined });
+      const selectedCharacters = loadedPack.manifest.characters.filter((character) => selectedPackCharacterIds.includes(character.id));
+      for (const character of selectedCharacters) {
+        await client.createCharacter(loadedPack.characterDocuments[character.path]);
+      }
+      setPackStatus({
+        message: `Imported ${selectedCharacters.length} character${selectedCharacters.length === 1 ? "" : "s"} from ${loadedPack.manifest.name}.`,
+        state: "success"
+      });
+    } catch (error) {
+      setPackStatus({
+        message: error instanceof Error ? `Pack import failed: ${error.message}` : "Pack import failed.",
+        state: "error"
+      });
+    }
+  }
+
+  function handleExportPackCharacters() {
+    if (!loadedPack || loadedPack.errors.length || !selectedPackCharacterIds.length) {
+      setPackStatus({ message: "Select valid pack characters before exporting.", state: "error" });
+      return;
+    }
+    if (packExportState) {
+      URL.revokeObjectURL(packExportState.objectUrl);
+    }
+    const exportPack = buildExportPack(loadedPack, selectedPackCharacterIds);
+    const fileName = `${exportPack.slug}.json`;
+    const objectUrl = downloadJsonFile(exportPack);
+    setPackExportState({ fileName, objectUrl, preview: exportPack });
+    setPackStatus({
+      message: `Prepared local export for ${selectedPackCharacterIds.length} selected character${selectedPackCharacterIds.length === 1 ? "" : "s"}.`,
+      state: "success"
+    });
+  }
+
   function renderScreen() {
     switch (activeScreen) {
       case "settings":
@@ -789,6 +1354,19 @@ export default function App() {
             validationErrors={editorValidationErrors}
           />
         );
+      case "packs":
+        return (
+          <CharacterPacksScreen
+            exportState={packExportState}
+            loadedPack={loadedPack}
+            onExportSelected={handleExportPackCharacters}
+            onFileLoad={handlePackFileLoad}
+            onImportSelected={handleImportPackCharacters}
+            onSelectionChange={setSelectedPackCharacterIds}
+            selectedCharacterIds={selectedPackCharacterIds}
+            status={packStatus}
+          />
+        );
       case "chat":
         return <ChatTestScreen />;
       case "json":
@@ -802,7 +1380,14 @@ export default function App() {
         );
       case "welcome":
       default:
-        return <WelcomeScreen mode={apiMode ? "api" : "mock"} />;
+        return (
+          <WelcomeScreen
+            mode={apiMode ? "api" : "mock"}
+            onOpenSettings={() => setActiveScreen("settings")}
+            onTutorialStepChange={setTutorialStepIndex}
+            tutorialStepIndex={tutorialStepIndex}
+          />
+        );
     }
   }
 

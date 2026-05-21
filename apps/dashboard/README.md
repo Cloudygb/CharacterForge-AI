@@ -10,6 +10,7 @@ The dashboard starts in mock mode when no API base URL is set. When a local base
 - API Settings
 - Characters
 - Character Editor
+- Character Packs
 - Chat Test
 - Raw JSON Preview
 
@@ -25,6 +26,18 @@ The Character Editor builds the exact JSON body that the API receives for charac
 - Leave the existing character ID blank to create a new profile, or enter a character ID to update that profile.
 
 The editor validates required fields, list fields, selected actions, trigger instructions, and template JSON before making an SDK call.
+
+## Character Packs
+
+The Character Packs screen keeps pack file handling local in the browser wherever possible. Use it to:
+
+- Load a `character-pack.json` bundle, extracted pack folder, or `.zip` archive from your computer.
+- Validate pack metadata, referenced character payloads, optional binding files, and payload template structure before import.
+- Preview pack metadata, characters, payload templates, and bindings as JSON before sending anything to the API.
+- Select which characters to import, then create those characters through the configured TypeScript SDK client.
+- Export selected characters as a browser-generated JSON bundle that includes `character_documents`, `payload_templates`, and `binding_documents`.
+
+Only the explicit import action calls the CharacterForge API. Loading, validating, previewing, and export preparation happen in the browser using local file APIs.
 
 ## Local commands
 
