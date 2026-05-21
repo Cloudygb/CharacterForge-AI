@@ -142,6 +142,20 @@ paths:
                     - type: trade_offer
                       enabled: true
                       trigger_instructions: Use when the player wants to buy skyship supplies.
+                  payload_templates:
+                    - template_id: quest_offer
+                      action_type: give_quest
+                      description: Payload shape for offering the lost sky map quest.
+                      payload_template:
+                        quest_id: lost_sky_map
+                        title: Recover the Lost Sky Map
+                        reward_currency: 150
+                    - template_id: trade_offer
+                      action_type: trade_offer
+                      description: Payload shape for opening a skyship supplies trade offer.
+                      payload_template:
+                        shop_id: skyship_supplies
+                        discount_percent: 10
       responses:
         '200':
           description: Character profile updated successfully.
@@ -166,6 +180,14 @@ paths:
                       - type: give_quest
                         enabled: true
                         trigger_instructions: Use when the player asks for a job or offers help.
+                    payload_templates:
+                      - template_id: quest_offer
+                        action_type: give_quest
+                        description: Payload shape for offering the lost sky map quest.
+                        payload_template:
+                          quest_id: lost_sky_map
+                          title: Recover the Lost Sky Map
+                          reward_currency: 150
                     created_at: '2026-05-20T17:30:00Z'
                     updated_at: '2026-05-20T17:45:00Z'
         '400':
@@ -482,6 +504,32 @@ components:
           minLength: 1
           description: Natural-language conditions for when the action should happen.
           example: Use when the player asks for a job or offers help.
+    ActionPayloadTemplate:
+      type: object
+      description: Designer-authored payload template for one supported action type.
+      additionalProperties: false
+      required: [template_id, action_type, description, payload_template]
+      properties:
+        template_id:
+          type: string
+          minLength: 1
+          description: Stable template identifier unique within one character.
+          example: quest_offer
+        action_type:
+          $ref: '#/components/schemas/ActionType'
+        description:
+          type: string
+          minLength: 1
+          description: Human-readable purpose for this payload template.
+          example: Payload shape for offering the lost sky map quest.
+        payload_template:
+          type: object
+          description: Designer-authored payload shape or default values for the action.
+          additionalProperties: true
+          example:
+            quest_id: lost_sky_map
+            title: Recover the Lost Sky Map
+            reward_currency: 150
     CharacterEditableFields:
       type: object
       description: Editable designer-authored character profile fields.
@@ -550,6 +598,12 @@ components:
           default: []
           items:
             $ref: '#/components/schemas/CharacterActionRule'
+        payload_templates:
+          type: array
+          description: Designer-authored payload templates available to game clients.
+          default: []
+          items:
+            $ref: '#/components/schemas/ActionPayloadTemplate'
     CreateCharacterRequest:
       allOf:
         - $ref: '#/components/schemas/CharacterEditableFields'
@@ -585,6 +639,7 @@ components:
         - rules
         - allowed_actions
         - action_rules
+        - payload_templates
         - created_at
         - updated_at
       properties:
@@ -656,6 +711,12 @@ components:
           default: []
           items:
             $ref: '#/components/schemas/CharacterActionRule'
+        payload_templates:
+          type: array
+          description: Designer-authored payload templates available to game clients.
+          default: []
+          items:
+            $ref: '#/components/schemas/ActionPayloadTemplate'
         created_at:
           type: string
           format: date-time
@@ -977,6 +1038,14 @@ components:
           - type: give_quest
             enabled: true
             trigger_instructions: Use when the player asks for a job or offers help.
+        payload_templates:
+          - template_id: quest_offer
+            action_type: give_quest
+            description: Payload shape for offering the lost sky map quest.
+            payload_template:
+              quest_id: lost_sky_map
+              title: Recover the Lost Sky Map
+              reward_currency: 150
     CharacterProfile:
       value:
         character_id: char_01HZY6W8K7EXAMPLE000000001
@@ -993,6 +1062,14 @@ components:
           - type: give_quest
             enabled: true
             trigger_instructions: Use when the player asks for a job or offers help.
+        payload_templates:
+          - template_id: quest_offer
+            action_type: give_quest
+            description: Payload shape for offering the lost sky map quest.
+            payload_template:
+              quest_id: lost_sky_map
+              title: Recover the Lost Sky Map
+              reward_currency: 150
         created_at: '2026-05-20T17:30:00Z'
         updated_at: '2026-05-20T17:30:00Z'
     ChatResponse:

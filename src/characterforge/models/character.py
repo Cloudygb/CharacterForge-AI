@@ -3,7 +3,7 @@ from typing import Self
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from characterforge.models.action import CharacterActionRule
+from characterforge.models.action import ActionPayloadTemplate, CharacterActionRule
 
 
 class CharacterBase(BaseModel):
@@ -26,6 +26,10 @@ class CharacterBase(BaseModel):
         default_factory=list,
         description="Designer-authored rules for when enabled actions should trigger.",
     )
+    payload_templates: list[ActionPayloadTemplate] = Field(
+        default_factory=list,
+        description="Designer-authored payload templates available to game clients.",
+    )
 
     @field_validator("name", "description", "backstory", "speaking_style", "world_context")
     @classmethod
@@ -42,6 +46,15 @@ class CharacterBase(BaseModel):
         if not cleaned:
             raise ValueError("list must contain at least one non-blank item")
         return cleaned
+
+    @model_validator(mode="after")
+    def require_unique_payload_template_ids(self) -> Self:
+        seen: set[str] = set()
+        for template in self.payload_templates:
+            if template.template_id in seen:
+                raise ValueError("payload_templates template_id values must be unique")
+            seen.add(template.template_id)
+        return self
 
 
 class CreateCharacterRequest(CharacterBase):
@@ -63,6 +76,7 @@ class UpdateCharacterRequest(BaseModel):
     rules: list[str] | None = None
     allowed_actions: list[str] | None = None
     action_rules: list[CharacterActionRule] | None = None
+    payload_templates: list[ActionPayloadTemplate] | None = None
 
     @field_validator("name", "description", "backstory", "speaking_style", "world_context")
     @classmethod
@@ -88,6 +102,17 @@ class UpdateCharacterRequest(BaseModel):
     def require_at_least_one_update_field(self) -> Self:
         if all(value is None for value in self.model_dump().values()):
             raise ValueError("at least one field must be provided")
+        return self
+
+    @model_validator(mode="after")
+    def require_unique_payload_template_ids(self) -> Self:
+        if self.payload_templates is None:
+            return self
+        seen: set[str] = set()
+        for template in self.payload_templates:
+            if template.template_id in seen:
+                raise ValueError("payload_templates template_id values must be unique")
+            seen.add(template.template_id)
         return self
 
 

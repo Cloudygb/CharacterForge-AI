@@ -45,6 +45,32 @@ ActionType = Literal[
 SUPPORTED_ACTION_TYPES: tuple[str, ...] = ActionType.__args__
 
 
+class ActionPayloadTemplate(BaseModel):
+    """Designer-authored payload template for one supported action type."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    template_id: str = Field(
+        ..., description="Stable template identifier unique within one character."
+    )
+    action_type: ActionType = Field(
+        ..., description="Supported action type this template prepares."
+    )
+    description: str = Field(..., description="Human-readable purpose for this payload template.")
+    payload_template: dict[str, Any] = Field(
+        ...,
+        description="Designer-authored payload shape or default values for the action.",
+    )
+
+    @field_validator("template_id", "description")
+    @classmethod
+    def strip_required_string(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("field cannot be blank")
+        return value
+
+
 class CharacterAction(BaseModel):
     """Machine-readable action emitted by a character response."""
 

@@ -3,6 +3,7 @@ from datetime import UTC, datetime
 import pytest
 from pydantic import ValidationError
 
+from characterforge.models.action import ActionPayloadTemplate
 from characterforge.models.character import (
     CharacterProfile,
     CharacterSummary,
@@ -34,6 +35,24 @@ def valid_character_payload() -> dict:
                 "trigger_instructions": "Open the shop only after this action is enabled.",
             },
         ],
+        "payload_templates": [
+            {
+                "template_id": "quest_offer",
+                "action_type": "give_quest",
+                "description": "Payload shape for offering the lost sky map quest.",
+                "payload_template": {
+                    "quest_id": "lost_sky_map",
+                    "title": "Recover the Lost Sky Map",
+                    "reward_currency": 150,
+                },
+            },
+            {
+                "template_id": "relationship_boost",
+                "action_type": "change_relationship",
+                "description": "Payload shape for improving Mira's trust in the player.",
+                "payload_template": {"relationship_change": 1},
+            },
+        ],
     }
 
 
@@ -47,6 +66,21 @@ def test_create_character_request_accepts_complete_profile_data() -> None:
     assert request.action_rules[0].enabled is True
     assert request.action_rules[1].type == "open_shop"
     assert request.action_rules[1].enabled is False
+    assert request.payload_templates[0].template_id == "quest_offer"
+    assert request.payload_templates[0].action_type == "give_quest"
+    assert request.payload_templates[0].payload_template["quest_id"] == "lost_sky_map"
+
+
+def test_action_payload_template_trims_required_strings() -> None:
+    template = ActionPayloadTemplate(
+        template_id="  shop_offer  ",
+        action_type="open_shop",
+        description="  Payload used to open a shop inventory.  ",
+        payload_template={"shop_id": "skyship_supplies"},
+    )
+
+    assert template.template_id == "shop_offer"
+    assert template.description == "Payload used to open a shop inventory."
 
 
 def test_create_character_request_allows_profiles_without_action_rules() -> None:
@@ -56,6 +90,33 @@ def test_create_character_request_allows_profiles_without_action_rules() -> None
     request = CreateCharacterRequest(**payload)
 
     assert request.action_rules == []
+
+
+def test_create_character_request_allows_profiles_without_payload_templates() -> None:
+    payload = valid_character_payload()
+    payload.pop("payload_templates")
+
+    request = CreateCharacterRequest(**payload)
+
+    assert request.payload_templates == []
+
+
+def test_create_character_request_rejects_duplicate_payload_template_ids() -> None:
+    payload = valid_character_payload()
+    payload["payload_templates"][1]["template_id"] = "quest_offer"
+
+    with pytest.raises(
+        ValidationError, match="payload_templates template_id values must be unique"
+    ):
+        CreateCharacterRequest(**payload)
+
+
+def test_create_character_request_rejects_invalid_payload_template_action_type() -> None:
+    payload = valid_character_payload()
+    payload["payload_templates"][0]["action_type"] = "launch_missiles"
+
+    with pytest.raises(ValidationError):
+        CreateCharacterRequest(**payload)
 
 
 def test_create_character_request_rejects_blank_required_strings() -> None:
@@ -109,6 +170,45 @@ def test_update_character_request_allows_action_rule_updates() -> None:
     assert request.action_rules[0].enabled is True
 
 
+def test_update_character_request_allows_payload_template_updates() -> None:
+    request = UpdateCharacterRequest(
+        payload_templates=[
+            {
+                "template_id": "shop_offer",
+                "action_type": "open_shop",
+                "description": "Payload used to open the skyship supplies shop.",
+                "payload_template": {"shop_id": "skyship_supplies"},
+            }
+        ]
+    )
+
+    assert request.payload_templates is not None
+    assert request.payload_templates[0].template_id == "shop_offer"
+    assert request.payload_templates[0].action_type == "open_shop"
+
+
+def test_update_character_request_rejects_duplicate_payload_template_ids() -> None:
+    with pytest.raises(
+        ValidationError, match="payload_templates template_id values must be unique"
+    ):
+        UpdateCharacterRequest(
+            payload_templates=[
+                {
+                    "template_id": "quest_offer",
+                    "action_type": "give_quest",
+                    "description": "Offer the quest.",
+                    "payload_template": {"quest_id": "lost_sky_map"},
+                },
+                {
+                    "template_id": "quest_offer",
+                    "action_type": "change_relationship",
+                    "description": "Improve relationship.",
+                    "payload_template": {"relationship_change": 1},
+                },
+            ]
+        )
+
+
 def test_update_character_request_rejects_invalid_action_rules() -> None:
     with pytest.raises(ValidationError):
         UpdateCharacterRequest(
@@ -148,6 +248,7 @@ def test_character_profile_contains_identity_and_timestamps() -> None:
     assert profile.name == "Captain Mira Voss"
     assert profile.action_rules[0].type == "give_quest"
     assert profile.action_rules[1].enabled is False
+    assert profile.payload_templates[0].template_id == "quest_offer"
 
 
 def test_character_profile_rejects_blank_character_id() -> None:
