@@ -1,0 +1,145 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://characterforge.ai/schemas/character-pack.schema.json",
+  "title": "CharacterForge Character Pack",
+  "description": "Manifest format for distributing CharacterForge characters, payload templates, and optional game binding files as a reusable pack.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "slug",
+    "name",
+    "description",
+    "version",
+    "authors",
+    "license",
+    "tags",
+    "characters"
+  ],
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "description": "Optional JSON Schema pointer for editor validation."
+    },
+    "schema_version": {
+      "type": "string",
+      "const": "1.0"
+    },
+    "slug": {
+      "type": "string",
+      "description": "Stable lowercase identifier for the pack.",
+      "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"
+    },
+    "name": {
+      "type": "string",
+      "minLength": 1
+    },
+    "description": {
+      "type": "string",
+      "minLength": 1
+    },
+    "version": {
+      "type": "string",
+      "description": "Pack version using semantic-version style numbering.",
+      "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+(?:[-+][A-Za-z0-9.-]+)?$"
+    },
+    "authors": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name"],
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1
+          },
+          "url": {
+            "type": "string",
+            "format": "uri"
+          }
+        }
+      }
+    },
+    "license": {
+      "type": "string",
+      "minLength": 1
+    },
+    "tags": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "uniqueItems": true
+    },
+    "homepage": {
+      "type": "string",
+      "format": "uri"
+    },
+    "content_warnings": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "uniqueItems": true,
+      "default": []
+    },
+    "minimum_characterforge_version": {
+      "type": "string",
+      "minLength": 1
+    },
+    "characters": {
+      "type": "array",
+      "description": "Character files included in the pack. Each file should be a CreateCharacterRequest-compatible JSON document.",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/pack_file"
+      }
+    },
+    "bindings": {
+      "type": "array",
+      "description": "Optional binding files that map CharacterForge actions to a game runtime.",
+      "items": {
+        "$ref": "#/$defs/pack_file"
+      },
+      "default": []
+    },
+    "assets": {
+      "type": "array",
+      "description": "Optional non-runtime assets such as portraits or design notes.",
+      "items": {
+        "$ref": "#/$defs/pack_file"
+      },
+      "default": []
+    }
+  },
+  "$defs": {
+    "pack_file": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "path"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-z0-9]+(?:[-_][a-z0-9]+)*$"
+        },
+        "path": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^(?!/)(?!.*\\.\\.)(?!.*//)[A-Za-z0-9._/-]+$"
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "description": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    }
+  }
+}

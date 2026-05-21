@@ -1,0 +1,42 @@
+{
+  "$schema": "../../../schemas/character-pack.schema.json",
+  "schema_version": "1.0",
+  "slug": "aether-skies-starter",
+  "name": "Aether Skies Starter Pack",
+  "description": "A beginner-friendly skyship adventure pack with one ready-to-import CharacterForge NPC, approved payload templates, and a sample RPG binding file.",
+  "version": "1.0.0",
+  "authors": [
+    {
+      "name": "CharacterForge AI"
+    }
+  ],
+  "license": "PolyForm Noncommercial License 1.0.0",
+  "tags": [
+    "starter",
+    "skyship",
+    "adventure",
+    "rpg"
+  ],
+  "content_warnings": [
+    "fantasy combat",
+    "political intrigue"
+  ],
+  "minimum_characterforge_version": "0.1.0",
+  "characters": [
+    {
+      "id": "captain-mira-voss",
+      "path": "characters/captain-mira-voss.json",
+      "name": "Captain Mira Voss",
+      "description": "A skyship captain who can assign quests, reveal routes, trade supplies, and react to player trust."
+    }
+  ],
+  "bindings": [
+    {
+      "id": "rpg-binding",
+      "path": "bindings/rpg-binding.json",
+      "name": "Generic RPG Runtime Binding",
+      "description": "Maps Mira's starter payload templates to common quest, inventory, dialogue, reputation, location, scene, and combat systems."
+    }
+  ],
+  "assets": []
+}

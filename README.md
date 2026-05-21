@@ -34,6 +34,7 @@ CharacterForge AI demonstrates that backend pattern with a compact AWS serverles
 - Retrieve or clear saved session history.
 - Run offline with in-memory stores and a deterministic mock LLM for tests and local demos.
 - Explore the API flow in a dependency-free static web playground.
+- Share portable character packs with pack metadata, characters, payload templates, and binding files.
 - Deploy with AWS SAM to Lambda, API Gateway, DynamoDB, and Amazon Bedrock Runtime.
 - Document the HTTP API with `openapi.yaml` and curl examples.
 
@@ -472,8 +473,10 @@ This project demonstrates practical backend skills that map directly to producti
 ├── docs/
 │   ├── assets/                  # Architecture image and demo assets
 │   ├── aws-deployment.md        # Beginner-friendly AWS deployment guide
+│   ├── character-packs.md       # Guide for portable character packs
 │   └── game-bindings.md         # Guide for mapping actions to game systems
 ├── examples/
+│   ├── character-packs/         # Starter character packs with manifests and bindings
 │   ├── curl/                    # Local and deployed API curl scripts
 │   ├── game-bindings/           # Sample action-to-game-system binding files
 │   ├── game-client-python/      # Offline demo client
@@ -482,7 +485,8 @@ This project demonstrates practical backend skills that map directly to producti
 ├── infra/
 │   └── template.yaml            # AWS SAM serverless stack
 ├── schemas/
-│   └── game-binding.schema.json # JSON Schema for game binding files
+│   ├── character-pack.schema.json # JSON Schema for character pack manifests
+│   └── game-binding.schema.json   # JSON Schema for game binding files
 ├── scripts/
 │   └── bedrock_smoke_test.py    # Optional real Bedrock Runtime smoke test
 ├── src/characterforge/

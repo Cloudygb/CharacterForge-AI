@@ -1,0 +1,154 @@
+{
+  "schema_version": "1.0",
+  "game": {
+    "name": "Aether Skies Demo RPG",
+    "engine": "Engine agnostic",
+    "version": "1.0.0"
+  },
+  "bindings": {
+    "give_quest": {
+      "description": "Start Mira's starter quest in the quest journal.",
+      "target": {
+        "system": "QuestManager",
+        "method": "StartQuest"
+      },
+      "payload_map": {
+        "questId": "payload.quest_id",
+        "title": "payload.title",
+        "objective": "payload.objective",
+        "giver": "payload.giver",
+        "firstStep": "payload.first_step"
+      },
+      "when_missing": "error"
+    },
+    "advance_quest": {
+      "description": "Advance Mira's starter quest to a named stage.",
+      "target": {
+        "system": "QuestManager",
+        "method": "AdvanceQuest"
+      },
+      "payload_map": {
+        "questId": "payload.quest_id",
+        "stage": "payload.stage",
+        "summary": "payload.summary"
+      },
+      "when_missing": "error"
+    },
+    "complete_quest": {
+      "description": "Complete a quest and award starter rewards.",
+      "target": {
+        "system": "QuestManager",
+        "method": "CompleteQuest"
+      },
+      "payload_map": {
+        "questId": "payload.quest_id",
+        "rewardXp": "payload.reward_xp",
+        "rewardReputation": "payload.reward_reputation"
+      },
+      "when_missing": "error"
+    },
+    "trade_offer": {
+      "description": "Open Mira's shipboard shop inventory.",
+      "target": {
+        "system": "Shop",
+        "method": "OpenInventory"
+      },
+      "payload_map": {
+        "shopId": "payload.shop_id",
+        "inventoryTable": "payload.inventory_table",
+        "currency": "payload.currency"
+      },
+      "when_missing": "error"
+    },
+    "give_item": {
+      "description": "Add a story or utility item to the player inventory.",
+      "target": {
+        "system": "Inventory",
+        "method": "AddItem"
+      },
+      "payload_map": {
+        "itemId": "payload.item_id",
+        "quantity": "payload.quantity",
+        "reason": "payload.reason"
+      },
+      "when_missing": "error"
+    },
+    "set_flag": {
+      "description": "Set a persistent story flag.",
+      "target": {
+        "system": "Flags",
+        "method": "Set"
+      },
+      "payload_map": {
+        "flag": "payload.flag",
+        "value": "payload.value"
+      },
+      "when_missing": "error"
+    },
+    "change_relationship": {
+      "description": "Change Mira's trust relationship value.",
+      "target": {
+        "system": "Relationship",
+        "method": "Adjust"
+      },
+      "payload_map": {
+        "relationshipId": "payload.relationship_id",
+        "amount": "payload.relationship_change",
+        "reason": "payload.reason"
+      },
+      "when_missing": "error"
+    },
+    "change_reputation": {
+      "description": "Change reputation with an Aether Skies faction.",
+      "target": {
+        "system": "Reputation",
+        "method": "Adjust"
+      },
+      "payload_map": {
+        "factionId": "payload.faction_id",
+        "amount": "payload.reputation_change",
+        "reason": "payload.reason"
+      },
+      "when_missing": "error"
+    },
+    "reveal_location": {
+      "description": "Reveal a map marker or safehouse.",
+      "target": {
+        "system": "Map",
+        "method": "RevealLocation"
+      },
+      "payload_map": {
+        "locationId": "payload.location_id",
+        "displayName": "payload.display_name",
+        "markerType": "payload.map_marker"
+      },
+      "when_missing": "error"
+    },
+    "start_combat": {
+      "description": "Start a combat encounter if the scene has become hostile.",
+      "target": {
+        "system": "CombatManager",
+        "method": "StartEncounter"
+      },
+      "payload_map": {
+        "encounterId": "payload.encounter_id",
+        "arenaId": "payload.arena_id",
+        "difficulty": "payload.difficulty"
+      },
+      "when_missing": "error"
+    },
+    "trigger_scene": {
+      "description": "Play a cinematic or scripted sequence.",
+      "target": {
+        "system": "SceneDirector",
+        "method": "PlayScene"
+      },
+      "payload_map": {
+        "sceneId": "payload.scene_id",
+        "cameraHint": "payload.camera_hint",
+        "blocking": "payload.blocking"
+      },
+      "when_missing": "error"
+    }
+  }
+}
