@@ -55,6 +55,9 @@ dist/
 npm-debug.log*
 *.tsbuildinfo
 
+# Rust / Tauri
+apps/dashboard/src-tauri/target/
+
 # Local artifacts
 .tmp/
 tmp/

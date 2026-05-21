@@ -53,6 +53,43 @@ The Character Packs screen keeps pack file handling local in the browser whereve
 
 Only the explicit import action calls the CharacterForge API. Loading, validating, previewing, and export preparation happen in the browser using local file APIs.
 
+## Desktop app
+
+The dashboard can also run as a local Tauri desktop app. The Tauri shell packages the existing React/Vite build and does not deploy AWS resources or create cloud infrastructure.
+
+Local desktop commands:
+
+```bash
+npm install
+npm run desktop:dev
+npm run desktop:build
+```
+
+The existing web commands are unchanged:
+
+```bash
+npm run dev
+npm run build
+```
+
+### Windows installer
+
+To produce a Windows installer, run the build from a Windows environment with Rust, Node.js, npm, and the Tauri Windows prerequisites installed:
+
+```powershell
+cd apps/dashboard
+npm install
+npm run desktop:build
+```
+
+Tauri writes Windows installer artifacts under:
+
+```text
+apps/dashboard/src-tauri/target/release/bundle/
+```
+
+The Tauri config currently enables both `msi` and `nsis` bundle targets. Building the desktop app packages the local dashboard only; it does not deploy AWS resources, run SAM, create CloudFormation stacks, or request Bedrock access.
+
 ## Local commands
 
 ```bash
