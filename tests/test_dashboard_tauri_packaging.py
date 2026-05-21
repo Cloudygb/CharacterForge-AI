@@ -71,3 +71,26 @@ def test_dashboard_docs_explain_windows_installer_without_live_deployment() -> N
     assert "characterforgeai.exe" in readme
     assert "src-tauri/target/release/bundle" in readme
     assert "does not deploy aws resources" in readme
+
+
+def test_windows_installer_build_script_runs_local_checks_and_stages_nsis_artifact() -> None:
+    script_path = ROOT / "scripts" / "build-windows-installer.ps1"
+    script = script_path.read_text(encoding="utf-8")
+    normalized = script.lower()
+
+    assert "#requires -version 5.1" in normalized
+    assert "$iswindows" in normalized
+    assert "assert-command" in normalized
+    for command in ["node", "npm", "cargo", "rustc"]:
+        assert f'assert-command "{command}"' in normalized
+    assert "npm ci" in normalized
+    assert "npm run typecheck" in normalized
+    assert "npm test -- --run" in normalized
+    assert "npm run build" in normalized
+    assert "npm run desktop:build" in normalized
+    assert "target\\release\\bundle\\nsis" in normalized
+    assert "characterforgeai-installer.exe" in normalized
+    assert "copy-item" in normalized
+    assert "sam " not in normalized
+    assert "aws " not in normalized
+    assert "cloudformation" not in normalized
