@@ -91,9 +91,11 @@ Full API documentation lives in [`openapi.yaml`](openapi.yaml).
 
 ```bash
 export API_BASE_URL="https://<api-id>.execute-api.<region>.amazonaws.com/dev"
+export CHARACTERFORGE_API_KEY="<your-api-key-value>"
 
 curl -sS -X POST "$API_BASE_URL/characters" \
   -H "Content-Type: application/json" \
+  -H "x-api-key: $CHARACTERFORGE_API_KEY" \
   -d '{
     "name": "Captain Mira Voss",
     "description": "A rogue airship captain with a dangerous reputation.",
@@ -147,6 +149,7 @@ export CHARACTER_ID="char_01HZY6W8K7EXAMPLE000000001"
 
 curl -sS -X POST "$API_BASE_URL/characters/$CHARACTER_ID/chat" \
   -H "Content-Type: application/json" \
+  -H "x-api-key: $CHARACTERFORGE_API_KEY" \
   -d '{
     "session_id": "session-demo-1",
     "player_id": "player-demo-1",
@@ -182,9 +185,10 @@ Example response shape:
 ### Example: read and clear session history
 
 ```bash
-curl -sS "$API_BASE_URL/sessions/session-demo-1?limit=10"
+curl -sS -H "x-api-key: $CHARACTERFORGE_API_KEY" "$API_BASE_URL/sessions/session-demo-1?limit=10"
 
-curl -sS -X DELETE "$API_BASE_URL/sessions/session-demo-1"
+curl -sS -X DELETE "$API_BASE_URL/sessions/session-demo-1" \
+  -H "x-api-key: $CHARACTERFORGE_API_KEY"
 ```
 
 ## Curl API Examples
@@ -195,6 +199,16 @@ The repository also includes ready-to-run scripts under [`examples/curl/`](examp
 - [`examples/curl/chat-local.sh`](examples/curl/chat-local.sh)
 - [`examples/curl/create-character-deployed.sh`](examples/curl/create-character-deployed.sh)
 - [`examples/curl/chat-deployed.sh`](examples/curl/chat-deployed.sh)
+
+The deployed examples require both environment variables:
+
+```bash
+export API_BASE_URL="https://<api-id>.execute-api.<region>.amazonaws.com/dev"
+export CHARACTERFORGE_API_KEY="<your-api-key-value>"
+```
+
+Do not commit real API key values. Keep them in your shell environment, local secret
+manager, or deployment-specific configuration.
 
 ---
 
@@ -339,7 +353,16 @@ export CHARACTER_ID="char_..."
 bash examples/curl/chat-local.sh
 ```
 
-`examples/curl/local-env.json` sets `USE_MOCK_LLM=true`, so local SAM tests avoid real DynamoDB and Bedrock calls.
+`examples/curl/local-env.json` sets `USE_MOCK_LLM=true`, so local SAM tests avoid real DynamoDB and Bedrock calls. It also leaves `CHARACTERFORGE_REQUIRE_LOCAL_API_KEY=false` because deployed API Gateway usage plans are the primary auth layer.
+
+To test local API-key behavior deliberately, set both local auth variables before invoking the Lambda, then send the key as `x-api-key`:
+
+```bash
+export CHARACTERFORGE_REQUIRE_LOCAL_API_KEY=true
+export CHARACTERFORGE_API_KEY="local-development-key"
+```
+
+Do not commit real deployed API key values.
 
 ---
 
@@ -352,7 +375,7 @@ The full beginner-friendly deployment guide is in [`docs/aws-deployment.md`](doc
 3. Request access to the selected Amazon Bedrock model, such as `amazon.nova-micro-v1:0` in `us-east-1`.
 4. Validate the SAM template.
 5. Build and deploy the stack with SAM.
-6. Use the `ApiUrl` stack output as `API_BASE_URL` for curl examples.
+6. Use the `ApiUrl` stack output as `API_BASE_URL` and retrieve the API Gateway key value into `CHARACTERFORGE_API_KEY` for curl examples.
 
 ```bash
 aws cloudformation validate-template \
@@ -365,12 +388,12 @@ sam deploy --guided --template-file .aws-sam/build/template.yaml
 
 The SAM template creates:
 
-- API Gateway HTTP API with routes for characters, chat, and sessions.
+- API Gateway REST API with API key usage plan protection and routes for characters, chat, and sessions.
 - Lambda function using `characterforge.app.handler`.
 - DynamoDB table for character profiles.
 - DynamoDB table for session messages.
 - IAM permissions scoped to the project tables and Bedrock Runtime invocation.
-- CloudFormation outputs for the API URL, Lambda function name, and table names.
+- CloudFormation outputs for the API URL, API key ID, Lambda function name, and table names.
 
 Important deployment parameters:
 

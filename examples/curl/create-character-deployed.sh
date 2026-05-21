@@ -4,8 +4,11 @@ set -euo pipefail
 # Create Captain Mira Voss against a deployed CharacterForge API Gateway endpoint.
 # Set API_BASE_URL to the deployed ApiUrl output, for example:
 #   export API_BASE_URL=https://<api-id>.execute-api.<region>.amazonaws.com/dev
+# Set CHARACTERFORGE_API_KEY to the deployed API Gateway key value:
+#   export CHARACTERFORGE_API_KEY=<your-api-key-value>
 
 : "${API_BASE_URL:?Set API_BASE_URL to your deployed CharacterForge API base URL}"
+: "${CHARACTERFORGE_API_KEY:?Set CHARACTERFORGE_API_KEY to your deployed API Gateway API key value}"
 
 BASE_URL="${API_BASE_URL%/}"
 RESPONSE_FILE="${RESPONSE_FILE:-/tmp/characterforge-create-character-deployed.json}"
@@ -14,6 +17,7 @@ curl --fail --silent --show-error \
   --request POST \
   --url "${BASE_URL}/characters" \
   --header "Content-Type: application/json" \
+  --header "x-api-key: ${CHARACTERFORGE_API_KEY}" \
   --data-binary @examples/sample-characters/captain-mira-voss.json \
   --output "${RESPONSE_FILE}"
 

@@ -293,7 +293,7 @@ Parameter RecentHistoryLimit: 20
 Confirm changes before deploy: Y
 Allow SAM CLI IAM role creation: Y
 Disable rollback: N
-CharacterForgeFunction has no authentication. Is this okay?: Y
+CharacterForgeFunction uses API key access instead of a Lambda authorizer. Continue if prompted about authorizers?: Y
 Save arguments to configuration file: Y
 SAM configuration file: samconfig.toml
 SAM configuration environment: default
@@ -302,12 +302,16 @@ SAM configuration environment: default
 Notes about these prompts:
 
 - **Allow SAM CLI IAM role creation** must be `Y` because the stack creates a Lambda execution role.
-- **No authentication** is acceptable for a learning MVP, but do not expose a production API publicly without adding authentication and rate limiting.
+- **API key access** is enabled for deployed routes. Keep the generated API key value out of Git and only store it in your local environment or secret manager.
 - Saving to `samconfig.toml` lets future deploys use a shorter command.
 
 When SAM shows the CloudFormation change set, review it. If it looks correct, confirm deployment.
 
-After a successful deployment, SAM prints stack outputs. Look for `ApiUrl`, for example:
+After a successful deployment, SAM prints stack outputs. Look for `ApiUrl` and
+`ApiKeyId`. `ApiKeyId` is safe to print because it is an identifier, not the
+secret key value. Do not commit the actual API key value.
+
+Example `ApiUrl`:
 
 ```text
 https://<api-id>.execute-api.<region>.amazonaws.com/<stage>
@@ -334,8 +338,24 @@ export API_URL=$(aws cloudformation describe-stacks \
   --query 'Stacks[0].Outputs[?OutputKey==`ApiUrl`].OutputValue' \
   --output text)
 
+export API_KEY_ID=$(aws cloudformation describe-stacks \
+  --stack-name characterforge-ai-dev \
+  --region us-east-1 \
+  --query 'Stacks[0].Outputs[?OutputKey==`ApiKeyId`].OutputValue' \
+  --output text)
+
+export CHARACTERFORGE_API_KEY=$(aws apigateway get-api-key \
+  --api-key "$API_KEY_ID" \
+  --include-value \
+  --region us-east-1 \
+  --query value \
+  --output text)
+
 echo "$API_URL"
 ```
+
+Do not echo, paste, or commit `CHARACTERFORGE_API_KEY`; pass it to curl from the
+environment.
 
 ---
 
@@ -358,13 +378,15 @@ sam deploy --guided --template-file .aws-sam/build/template.yaml
 
 ## 10. Test the deployed API
 
-The API has no authentication in this MVP, so `curl` is enough.
+The deployed API requires the generated API Gateway key. The examples below read
+that key from `CHARACTERFORGE_API_KEY` and send it as the `x-api-key` header.
 
 ### Create a character
 
 ```bash
 curl -sS -X POST "$API_URL/characters" \
   -H "Content-Type: application/json" \
+  -H "x-api-key: $CHARACTERFORGE_API_KEY" \
   -d '{
     "name": "Captain Mira Voss",
     "description": "A rogue airship captain with a dangerous reputation.",
@@ -396,6 +418,7 @@ If you have `jq` installed, you can create and save the ID in one command:
 ```bash
 export CHARACTER_ID=$(curl -sS -X POST "$API_URL/characters" \
   -H "Content-Type: application/json" \
+  -H "x-api-key: $CHARACTERFORGE_API_KEY" \
   -d '{
     "name": "Captain Mira Voss",
     "description": "A rogue airship captain with a dangerous reputation.",
@@ -421,13 +444,13 @@ echo "$CHARACTER_ID"
 ### List characters
 
 ```bash
-curl -sS "$API_URL/characters"
+curl -sS -H "x-api-key: $CHARACTERFORGE_API_KEY" "$API_URL/characters"
 ```
 
 ### Get one character
 
 ```bash
-curl -sS "$API_URL/characters/$CHARACTER_ID"
+curl -sS -H "x-api-key: $CHARACTERFORGE_API_KEY" "$API_URL/characters/$CHARACTER_ID"
 ```
 
 ### Update a character
@@ -435,6 +458,7 @@ curl -sS "$API_URL/characters/$CHARACTER_ID"
 ```bash
 curl -sS -X PUT "$API_URL/characters/$CHARACTER_ID" \
   -H "Content-Type: application/json" \
+  -H "x-api-key: $CHARACTERFORGE_API_KEY" \
   -d '{
     "description": "A rogue airship captain preparing for a dangerous storm route."
   }'
@@ -447,6 +471,7 @@ This endpoint calls Amazon Bedrock and may take a few seconds:
 ```bash
 curl -sS -X POST "$API_URL/characters/$CHARACTER_ID/chat" \
   -H "Content-Type: application/json" \
+  -H "x-api-key: $CHARACTERFORGE_API_KEY" \
   -d '{
     "session_id": "session-demo-1",
     "player_id": "player-demo-1",
@@ -478,13 +503,14 @@ The exact dialogue depends on the Bedrock model.
 ### Get session history
 
 ```bash
-curl -sS "$API_URL/sessions/session-demo-1?limit=10"
+curl -sS -H "x-api-key: $CHARACTERFORGE_API_KEY" "$API_URL/sessions/session-demo-1?limit=10"
 ```
 
 ### Clear session history
 
 ```bash
-curl -sS -X DELETE "$API_URL/sessions/session-demo-1"
+curl -sS -X DELETE "$API_URL/sessions/session-demo-1" \
+  -H "x-api-key: $CHARACTERFORGE_API_KEY"
 ```
 
 Expected response:
@@ -498,7 +524,9 @@ Expected response:
 ### Delete a character
 
 ```bash
-curl -sS -X DELETE "$API_URL/characters/$CHARACTER_ID" -i
+curl -sS -X DELETE "$API_URL/characters/$CHARACTER_ID" \
+  -H "x-api-key: $CHARACTERFORGE_API_KEY" \
+  -i
 ```
 
 A successful delete returns HTTP status `204 No Content`.

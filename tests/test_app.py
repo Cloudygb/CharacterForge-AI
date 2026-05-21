@@ -16,6 +16,8 @@ def reset_app_dependencies(monkeypatch: pytest.MonkeyPatch):
 
     monkeypatch.setenv("USE_MOCK_LLM", "true")
     monkeypatch.setenv("CHARACTERFORGE_RECENT_HISTORY_LIMIT", "10")
+    monkeypatch.delenv("CHARACTERFORGE_REQUIRE_LOCAL_API_KEY", raising=False)
+    monkeypatch.delenv("CHARACTERFORGE_API_KEY", raising=False)
     reset = app.configure_dependencies_for_testing(
         character_store=InMemoryCharacterStore(),
         session_store=InMemorySessionStore(),
@@ -32,6 +34,7 @@ def api_event(
     body: Mapping[str, Any] | None = None,
     path_parameters: Mapping[str, str] | None = None,
     query: Mapping[str, str] | None = None,
+    headers: Mapping[str, str] | None = None,
 ) -> dict[str, Any]:
     return {
         "version": "2.0",
@@ -39,6 +42,7 @@ def api_event(
         "requestContext": {"http": {"method": method, "path": path}},
         "pathParameters": dict(path_parameters or {}),
         "queryStringParameters": dict(query or {}),
+        "headers": dict(headers or {}),
         "body": None if body is None else json.dumps(body),
         "isBase64Encoded": False,
     }
@@ -192,6 +196,78 @@ def test_app_returns_api_gateway_errors_for_bad_requests() -> None:
     assert response_body(missing_route_response)["error"]["code"] == "not_found"
     assert bad_limit_response["statusCode"] == 400
     assert response_body(bad_limit_response)["error"]["code"] == "bad_request"
+
+
+def test_local_api_key_check_returns_401_when_enabled_and_header_missing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from characterforge import app
+
+    monkeypatch.setenv("CHARACTERFORGE_REQUIRE_LOCAL_API_KEY", "true")
+    monkeypatch.setenv("CHARACTERFORGE_API_KEY", "local-development-key")
+
+    response = app.handler(api_event("POST", "/characters", body=character_payload()), None)
+
+    assert response["statusCode"] == 401
+    assert response_body(response)["error"]["code"] == "unauthorized"
+
+
+def test_local_api_key_check_returns_401_when_enabled_and_header_invalid(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from characterforge import app
+
+    monkeypatch.setenv("CHARACTERFORGE_REQUIRE_LOCAL_API_KEY", "true")
+    monkeypatch.setenv("CHARACTERFORGE_API_KEY", "local-development-key")
+
+    response = app.handler(
+        api_event(
+            "POST",
+            "/characters",
+            body=character_payload(),
+            headers={"x-api-key": "wrong-key"},
+        ),
+        None,
+    )
+
+    assert response["statusCode"] == 401
+    assert response_body(response)["error"]["code"] == "unauthorized"
+
+
+def test_local_api_key_check_accepts_valid_x_api_key_when_enabled(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from characterforge import app
+
+    monkeypatch.setenv("CHARACTERFORGE_REQUIRE_LOCAL_API_KEY", "true")
+    monkeypatch.setenv("CHARACTERFORGE_API_KEY", "local-development-key")
+
+    response = app.handler(
+        api_event(
+            "POST",
+            "/characters",
+            body=character_payload(),
+            headers={"X-Api-Key": "local-development-key"},
+        ),
+        None,
+    )
+
+    assert response["statusCode"] == 201
+    assert response_body(response)["name"] == "Captain Mira Voss"
+
+
+def test_deployed_api_gateway_remains_primary_auth_layer_when_local_check_disabled(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from characterforge import app
+
+    monkeypatch.setenv("CHARACTERFORGE_REQUIRE_LOCAL_API_KEY", "false")
+    monkeypatch.setenv("CHARACTERFORGE_API_KEY", "configured-but-not-enforced-locally")
+
+    response = app.handler(api_event("POST", "/characters", body=character_payload()), None)
+
+    assert response["statusCode"] == 201
+    assert response_body(response)["name"] == "Captain Mira Voss"
 
 
 def test_app_accepts_api_gateway_v1_events_and_base64_bodies() -> None:

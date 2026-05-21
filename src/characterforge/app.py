@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+import hmac
 import json
 import os
 from collections.abc import Callable, Mapping
@@ -38,6 +39,12 @@ def handler(event: Mapping[str, Any], context: Any) -> JsonDict:
     try:
         method = _event_method(event)
         path = _event_path(event)
+        if not _local_api_key_authorized(event):
+            return _error_response(
+                401,
+                "unauthorized",
+                "Missing or invalid x-api-key header.",
+            )
         path_parameters = event.get("pathParameters") or {}
         return _dispatch(method, path, path_parameters, event)
     except json.JSONDecodeError as error:
@@ -172,6 +179,32 @@ def _optional_limit(event: Mapping[str, Any]) -> int | None:
     return limit
 
 
+def _local_api_key_authorized(event: Mapping[str, Any]) -> bool:
+    if not _truthy_env("CHARACTERFORGE_REQUIRE_LOCAL_API_KEY"):
+        return True
+
+    expected_key = os.getenv("CHARACTERFORGE_API_KEY", "").strip()
+    supplied_key = _header_value(event, "x-api-key")
+    if not expected_key or not supplied_key:
+        return False
+    return hmac.compare_digest(supplied_key, expected_key)
+
+
+def _header_value(event: Mapping[str, Any], name: str) -> str | None:
+    headers = event.get("headers") or {}
+    if not isinstance(headers, Mapping):
+        return None
+    target = name.lower()
+    for header_name, header_value in headers.items():
+        if isinstance(header_name, str) and header_name.lower() == target:
+            return str(header_value).strip() if header_value is not None else None
+    return None
+
+
+def _truthy_env(name: str) -> bool:
+    return os.getenv(name, "false").strip().lower() in {"1", "true", "yes", "on"}
+
+
 def _character_store() -> CharacterStore:
     global _CHARACTER_STORE
     if _CHARACTER_STORE is None:
@@ -206,7 +239,7 @@ def _llm_client() -> Any:
 
 
 def _use_mock_llm() -> bool:
-    return os.getenv("USE_MOCK_LLM", "false").strip().lower() in {"1", "true", "yes", "on"}
+    return _truthy_env("USE_MOCK_LLM")
 
 
 def _history_limit() -> int:

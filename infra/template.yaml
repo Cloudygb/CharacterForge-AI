@@ -1,9 +1,9 @@
 AWSTemplateFormatVersion: '2010-09-09'
 Transform: AWS::Serverless-2016-10-31
 Description: >
-  CharacterForge AI MVP serverless stack. Defines the API Lambda, HTTP API,
-  DynamoDB persistence tables, and least-privilege access to DynamoDB and
-  Amazon Bedrock Runtime.
+  CharacterForge AI MVP serverless stack. Defines the API Lambda, REST API,
+  API key usage plan, DynamoDB persistence tables, and least-privilege access
+  to DynamoDB and Amazon Bedrock Runtime.
 
 Parameters:
   EnvironmentName:
@@ -45,22 +45,15 @@ Globals:
 
 Resources:
   CharacterForgeApi:
-    Type: AWS::Serverless::HttpApi
+    Type: AWS::Serverless::Api
     Properties:
-      Description: HTTP API for CharacterForge AI MVP endpoints.
+      Description: REST API for CharacterForge AI MVP endpoints.
       StageName: !Ref EnvironmentName
-      CorsConfiguration:
-        AllowMethods:
-          - GET
-          - POST
-          - PUT
-          - DELETE
-          - OPTIONS
-        AllowHeaders:
-          - Content-Type
-          - Authorization
-        AllowOrigins:
-          - '*'
+      EndpointConfiguration: REGIONAL
+      Cors:
+        AllowMethods: "'GET,POST,PUT,DELETE,OPTIONS'"
+        AllowHeaders: "'Content-Type,Authorization,x-api-key'"
+        AllowOrigin: "'*'"
 
   CharacterForgeFunction:
     Type: AWS::Serverless::Function
@@ -94,53 +87,98 @@ Resources:
                 - !Sub arn:${AWS::Partition}:bedrock:${BedrockRegion}:${AWS::AccountId}:inference-profile/*
       Events:
         CreateCharacter:
-          Type: HttpApi
+          Type: Api
           Properties:
-            ApiId: !Ref CharacterForgeApi
+            RestApiId: !Ref CharacterForgeApi
             Path: /characters
             Method: POST
+            Auth:
+              ApiKeyRequired: true
         ListCharacters:
-          Type: HttpApi
+          Type: Api
           Properties:
-            ApiId: !Ref CharacterForgeApi
+            RestApiId: !Ref CharacterForgeApi
             Path: /characters
             Method: GET
+            Auth:
+              ApiKeyRequired: true
         GetCharacter:
-          Type: HttpApi
+          Type: Api
           Properties:
-            ApiId: !Ref CharacterForgeApi
+            RestApiId: !Ref CharacterForgeApi
             Path: /characters/{character_id}
             Method: GET
+            Auth:
+              ApiKeyRequired: true
         UpdateCharacter:
-          Type: HttpApi
+          Type: Api
           Properties:
-            ApiId: !Ref CharacterForgeApi
+            RestApiId: !Ref CharacterForgeApi
             Path: /characters/{character_id}
             Method: PUT
+            Auth:
+              ApiKeyRequired: true
         DeleteCharacter:
-          Type: HttpApi
+          Type: Api
           Properties:
-            ApiId: !Ref CharacterForgeApi
+            RestApiId: !Ref CharacterForgeApi
             Path: /characters/{character_id}
             Method: DELETE
+            Auth:
+              ApiKeyRequired: true
         ChatWithCharacter:
-          Type: HttpApi
+          Type: Api
           Properties:
-            ApiId: !Ref CharacterForgeApi
+            RestApiId: !Ref CharacterForgeApi
             Path: /characters/{character_id}/chat
             Method: POST
+            Auth:
+              ApiKeyRequired: true
         GetSession:
-          Type: HttpApi
+          Type: Api
           Properties:
-            ApiId: !Ref CharacterForgeApi
+            RestApiId: !Ref CharacterForgeApi
             Path: /sessions/{session_id}
             Method: GET
+            Auth:
+              ApiKeyRequired: true
         DeleteSession:
-          Type: HttpApi
+          Type: Api
           Properties:
-            ApiId: !Ref CharacterForgeApi
+            RestApiId: !Ref CharacterForgeApi
             Path: /sessions/{session_id}
             Method: DELETE
+            Auth:
+              ApiKeyRequired: true
+
+  CharacterForgeApiKey:
+    Type: AWS::ApiGateway::ApiKey
+    Properties:
+      Name: !Sub CharacterForge-${EnvironmentName}-api-key
+      Description: API key for deployed CharacterForge API requests.
+      Enabled: true
+
+  CharacterForgeUsagePlan:
+    Type: AWS::ApiGateway::UsagePlan
+    Properties:
+      UsagePlanName: !Sub CharacterForge-${EnvironmentName}-usage-plan
+      Description: Usage plan for deployed CharacterForge API key access.
+      ApiStages:
+        - ApiId: !Ref CharacterForgeApi
+          Stage: !Ref EnvironmentName
+      Throttle:
+        BurstLimit: 20
+        RateLimit: 10
+      Quota:
+        Limit: 10000
+        Period: MONTH
+
+  CharacterForgeUsagePlanKey:
+    Type: AWS::ApiGateway::UsagePlanKey
+    Properties:
+      KeyId: !Ref CharacterForgeApiKey
+      KeyType: API_KEY
+      UsagePlanId: !Ref CharacterForgeUsagePlan
 
   CharactersTable:
     Type: AWS::DynamoDB::Table
@@ -190,8 +228,12 @@ Resources:
 
 Outputs:
   ApiUrl:
-    Description: Base URL for the deployed CharacterForge HTTP API stage.
+    Description: Base URL for the deployed CharacterForge REST API stage.
     Value: !Sub https://${CharacterForgeApi}.execute-api.${AWS::Region}.${AWS::URLSuffix}/${EnvironmentName}
+
+  ApiKeyId:
+    Description: API Gateway API key ID. Retrieve the key value from AWS when needed; do not commit it.
+    Value: !Ref CharacterForgeApiKey
 
   FunctionName:
     Description: Name of the CharacterForge Lambda function.

@@ -8,14 +8,15 @@ info:
     profiles, generating in-character dialogue through Amazon Bedrock, returning
     validated machine-readable game actions, and preserving session history.
 
-    The implemented MVP is exposed through AWS Lambda and API Gateway. It does
-    not currently require authentication; production deployments should add auth,
-    rate limiting, and abuse protection before public use.
+    The implemented MVP is exposed through AWS Lambda and API Gateway. Deployed
+    routes require an API Gateway API key passed in the `x-api-key` header.
+    API keys provide basic usage control, throttling, and quota enforcement; they
+    are not user identity or fine-grained authorization.
   license:
     name: PolyForm Noncommercial License 1.0.0
 servers:
   - url: https://{apiId}.execute-api.{region}.amazonaws.com/{stage}
-    description: Deployed AWS API Gateway HTTP API
+    description: Deployed AWS API Gateway REST API
     variables:
       apiId:
         default: abc123
@@ -35,6 +36,8 @@ tags:
     description: Send player dialogue to a character and receive structured responses.
   - name: Sessions
     description: Read and clear saved chat session history.
+security:
+  - ApiKeyAuth: []
 paths:
   /characters:
     post:
@@ -338,6 +341,12 @@ paths:
         '500':
           $ref: '#/components/responses/InternalServerError'
 components:
+  securitySchemes:
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: x-api-key
+      description: API Gateway API key for deployed CharacterForge API requests.
   parameters:
     CharacterId:
       name: character_id

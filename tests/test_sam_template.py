@@ -43,7 +43,7 @@ def test_sam_template_defines_api_lambda_and_tables() -> None:
     assert template["Transform"] == "AWS::Serverless-2016-10-31"
     resources = template["Resources"]
 
-    assert resources["CharacterForgeApi"]["Type"] == "AWS::Serverless::HttpApi"
+    assert resources["CharacterForgeApi"]["Type"] == "AWS::Serverless::Api"
     assert resources["CharacterForgeFunction"]["Type"] == "AWS::Serverless::Function"
     assert resources["CharactersTable"]["Type"] == "AWS::DynamoDB::Table"
     assert resources["MessagesTable"]["Type"] == "AWS::DynamoDB::Table"
@@ -83,6 +83,42 @@ def test_sam_template_configures_lambda_environment_and_routes() -> None:
         ("GET", "/sessions/{session_id}"),
         ("DELETE", "/sessions/{session_id}"),
     }
+
+    for event in function_properties["Events"].values():
+        event_properties = event["Properties"]
+        assert event["Type"] == "Api"
+        assert event_properties["RestApiId"] == {"Ref": "CharacterForgeApi"}
+        assert event_properties["Auth"] == {"ApiKeyRequired": True}
+
+
+def test_sam_template_defines_api_key_usage_plan_and_safe_output() -> None:
+    template = load_template()
+    resources = template["Resources"]
+
+    api_key = resources["CharacterForgeApiKey"]
+    assert api_key["Type"] == "AWS::ApiGateway::ApiKey"
+    assert api_key["Properties"]["Enabled"] is True
+    assert api_key["Properties"]["Name"] == {"Fn::Sub": "CharacterForge-${EnvironmentName}-api-key"}
+
+    usage_plan = resources["CharacterForgeUsagePlan"]
+    assert usage_plan["Type"] == "AWS::ApiGateway::UsagePlan"
+    assert usage_plan["Properties"]["ApiStages"] == [
+        {"ApiId": {"Ref": "CharacterForgeApi"}, "Stage": {"Ref": "EnvironmentName"}}
+    ]
+    assert "Throttle" in usage_plan["Properties"]
+    assert "Quota" in usage_plan["Properties"]
+
+    usage_plan_key = resources["CharacterForgeUsagePlanKey"]
+    assert usage_plan_key["Type"] == "AWS::ApiGateway::UsagePlanKey"
+    assert usage_plan_key["Properties"] == {
+        "KeyId": {"Ref": "CharacterForgeApiKey"},
+        "KeyType": "API_KEY",
+        "UsagePlanId": {"Ref": "CharacterForgeUsagePlan"},
+    }
+
+    outputs = template["Outputs"]
+    assert outputs["ApiKeyId"]["Value"] == {"Ref": "CharacterForgeApiKey"}
+    assert "Value" not in outputs.get("ApiKeyValue", {})
 
 
 def test_sam_template_defines_dynamodb_keys_and_permissions() -> None:

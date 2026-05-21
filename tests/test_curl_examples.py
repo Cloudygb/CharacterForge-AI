@@ -60,6 +60,34 @@ def test_readme_documents_curl_examples_for_local_and_deployed_usage() -> None:
     assert "sam local start-api" in readme
     assert "USE_MOCK_LLM" in readme
     assert "API_BASE_URL" in readme
+    assert "CHARACTERFORGE_API_KEY" in readme
+
+
+def test_aws_deployment_guide_uses_api_key_for_deployed_curl_examples() -> None:
+    guide = (REPO_ROOT / "docs" / "aws-deployment.md").read_text(encoding="utf-8")
+
+    assert "ApiKeyId" in guide
+    assert "CHARACTERFORGE_API_KEY" in guide
+    assert "--include-value" in guide
+    assert "x-api-key: $CHARACTERFORGE_API_KEY" in guide
+    assert "no authentication" not in guide.lower()
+
+
+def test_deployed_curl_examples_require_api_key_environment_variable() -> None:
+    for script_name in ["create-character-deployed.sh", "chat-deployed.sh"]:
+        content = (CURL_DIR / script_name).read_text(encoding="utf-8")
+
+        assert "${CHARACTERFORGE_API_KEY:?" in content
+        assert '--header "x-api-key: ${CHARACTERFORGE_API_KEY}"' in content
+        assert "cf_live_" not in content
+
+
+def test_local_curl_examples_do_not_require_api_key() -> None:
+    for script_name in ["create-character-local.sh", "chat-local.sh"]:
+        content = (CURL_DIR / script_name).read_text(encoding="utf-8")
+
+        assert "CHARACTERFORGE_API_KEY" not in content
+        assert "x-api-key" not in content
 
 
 def test_curl_examples_do_not_embed_real_hosts_or_credentials() -> None:

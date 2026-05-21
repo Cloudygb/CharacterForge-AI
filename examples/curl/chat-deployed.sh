@@ -7,12 +7,14 @@ set -euo pipefail
 #
 # Required:
 #   API_BASE_URL=https://<api-id>.execute-api.<region>.amazonaws.com/dev
+#   CHARACTERFORGE_API_KEY=<your-api-key-value>
 # Optional:
 #   SESSION_ID=session-demo-1
 #   PLAYER_ID=player-demo-1
 #   PLAYER_MESSAGE="I can help recover the sky map."
 
 : "${API_BASE_URL:?Set API_BASE_URL to your deployed CharacterForge API base URL}"
+: "${CHARACTERFORGE_API_KEY:?Set CHARACTERFORGE_API_KEY to your deployed API Gateway API key value}"
 : "${CHARACTER_ID:?Set CHARACTER_ID to a character_id returned by create-character-deployed.sh}"
 
 BASE_URL="${API_BASE_URL%/}"
@@ -51,6 +53,7 @@ curl --fail --silent --show-error \
   --request POST \
   --url "${BASE_URL}/characters/${CHARACTER_ID}/chat" \
   --header "Content-Type: application/json" \
+  --header "x-api-key: ${CHARACTERFORGE_API_KEY}" \
   --data-binary "@${REQUEST_FILE}" \
   --output "${RESPONSE_FILE}"
 
