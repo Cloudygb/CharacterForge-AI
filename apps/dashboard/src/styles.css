@@ -97,6 +97,26 @@ nav button.active {
   color: #ffffff;
 }
 
+.button-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin-top: 1rem;
+}
+
+.button-row button {
+  padding: 0.75rem 1rem;
+  border: 1px solid rgba(105, 159, 255, 0.6);
+  border-radius: 0.8rem;
+  background: rgba(63, 110, 211, 0.24);
+  color: #ffffff;
+  cursor: pointer;
+}
+
+.button-row button:hover {
+  background: rgba(63, 110, 211, 0.4);
+}
+
 main {
   padding: 2rem;
 }
@@ -141,7 +161,8 @@ p {
 }
 
 .notice,
-.warning {
+.warning,
+.connection-status {
   padding: 1rem;
   margin: 1.25rem 0;
   border-radius: 1rem;
@@ -152,10 +173,38 @@ p {
   background: rgba(26, 135, 99, 0.14);
 }
 
+.notice.compact {
+  padding: 0.8rem 1rem;
+}
+
 .warning {
   border: 1px solid rgba(255, 190, 105, 0.36);
   background: rgba(173, 106, 24, 0.16);
   color: #ffdcaa;
+}
+
+.connection-status {
+  border: 1px solid rgba(156, 180, 255, 0.22);
+  background: rgba(255, 255, 255, 0.06);
+  color: #dbe8ff;
+}
+
+.connection-status.mock,
+.connection-status.success {
+  border-color: rgba(67, 214, 157, 0.32);
+  background: rgba(26, 135, 99, 0.14);
+}
+
+.connection-status.error {
+  border-color: rgba(255, 115, 115, 0.36);
+  background: rgba(160, 45, 45, 0.18);
+  color: #ffc9c9;
+}
+
+.connection-status.loading,
+.connection-status.idle {
+  border-color: rgba(90, 211, 255, 0.28);
+  background: rgba(63, 110, 211, 0.16);
 }
 
 .summary-grid,

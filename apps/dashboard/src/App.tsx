@@ -1,5 +1,7 @@
 import { useMemo, useState } from "react";
 
+import { CharacterForgeClient, type CharacterSummary } from "@characterforge/characterforge-ai";
+
 import "./styles.css";
 
 type ScreenId = "welcome" | "settings" | "characters" | "editor" | "chat" | "json";
@@ -23,6 +25,18 @@ type ChatMessage = {
   text: string;
   actions?: ChatAction[];
 };
+
+type ConnectionStatus = {
+  message: string;
+  state: "mock" | "idle" | "loading" | "success" | "error";
+};
+
+type ApiSettings = {
+  apiBaseUrl: string;
+  apiKey: string;
+};
+
+const settingsStorageKey = "characterforge.dashboard.settings";
 
 const screens: Array<{ id: ScreenId; label: string }> = [
   { id: "welcome", label: "Welcome" },
@@ -79,28 +93,73 @@ const mockChatMessages: ChatMessage[] = [
   }
 ];
 
-const mockSettings = {
-  apiBaseUrl: "https://<api-id>.execute-api.<region>.amazonaws.com/<stage>",
-  apiKey: "<set in local environment or server-side proxy>",
-  mode: "Mock data only"
-};
+function loadInitialSettings(): ApiSettings {
+  if (typeof window === "undefined") {
+    return { apiBaseUrl: "", apiKey: "" };
+  }
 
-function WelcomeScreen() {
+  const storedSettings = window.localStorage.getItem(settingsStorageKey);
+  if (!storedSettings) {
+    return { apiBaseUrl: "", apiKey: "" };
+  }
+
+  try {
+    const parsed = JSON.parse(storedSettings) as Partial<ApiSettings>;
+    return {
+      apiBaseUrl: typeof parsed.apiBaseUrl === "string" ? parsed.apiBaseUrl : "",
+      apiKey: typeof parsed.apiKey === "string" ? parsed.apiKey : ""
+    };
+  } catch {
+    return { apiBaseUrl: "", apiKey: "" };
+  }
+}
+
+function saveSettings(settings: ApiSettings) {
+  window.localStorage.setItem(settingsStorageKey, JSON.stringify({ apiBaseUrl: settings.apiBaseUrl, apiKey: "" }));
+}
+
+function toDashboardCharacter(summary: CharacterSummary, index: number): Character {
+  const id = stringFrom(summary.id) ?? stringFrom(summary.character_id) ?? `char_api_${index + 1}`;
+  return {
+    id,
+    name: stringFrom(summary.name) ?? id,
+    archetype: stringFrom(summary.archetype) ?? stringFrom(summary.role) ?? "API character",
+    status: "Loaded from API",
+    description: stringFrom(summary.description) ?? "Character returned from the CharacterForge API.",
+    allowedActions: stringArrayFrom(summary.allowedActions) ?? stringArrayFrom(summary.allowed_actions) ?? []
+  };
+}
+
+function stringFrom(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim() ? value : undefined;
+}
+
+function stringArrayFrom(value: unknown): string[] | undefined {
+  if (!Array.isArray(value)) {
+    return undefined;
+  }
+  const strings = value.filter((item): item is string => typeof item === "string");
+  return strings.length ? strings : undefined;
+}
+
+function WelcomeScreen({ mode }: { mode: "api" | "mock" }) {
   return (
     <section className="screen-card" aria-labelledby="welcome-title">
-      <p className="eyebrow">Mock dashboard</p>
+      <p className="eyebrow">{mode === "api" ? "API-connected dashboard" : "Mock dashboard"}</p>
       <h1 id="welcome-title">Welcome to CharacterForge Dashboard</h1>
       <p>
-        Review character profiles, inspect action payloads, and test the dashboard flow before wiring it to the
-        deployed CharacterForge API.
+        Review character profiles, inspect action payloads, and test the dashboard flow before wiring deeper edit and
+        chat actions into the deployed CharacterForge API.
       </p>
       <div className="notice">
-        No live AWS or CharacterForge API calls are made in this step. All content below is local mock data.
+        {mode === "api"
+          ? "An API base URL is set. Character listing and connection tests use the TypeScript SDK client."
+          : "No API base URL is set, so mock mode is active and the dashboard uses local sample data."}
       </div>
       <div className="summary-grid">
-        <SummaryCard label="Mock characters" value={mockCharacters.length.toString()} />
+        <SummaryCard label={mode === "api" ? "Character source" : "Mock characters"} value={mode === "api" ? "API" : mockCharacters.length.toString()} />
         <SummaryCard label="Enabled action types" value="5" />
-        <SummaryCard label="API mode" value="Mock" />
+        <SummaryCard label="API mode" value={mode === "api" ? "Connected" : "Mock"} />
       </div>
     </section>
   );
@@ -115,24 +174,56 @@ function SummaryCard({ label, value }: { label: string; value: string }) {
   );
 }
 
-function ApiSettingsScreen() {
+function ApiSettingsScreen({
+  connectionStatus,
+  draftSettings,
+  onDraftSettingsChange,
+  onSaveSettings,
+  onTestConnection
+}: {
+  connectionStatus: ConnectionStatus;
+  draftSettings: ApiSettings;
+  onDraftSettingsChange: (settings: ApiSettings) => void;
+  onSaveSettings: () => void;
+  onTestConnection: () => void;
+}) {
   return (
     <section className="screen-card" aria-labelledby="settings-title">
       <p className="eyebrow">Connection setup</p>
       <h1 id="settings-title">API Settings</h1>
-      <p>These fields show the future configuration shape. They are read-only placeholders for this mock step.</p>
+      <p>
+        Add a CharacterForge API base URL and API key to load live character summaries. Leave the base URL blank to keep
+        using mock mode.
+      </p>
       <label className="field">
         API base URL
-        <input readOnly value={mockSettings.apiBaseUrl} />
+        <input
+          placeholder="https://<api-id>.execute-api.<region>.amazonaws.com/<stage>"
+          value={draftSettings.apiBaseUrl}
+          onChange={(event) => onDraftSettingsChange({ ...draftSettings, apiBaseUrl: event.target.value })}
+        />
       </label>
       <label className="field">
-        API key storage
-        <input readOnly value={mockSettings.apiKey} />
+        API key
+        <input
+          autoComplete="off"
+          placeholder="Paste only a local test key"
+          type="password"
+          value={draftSettings.apiKey}
+          onChange={(event) => onDraftSettingsChange({ ...draftSettings, apiKey: event.target.value })}
+        />
       </label>
-      <label className="field">
-        Dashboard mode
-        <input readOnly value={mockSettings.mode} />
-      </label>
+      <div className="button-row">
+        <button type="button" onClick={onSaveSettings}>
+          Save settings
+        </button>
+        <button type="button" onClick={onTestConnection}>
+          Test connection
+        </button>
+      </div>
+      <div className={`connection-status ${connectionStatus.state}`} role="status">
+        {connectionStatus.message}
+      </div>
       <div className="warning">
         Do not paste production API keys into committed files, browser bundles, screenshots, or client-side config.
         Public builds should call a server-side proxy that stores the key outside the game or dashboard client.
@@ -141,13 +232,16 @@ function ApiSettingsScreen() {
   );
 }
 
-function CharactersScreen() {
+function CharactersScreen({ characters, mode }: { characters: Character[]; mode: "api" | "mock" }) {
   return (
     <section className="screen-card" aria-labelledby="characters-title">
       <p className="eyebrow">Roster</p>
       <h1 id="characters-title">Characters</h1>
+      <div className="notice compact">
+        {mode === "api" ? "Showing API characters loaded through the TypeScript SDK." : "Showing mock characters because no API URL is set."}
+      </div>
       <div className="character-list">
-        {mockCharacters.map((character) => (
+        {characters.map((character) => (
           <article className="character-card" key={character.id}>
             <div>
               <h2>{character.name}</h2>
@@ -162,9 +256,7 @@ function CharactersScreen() {
   );
 }
 
-function CharacterEditorScreen() {
-  const character = mockCharacters[0];
-
+function CharacterEditorScreen({ character }: { character: Character }) {
   return (
     <section className="screen-card" aria-labelledby="editor-title">
       <p className="eyebrow">Profile draft</p>
@@ -185,7 +277,7 @@ function CharacterEditorScreen() {
       </div>
       <h2>Allowed actions</h2>
       <div className="tag-list">
-        {character.allowedActions.map((action) => (
+        {(character.allowedActions.length ? character.allowedActions : ["No actions returned"]).map((action) => (
           <span className="action-tag" key={action}>
             {action}
           </span>
@@ -200,6 +292,7 @@ function ChatTestScreen() {
     <section className="screen-card" aria-labelledby="chat-title">
       <p className="eyebrow">Dialogue sandbox</p>
       <h1 id="chat-title">Chat Test</h1>
+      <div className="notice compact">Chat remains mock-only in this step; API chat wiring comes after connection setup.</div>
       <div className="chat-window">
         {mockChatMessages.map((message) => (
           <article className="chat-message" key={`${message.speaker}-${message.text}`}>
@@ -220,19 +313,32 @@ function ChatTestScreen() {
   );
 }
 
-function RawJsonPreviewScreen() {
+function RawJsonPreviewScreen({
+  characters,
+  connectionStatus,
+  settings
+}: {
+  characters: Character[];
+  connectionStatus: ConnectionStatus;
+  settings: ApiSettings;
+}) {
   const rawJson = useMemo(
     () =>
       JSON.stringify(
         {
-          mockSettings,
+          settings: {
+            apiBaseUrl: settings.apiBaseUrl || "<mock mode>",
+            apiKey: settings.apiKey ? "<hidden>" : "<not set>"
+          },
+          connectionStatus,
           mockCharacters,
+          activeCharacters: characters,
           mockChatResponse: mockChatMessages[1]
         },
         null,
         2
       ),
-    []
+    [characters, connectionStatus, settings]
   );
 
   return (
@@ -244,26 +350,97 @@ function RawJsonPreviewScreen() {
   );
 }
 
-function renderScreen(activeScreen: ScreenId) {
-  switch (activeScreen) {
-    case "settings":
-      return <ApiSettingsScreen />;
-    case "characters":
-      return <CharactersScreen />;
-    case "editor":
-      return <CharacterEditorScreen />;
-    case "chat":
-      return <ChatTestScreen />;
-    case "json":
-      return <RawJsonPreviewScreen />;
-    case "welcome":
-    default:
-      return <WelcomeScreen />;
-  }
-}
-
 export default function App() {
   const [activeScreen, setActiveScreen] = useState<ScreenId>("welcome");
+  const [settings, setSettings] = useState<ApiSettings>(() => loadInitialSettings());
+  const [draftSettings, setDraftSettings] = useState<ApiSettings>(() => loadInitialSettings());
+  const [apiCharacters, setApiCharacters] = useState<Character[]>([]);
+  const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>(() => ({
+    message: loadInitialSettings().apiBaseUrl
+      ? "API settings loaded. Test the connection to refresh characters."
+      : "Mock mode is active because no API base URL is set.",
+    state: loadInitialSettings().apiBaseUrl ? "idle" : "mock"
+  }));
+
+  const apiMode = Boolean(settings.apiBaseUrl.trim());
+  const activeCharacters = apiMode && apiCharacters.length ? apiCharacters : mockCharacters;
+
+  function handleSaveSettings() {
+    const nextSettings = {
+      apiBaseUrl: draftSettings.apiBaseUrl.trim(),
+      apiKey: draftSettings.apiKey.trim()
+    };
+    setSettings(nextSettings);
+    saveSettings(nextSettings);
+    if (!nextSettings.apiBaseUrl) {
+      setApiCharacters([]);
+      setConnectionStatus({ message: "Mock mode is active because no API base URL is set.", state: "mock" });
+    } else {
+      setConnectionStatus({ message: "API settings saved. Test the connection to load characters.", state: "idle" });
+    }
+  }
+
+  async function handleTestConnection() {
+    const nextSettings = {
+      apiBaseUrl: draftSettings.apiBaseUrl.trim(),
+      apiKey: draftSettings.apiKey.trim()
+    };
+
+    if (!nextSettings.apiBaseUrl) {
+      setSettings(nextSettings);
+      saveSettings(nextSettings);
+      setApiCharacters([]);
+      setConnectionStatus({ message: "Mock mode is active because no API base URL is set.", state: "mock" });
+      return;
+    }
+
+    setSettings(nextSettings);
+    saveSettings(nextSettings);
+    setConnectionStatus({ message: "Testing CharacterForge API connection...", state: "loading" });
+
+    try {
+      const client = new CharacterForgeClient({ baseUrl: nextSettings.apiBaseUrl, apiKey: nextSettings.apiKey || undefined });
+      const response = await client.listCharacters();
+      const characters = response.characters.map(toDashboardCharacter);
+      setApiCharacters(characters);
+      setConnectionStatus({
+        message: `Connected to CharacterForge API. Loaded ${characters.length} character${characters.length === 1 ? "" : "s"}.`,
+        state: "success"
+      });
+    } catch (error) {
+      setApiCharacters([]);
+      setConnectionStatus({
+        message: error instanceof Error ? `Connection failed: ${error.message}` : "Connection failed.",
+        state: "error"
+      });
+    }
+  }
+
+  function renderScreen() {
+    switch (activeScreen) {
+      case "settings":
+        return (
+          <ApiSettingsScreen
+            connectionStatus={connectionStatus}
+            draftSettings={draftSettings}
+            onDraftSettingsChange={setDraftSettings}
+            onSaveSettings={handleSaveSettings}
+            onTestConnection={handleTestConnection}
+          />
+        );
+      case "characters":
+        return <CharactersScreen characters={activeCharacters} mode={apiMode && apiCharacters.length ? "api" : "mock"} />;
+      case "editor":
+        return <CharacterEditorScreen character={activeCharacters[0]} />;
+      case "chat":
+        return <ChatTestScreen />;
+      case "json":
+        return <RawJsonPreviewScreen characters={activeCharacters} connectionStatus={connectionStatus} settings={settings} />;
+      case "welcome":
+      default:
+        return <WelcomeScreen mode={apiMode ? "api" : "mock"} />;
+    }
+  }
 
   return (
     <div className="dashboard-shell">
@@ -272,7 +449,7 @@ export default function App() {
           <span className="brand-mark">CF</span>
           <div>
             <strong>CharacterForge</strong>
-            <span>Dashboard mockup</span>
+            <span>{apiMode ? "Dashboard connected" : "Dashboard mockup"}</span>
           </div>
         </div>
         <nav aria-label="Dashboard screens">
@@ -289,7 +466,7 @@ export default function App() {
           ))}
         </nav>
       </aside>
-      <main>{renderScreen(activeScreen)}</main>
+      <main>{renderScreen()}</main>
     </div>
   );
 }

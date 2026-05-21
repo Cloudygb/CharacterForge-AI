@@ -1,10 +1,26 @@
-import { render, screen, within } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import App from "./App";
 
+const listCharactersMock = vi.fn();
+
+vi.mock("@characterforge/characterforge-ai", () => ({
+  CharacterForgeClient: vi.fn().mockImplementation(function CharacterForgeClientMock(
+    this: { listCharacters: () => Promise<unknown> },
+    options: { apiKey?: string; baseUrl: string }
+  ) {
+    this.listCharacters = () => listCharactersMock(options);
+  })
+}));
+
 describe("CharacterForge dashboard", () => {
+  beforeEach(() => {
+    listCharactersMock.mockReset();
+    window.localStorage.clear();
+  });
+
   it("renders the required dashboard screens in the sidebar", () => {
     render(<App />);
 
@@ -26,7 +42,7 @@ describe("CharacterForge dashboard", () => {
 
     expect(screen.getByRole("heading", { name: /welcome to characterforge dashboard/i })).toBeInTheDocument();
     expect(screen.getByText(/mock dashboard/i)).toBeInTheDocument();
-    expect(screen.getByText(/no live aws or characterforge api calls are made/i)).toBeInTheDocument();
+    expect(screen.getByText(/no api base url is set/i)).toBeInTheDocument();
   });
 
   it("navigates between character, editor, chat, settings, and JSON preview screens", async () => {
@@ -37,6 +53,7 @@ describe("CharacterForge dashboard", () => {
     expect(screen.getByRole("heading", { name: /characters/i })).toBeInTheDocument();
     expect(screen.getByText("Captain Mira Voss")).toBeInTheDocument();
     expect(screen.getByText("Ember Archivist Thalen")).toBeInTheDocument();
+    expect(screen.getByText(/showing mock characters/i)).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "Character Editor" }));
     expect(screen.getByRole("heading", { name: /character editor/i })).toBeInTheDocument();
@@ -50,12 +67,53 @@ describe("CharacterForge dashboard", () => {
 
     await user.click(screen.getByRole("button", { name: "API Settings" }));
     expect(screen.getByRole("heading", { name: /api settings/i })).toBeInTheDocument();
-    expect(screen.getByLabelText(/api base url/i)).toHaveValue("https://<api-id>.execute-api.<region>.amazonaws.com/<stage>");
+    expect(screen.getByLabelText(/api base url/i)).toHaveValue("");
     expect(screen.getByText(/do not paste production api keys into committed files/i)).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "Raw JSON Preview" }));
     expect(screen.getByRole("heading", { name: /raw json preview/i })).toBeInTheDocument();
     expect(screen.getByText(/mockCharacters/i)).toBeInTheDocument();
-    expect(screen.getByText(/mockChatResponse/i)).toBeInTheDocument();
+    expect(screen.getByText(/connectionStatus/i)).toBeInTheDocument();
+  });
+
+  it("keeps mock mode active and does not call the SDK when no API base URL is set", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+
+    await user.click(screen.getByRole("button", { name: "API Settings" }));
+    await user.click(screen.getByRole("button", { name: /test connection/i }));
+
+    expect(await screen.findByText(/mock mode is active/i)).toBeInTheDocument();
+    expect(listCharactersMock).not.toHaveBeenCalled();
+  });
+
+  it("saves API settings, tests the connection through the TypeScript SDK, and lists API characters", async () => {
+    const user = userEvent.setup();
+    listCharactersMock.mockResolvedValueOnce({
+      characters: [
+        {
+          id: "char_api_arden",
+          name: "Arden Vale",
+          archetype: "API ranger",
+          description: "Fetched from the API list endpoint."
+        }
+      ]
+    });
+
+    render(<App />);
+
+    await user.click(screen.getByRole("button", { name: "API Settings" }));
+    await user.type(screen.getByLabelText(/api base url/i), "https://api.example.test/dev");
+    await user.type(screen.getByLabelText(/^api key$/i), "test-api-key");
+    await user.click(screen.getByRole("button", { name: /save settings/i }));
+    expect(window.localStorage.getItem("characterforge.dashboard.settings")).not.toContain("test-api-key");
+    await user.click(screen.getByRole("button", { name: /test connection/i }));
+
+    expect(await screen.findByText(/connected to characterforge api/i)).toBeInTheDocument();
+    expect(listCharactersMock).toHaveBeenCalledWith({ baseUrl: "https://api.example.test/dev", apiKey: "test-api-key" });
+
+    await user.click(screen.getByRole("button", { name: "Characters" }));
+    expect(await screen.findByText("Arden Vale")).toBeInTheDocument();
+    expect(screen.getByText(/showing api characters/i)).toBeInTheDocument();
   });
 });
