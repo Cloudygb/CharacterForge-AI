@@ -214,9 +214,44 @@ def test_windows_installer_build_script_runs_local_checks_and_stages_nsis_artifa
     assert "target\\release\\bundle\\nsis" in normalized
     assert "characterforgeai-installer.exe" in normalized
     assert "copy-item" in normalized
+    assert "signartifacts" in normalized
+    assert "signingconfigpath" in normalized
+    assert "invoke-code-signing" in normalized
+    assert "signtool" in normalized
+    assert "characterforgeai.exe" in normalized
+    assert "characterforgeai-installer.exe" in normalized
+    assert "get-authenticodesignature" in normalized
+    assert "timestampurl" in normalized
     assert "sam " not in normalized
     assert "aws " not in normalized
     assert "cloudformation" not in normalized
+
+
+def test_windows_installer_signing_placeholder_config_is_safe() -> None:
+    config_path = ROOT / "scripts" / "code-signing.example.psd1"
+    config = config_path.read_text(encoding="utf-8")
+    normalized = config.lower()
+
+    assert "certificatethumbprint" in normalized
+    assert "<certificate-thumbprint>" in normalized
+    assert "certificatesubject" in normalized
+    assert "timestampurl" in normalized
+    assert "signtoolpath" in normalized
+    assert "characterforgeai.exe" in normalized
+    assert "characterforgeai-installer.exe" in normalized
+
+    forbidden = [
+        ".pfx",
+        "password",
+        "token",
+        "privatekey",
+        "private key",
+        "client_secret",
+        "access_key",
+        "session_token",
+    ]
+    for term in forbidden:
+        assert term not in normalized
 
 
 def test_windows_installer_verification_script_checks_staged_and_installed_artifacts() -> None:

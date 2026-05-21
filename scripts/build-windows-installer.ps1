@@ -1,7 +1,9 @@
 #Requires -Version 5.1
 [CmdletBinding()]
 param(
-    [switch]$SkipNpmCi
+    [switch]$SkipNpmCi,
+    [switch]$SignArtifacts,
+    [string]$SigningConfigPath
 )
 
 Set-StrictMode -Version Latest
@@ -33,6 +35,87 @@ function Invoke-Checked {
     }
 }
 
+function Import-SigningConfig {
+    param([Parameter(Mandatory = $true)][string]$Path)
+
+    if (-not (Test-Path $Path -PathType Leaf)) {
+        throw "Signing configuration not found: $Path"
+    }
+
+    $config = Import-PowerShellDataFile -Path $Path
+    foreach ($requiredKey in @("SignToolPath", "TimestampUrl")) {
+        if (-not $config.ContainsKey($requiredKey) -or [string]::IsNullOrWhiteSpace([string]$config[$requiredKey])) {
+            throw "Signing configuration must define $requiredKey. Use scripts\code-signing.example.psd1 as the placeholder template."
+        }
+    }
+
+    $hasThumbprint = $config.ContainsKey("CertificateThumbprint") -and
+        -not [string]::IsNullOrWhiteSpace([string]$config["CertificateThumbprint"]) -and
+        ([string]$config["CertificateThumbprint"]) -notlike "<*"
+    $hasSubject = $config.ContainsKey("CertificateSubject") -and
+        -not [string]::IsNullOrWhiteSpace([string]$config["CertificateSubject"]) -and
+        ([string]$config["CertificateSubject"]) -notlike "<*"
+
+    if (-not ($hasThumbprint -or $hasSubject)) {
+        throw "Signing configuration must provide a real CertificateThumbprint or CertificateSubject before -SignArtifacts can run."
+    }
+
+    return $config
+}
+
+function Invoke-Code-Signing {
+    param(
+        [Parameter(Mandatory = $true)][string]$ArtifactPath,
+        [Parameter(Mandatory = $true)][hashtable]$Config
+    )
+
+    if (-not (Test-Path $ArtifactPath -PathType Leaf)) {
+        throw "Signing artifact not found: $ArtifactPath"
+    }
+
+    $signToolPath = [string]$Config["SignToolPath"]
+    if ($signToolPath -eq "signtool") {
+        Assert-Command "signtool"
+    } elseif (-not (Test-Path $signToolPath -PathType Leaf)) {
+        throw "signtool path not found: $signToolPath"
+    }
+
+    $arguments = @(
+        "sign",
+        "/fd", "SHA256",
+        "/td", "SHA256",
+        "/tr", [string]$Config["TimestampUrl"]
+    )
+
+    if ($Config.ContainsKey("CertificateThumbprint") -and
+        -not [string]::IsNullOrWhiteSpace([string]$Config["CertificateThumbprint"]) -and
+        ([string]$Config["CertificateThumbprint"]) -notlike "<*") {
+        $arguments += @("/sha1", [string]$Config["CertificateThumbprint"])
+    } elseif ($Config.ContainsKey("CertificateSubject") -and
+        -not [string]::IsNullOrWhiteSpace([string]$Config["CertificateSubject"]) -and
+        ([string]$Config["CertificateSubject"]) -notlike "<*") {
+        $arguments += @("/n", [string]$Config["CertificateSubject"])
+    }
+
+    if ($Config.ContainsKey("AdditionalSignToolArgs")) {
+        $arguments += @($Config["AdditionalSignToolArgs"])
+    }
+
+    $arguments += $ArtifactPath
+
+    Invoke-Checked $signToolPath @arguments
+
+    if (Get-Command Get-AuthenticodeSignature -ErrorAction SilentlyContinue) {
+        $signature = Get-AuthenticodeSignature -LiteralPath $ArtifactPath
+        if ($signature.Status -ne "Valid") {
+            throw "Signature verification failed for $ArtifactPath. Status: $($signature.Status)"
+        }
+        Write-Host "Signature verified for $ArtifactPath"
+    } else {
+        Write-Host "Get-AuthenticodeSignature is not available; skipped local signature verification for $ArtifactPath"
+    }
+}
+
 $isWindowsHost = if (Get-Variable -Name IsWindows -ErrorAction SilentlyContinue) {
     $IsWindows
 } else {
@@ -47,9 +130,16 @@ $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $RepoRoot = (Resolve-Path (Join-Path $ScriptDir "..")).Path
 $DashboardDir = Join-Path $RepoRoot "apps\dashboard"
 $TauriDir = Join-Path $DashboardDir "src-tauri"
-$NsisDir = Join-Path $TauriDir "target\release\bundle\nsis"
+$ReleaseDir = Join-Path $TauriDir "target\release"
+# Expected Tauri NSIS output folder: target\release\bundle\nsis
+$NsisDir = Join-Path $ReleaseDir "bundle\nsis"
+$AppExecutable = Join-Path $ReleaseDir "CharacterForgeAI.exe"
 $DistDir = Join-Path $RepoRoot "dist"
 $InstallerOutput = Join-Path $DistDir "characterforgeai-installer.exe"
+
+if (-not $SigningConfigPath) {
+    $SigningConfigPath = Join-Path $ScriptDir "code-signing.example.psd1"
+}
 
 if (-not (Test-Path $DashboardDir -PathType Container)) {
     throw "Dashboard app directory not found: $DashboardDir"
@@ -64,6 +154,12 @@ Assert-Command "node"
 Assert-Command "npm"
 Assert-Command "rustc"
 Assert-Command "cargo"
+
+$signingConfig = $null
+if ($SignArtifacts) {
+    Write-Step "Loading optional code-signing configuration"
+    $signingConfig = Import-SigningConfig -Path $SigningConfigPath
+}
 
 $nodeVersion = (& node --version).Trim()
 $npmVersion = (& npm --version).Trim()
@@ -102,6 +198,11 @@ try {
     Pop-Location
 }
 
+if ($SignArtifacts) {
+    Write-Step "Signing CharacterForgeAI.exe"
+    Invoke-Code-Signing -ArtifactPath $AppExecutable -Config $signingConfig
+}
+
 Write-Step "Locating newest NSIS installer"
 if (-not (Test-Path $NsisDir -PathType Container)) {
     throw "NSIS bundle directory not found: $NsisDir"
@@ -123,6 +224,14 @@ if (-not (Test-Path $InstallerOutput -PathType Leaf)) {
     throw "Failed to stage installer at: $InstallerOutput"
 }
 
+if ($SignArtifacts) {
+    Write-Step "Signing characterforgeai-installer.exe"
+    Invoke-Code-Signing -ArtifactPath $InstallerOutput -Config $signingConfig
+}
+
 $Staged = Get-Item $InstallerOutput
 Write-Host "Staged $($Installer.Name) as $($Staged.FullName)"
 Write-Host "Size: $($Staged.Length) bytes"
+if ($SignArtifacts) {
+    Write-Host "Signing was enabled for CharacterForgeAI.exe and characterforgeai-installer.exe"
+}
