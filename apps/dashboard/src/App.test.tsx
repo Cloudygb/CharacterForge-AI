@@ -44,17 +44,42 @@ describe("CharacterForge dashboard", () => {
     }
   });
 
-  it("uses mock data by default and starts with a first-run tutorial before setup forms", () => {
+  it("shows useful not-connected Welcome empty states with a Deployment link", async () => {
+    const user = userEvent.setup();
     render(<App />);
 
     expect(screen.getByRole("heading", { name: /welcome to characterforgeai/i })).toBeInTheDocument();
-    expect(screen.getByText(/mock dashboard/i)).toBeInTheDocument();
-    expect(screen.getByText(/no api base url is set/i)).toBeInTheDocument();
+    expect(screen.getByText(/no aws backend connected yet/i)).toBeInTheDocument();
+    expect(screen.getByText(/go to deployment to launch or connect your characterforgeai stack/i)).toBeInTheDocument();
+    const disconnectedSummary = within(screen.getByLabelText(/welcome status summary/i));
+    expect(disconnectedSummary.getByText(/connection/i)).toBeInTheDocument();
+    expect(disconnectedSummary.getAllByText(/not connected/i).length).toBeGreaterThan(0);
+    expect(disconnectedSummary.getByText(/characters/i)).toBeInTheDocument();
+    expect(disconnectedSummary.getByText(/none loaded/i)).toBeInTheDocument();
+    expect(screen.queryByText(/mock dashboard/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/mock characters/i)).not.toBeInTheDocument();
     expect(screen.getByRole("heading", { name: /first-run tutorial/i })).toBeInTheDocument();
     expect(screen.getByText(/mock mode keeps this walkthrough safe/i)).toBeInTheDocument();
-    expect(screen.getByText(/aws can charge for deployed resources/i)).toBeInTheDocument();
-    expect(screen.getByText(/never paste production credentials/i)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /start guided setup/i })).toBeInTheDocument();
     expect(screen.queryByLabelText(/api base url/i)).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: /open deployment setup/i }));
+    expect(screen.getByRole("heading", { name: /deployment start/i })).toBeInTheDocument();
+  });
+
+  it("reopens Guided Setup from the disconnected Welcome page after it was completed", async () => {
+    const user = userEvent.setup();
+    window.localStorage.setItem(
+      "characterforge.dashboard.appConfig",
+      JSON.stringify({ firstRunTutorialCompleted: true, firstRunTutorialSkipped: false, updateSettings: {} })
+    );
+
+    render(<App />);
+
+    await waitFor(() => expect(screen.queryByText(/step 1 of 4/i)).not.toBeInTheDocument());
+    await user.click(screen.getByRole("button", { name: /start guided setup/i }));
+    expect(screen.getByRole("heading", { name: /first-run tutorial/i })).toBeInTheDocument();
+    expect(screen.getByText(/step 1 of 4/i)).toBeInTheDocument();
   });
 
   it("walks through mock first-run tutorial screens before opening setup", async () => {
@@ -478,6 +503,73 @@ describe("CharacterForge dashboard", () => {
     );
     expect(screen.getByText(/update planning settings saved/i)).toBeInTheDocument();
     expect(listCharactersMock).not.toHaveBeenCalled();
+  });
+
+  it("shows connected Welcome status from mocked API state without exposing API keys", async () => {
+    const user = userEvent.setup();
+    listCharactersMock.mockResolvedValueOnce({
+      characters: [
+        { id: "char_api_arden", name: "Arden Vale", archetype: "API ranger", description: "Fetched from the API list endpoint." },
+        { id: "char_api_lio", name: "Lio Sable", archetype: "API bard", description: "Also returned by the API." }
+      ]
+    });
+
+    render(<App />);
+
+    await user.click(screen.getByRole("button", { name: "Settings" }));
+    await user.type(screen.getByLabelText(/api base url/i), "https://api.example.test/dev");
+    await user.type(screen.getByLabelText(/^api key$/i), "test-api-key");
+    await user.click(screen.getByRole("button", { name: /save settings/i }));
+    await user.click(screen.getByRole("button", { name: /test connection/i }));
+    expect(await screen.findByText(/connected to characterforge api/i)).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Welcome" }));
+    expect(screen.getByText(/api-connected dashboard/i)).toBeInTheDocument();
+    const connectedSummary = within(screen.getByLabelText(/welcome status summary/i));
+    expect(connectedSummary.getByText(/connection/i)).toBeInTheDocument();
+    expect(connectedSummary.getByText(/connected/i)).toBeInTheDocument();
+    expect(connectedSummary.getByText(/deployment/i)).toBeInTheDocument();
+    expect(connectedSummary.getByText(/configured/i)).toBeInTheDocument();
+    expect(connectedSummary.getByText(/characters/i)).toBeInTheDocument();
+    expect(connectedSummary.getByText("2")).toBeInTheDocument();
+    expect(connectedSummary.getByText("https://api.example.test/dev")).toBeInTheDocument();
+    expect(screen.queryByText("test-api-key")).not.toBeInTheDocument();
+    expect(screen.queryByText(/mock characters/i)).not.toBeInTheDocument();
+  });
+
+  it("shows a real zero-character Welcome state after a successful empty API response", async () => {
+    const user = userEvent.setup();
+    listCharactersMock.mockResolvedValueOnce({ characters: [] });
+
+    render(<App />);
+
+    await user.click(screen.getByRole("button", { name: "Settings" }));
+    await user.type(screen.getByLabelText(/api base url/i), "https://api.example.test/dev");
+    await user.click(screen.getByRole("button", { name: /save settings/i }));
+    await user.click(screen.getByRole("button", { name: /test connection/i }));
+    expect(await screen.findByText(/connected to characterforge api\. loaded 0 characters/i)).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Welcome" }));
+    const connectedSummary = within(screen.getByLabelText(/welcome status summary/i));
+    expect(connectedSummary.getByText(/connected/i)).toBeInTheDocument();
+    expect(connectedSummary.getByText(/characters/i)).toBeInTheDocument();
+    expect(connectedSummary.getByText("0")).toBeInTheDocument();
+    expect(screen.queryByText(/mock characters/i)).not.toBeInTheDocument();
+  });
+
+  it("does not label a saved-but-untested API endpoint as connected on Welcome", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+
+    await user.click(screen.getByRole("button", { name: "Settings" }));
+    await user.type(screen.getByLabelText(/api base url/i), "https://api.example.test/dev");
+    await user.click(screen.getByRole("button", { name: /save settings/i }));
+    await user.click(screen.getByRole("button", { name: "Welcome" }));
+
+    expect(screen.queryByText(/api-connected dashboard/i)).not.toBeInTheDocument();
+    const disconnectedSummary = within(screen.getByLabelText(/welcome status summary/i));
+    expect(disconnectedSummary.getAllByText(/not connected/i).length).toBeGreaterThan(0);
+    expect(disconnectedSummary.getByText("https://api.example.test/dev")).toBeInTheDocument();
   });
 
   it("saves API settings, tests the connection through the TypeScript SDK, and lists API characters", async () => {
