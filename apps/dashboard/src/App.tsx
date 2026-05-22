@@ -15,6 +15,16 @@ import {
   type RealDeploymentStartAdapter,
   type SetupReadinessResult
 } from "./deploymentAdapters";
+import {
+  buildDeploymentConfig,
+  buildSharedDashboardState,
+  getDashboardReadiness,
+  toApiConnectionStatus,
+  toCharacterRecord,
+  toDeploymentStatus,
+  type DashboardReadiness,
+  type SharedDashboardState
+} from "./appState";
 import "./styles.css";
 
 type ScreenId = "welcome" | "settings" | "setup" | "deployment" | "characters" | "editor" | "packs" | "chat" | "json";
@@ -923,6 +933,7 @@ function WelcomeScreen({
   onSkipTutorial,
   onTutorialComplete,
   onTutorialStepChange,
+  readiness,
   showTutorial,
   tutorialStepIndex
 }: {
@@ -932,6 +943,7 @@ function WelcomeScreen({
   onSkipTutorial: () => void;
   onTutorialComplete: () => void;
   onTutorialStepChange: (stepIndex: number) => void;
+  readiness: DashboardReadiness;
   showTutorial: boolean;
   tutorialStepIndex: number;
 }) {
@@ -961,7 +973,7 @@ function WelcomeScreen({
       </div>
       <div className="summary-grid">
         <SummaryCard label={mode === "api" ? "Character source" : "Mock characters"} value={mode === "api" ? "API" : mockCharacters.length.toString()} />
-        <SummaryCard label="Editor action groups" value={actionTemplateConfigs.length.toString()} />
+        <SummaryCard label="Ready to chat" value={readiness.canChat ? "Yes" : "Not yet"} />
         <SummaryCard label="API mode" value={mode === "api" ? "Connected" : "Mock"} />
       </div>
       {showTutorial ? (
@@ -1901,12 +1913,14 @@ function RawJsonPreviewScreen({
   characters,
   connectionStatus,
   editorPayload,
-  settings
+  settings,
+  sharedState
 }: {
   characters: Character[];
   connectionStatus: ConnectionStatus;
   editorPayload: CharacterPayload | null;
   settings: ApiSettings;
+  sharedState: SharedDashboardState;
 }) {
   const rawJson = useMemo(
     () =>
@@ -1917,6 +1931,7 @@ function RawJsonPreviewScreen({
             apiKey: settings.apiKey ? "<hidden>" : "<not set>"
           },
           connectionStatus,
+          sharedDashboardState: sharedState,
           mockCharacters,
           activeCharacters: characters,
           editorPayloadPreview: editorPayload,
@@ -1925,7 +1940,7 @@ function RawJsonPreviewScreen({
         null,
         2
       ),
-    [characters, connectionStatus, editorPayload, settings]
+    [characters, connectionStatus, editorPayload, settings, sharedState]
   );
 
   return (
@@ -1992,6 +2007,69 @@ export default function App() {
 
   const apiMode = Boolean(settings.apiBaseUrl.trim());
   const activeCharacters = apiMode && apiCharacters.length ? apiCharacters : mockCharacters;
+  const deploymentConfig = useMemo(
+    () =>
+      buildDeploymentConfig({
+        apiBaseUrl: settings.apiBaseUrl,
+        awsRegion: deploymentForm.awsRegion,
+        bedrockModel: deploymentForm.bedrockModel,
+        profileName: deploymentForm.profileName,
+        stackName: deploymentForm.stackName
+      }),
+    [deploymentForm.awsRegion, deploymentForm.bedrockModel, deploymentForm.profileName, deploymentForm.stackName, settings.apiBaseUrl]
+  );
+  const sharedDashboardState = useMemo(
+    () =>
+      buildSharedDashboardState({
+        apiConnection: toApiConnectionStatus({
+          apiBaseUrl: deploymentConfig.apiBaseUrl,
+          message: connectionStatus.message,
+          state: connectionStatus.state
+        }),
+        characterFolder: {
+          message: loadedPack
+            ? loadedPack.errors.length
+              ? `Loaded ${loadedPack.manifest.name} with ${loadedPack.errors.length} local validation issue(s).`
+              : `Loaded ${loadedPack.manifest.name} character pack for local review.`
+            : "No local character folder or pack has been loaded yet.",
+          path: loadedPack ? loadedPack.manifest.slug : undefined,
+          state: loadedPack ? (loadedPack.errors.length ? "error" : "ready") : "not_configured"
+        },
+        characters: activeCharacters.map((character) =>
+          toCharacterRecord({
+            allowedActions: character.allowedActions,
+            archetype: character.archetype,
+            description: character.description,
+            id: character.id,
+            name: character.name,
+            status: character.status,
+            syncStatus: apiMode && apiCharacters.length ? "api_synced" : "mock"
+          })
+        ),
+        deployment: toDeploymentStatus({
+          configured: Boolean(deploymentConfig.stackName),
+          message: deploymentStatus.message,
+          stackStatus: deploymentStartResult?.finalStackStatus ?? deploymentEndResult?.finalStackStatus,
+          state: deploymentStatus.state
+        }),
+        selectedCharacterId: apiMode && !apiCharacters.length ? undefined : activeCharacters[0]?.id
+      }),
+    [
+      activeCharacters,
+      apiCharacters.length,
+      apiMode,
+      connectionStatus.message,
+      connectionStatus.state,
+      deploymentConfig.apiBaseUrl,
+      deploymentConfig.stackName,
+      deploymentEndResult?.finalStackStatus,
+      deploymentStartResult?.finalStackStatus,
+      deploymentStatus.message,
+      deploymentStatus.state,
+      loadedPack
+    ]
+  );
+  const dashboardReadiness = useMemo(() => getDashboardReadiness(sharedDashboardState), [sharedDashboardState]);
   const editorPayloadResult = useMemo(() => buildCharacterPayload(editorForm), [editorForm]);
   const editorValidationErrors = editorPayloadResult.errors;
   const editorPayload = editorPayloadResult.payload;
@@ -2396,6 +2474,7 @@ export default function App() {
             connectionStatus={connectionStatus}
             editorPayload={editorPayload}
             settings={settings}
+            sharedState={sharedDashboardState}
           />
         );
       case "welcome":
@@ -2408,6 +2487,7 @@ export default function App() {
             onSkipTutorial={handleSkipTutorial}
             onTutorialComplete={handleTutorialComplete}
             onTutorialStepChange={setTutorialStepIndex}
+            readiness={dashboardReadiness}
             showTutorial={showTutorial}
             tutorialStepIndex={tutorialStepIndex}
           />
