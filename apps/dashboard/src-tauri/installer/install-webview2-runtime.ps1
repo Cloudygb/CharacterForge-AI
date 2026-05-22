@@ -41,7 +41,10 @@ function New-Result {
         [Parameter(Mandatory = $true)][string]$Message,
         [bool]$Downloaded = $false,
         [bool]$Installed = $false,
-        [string]$InstallerPath = $null
+        [string]$InstallerPath = $null,
+        [AllowNull()][object]$InstallerExitCode = $null,
+        [string]$DetectedPath = $null,
+        [string]$DetectedVersion = $null
     )
     [ordered]@{
         schemaVersion = 1
@@ -53,10 +56,35 @@ function New-Result {
         logPath = $LogPath
         downloaded = $Downloaded
         installed = $Installed
+        alreadyInstalled = $Installed -and -not $Downloaded
         wouldDownload = [bool]$DryRun
         wouldInstall = [bool]$DryRun
         installerPath = $InstallerPath
+        installerExitCode = $InstallerExitCode
+        detectedPath = $DetectedPath
+        detectedVersion = $DetectedVersion
     }
+}
+
+function Test-DependencyInstalled {
+    $registryPaths = @(
+        "HKLM:\SOFTWARE\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}",
+        "HKLM:\SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}",
+        "HKCU:\SOFTWARE\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}"
+    )
+
+    foreach ($registryPath in $registryPaths) {
+        try {
+            $item = Get-ItemProperty -Path $registryPath -ErrorAction Stop
+            if ($item.pv) {
+                return [ordered]@{ installed = $true; path = $registryPath; version = [string]$item.pv }
+            }
+        } catch {
+            continue
+        }
+    }
+
+    [ordered]@{ installed = $false; path = $null; version = $null }
 }
 
 try {
@@ -68,11 +96,19 @@ try {
         exit $EXIT_SUCCESS
     }
 
+    $existing = Test-DependencyInstalled
+    if ($existing.installed) {
+        Write-CharacterForgeAILog "$ToolName already installed; skipping download and install."
+        New-Result -ExitCode $EXIT_SUCCESS -Message "Already installed; skipping download and install." -Installed $true -DetectedPath $existing.path -DetectedVersion $existing.version | ConvertTo-Json -Depth 6
+        exit $EXIT_SUCCESS
+    }
+
     if (-not (Test-Path $DownloadDirectory)) {
         New-Item -ItemType Directory -Path $DownloadDirectory -Force | Out-Null
     }
 
     $installerPath = Join-Path $DownloadDirectory $InstallerFileName
+    $installerLogPath = Join-Path $DownloadDirectory "WebView2-runtime-installer.log"
     Write-CharacterForgeAILog "Downloading $ToolName from official HTTPS source."
     try {
         Invoke-WebRequest -Uri $DownloadUrl -OutFile $installerPath -UseBasicParsing -ErrorAction Stop
@@ -82,16 +118,17 @@ try {
         exit $EXIT_DOWNLOAD_FAILED
     }
 
-    Write-CharacterForgeAILog "Running $ToolName silent installer."
-    $process = Start-Process -FilePath $installerPath -ArgumentList @('/silent', '/install') -Wait -PassThru
-    if ($process.ExitCode -ne 0) {
-        Write-CharacterForgeAILog "Installer exited with code $($process.ExitCode)."
-        New-Result -ExitCode $EXIT_INSTALL_FAILED -Message "Installer failed." -Downloaded $true -InstallerPath $installerPath | ConvertTo-Json -Depth 6
+    Write-CharacterForgeAILog "Running $ToolName silent installer. Installer log: $installerLogPath"
+    $process = Start-Process -FilePath $installerPath -ArgumentList @('/silent', '/install', "/log", $installerLogPath) -Wait -PassThru
+    $afterInstall = Test-DependencyInstalled
+    if ($process.ExitCode -ne 0 -and -not $afterInstall.installed) {
+        Write-CharacterForgeAILog "Installer exited with code $($process.ExitCode). Installer log: $installerLogPath"
+        New-Result -ExitCode $EXIT_INSTALL_FAILED -Message "Installer failed." -Downloaded $true -InstallerPath $installerPath -InstallerExitCode $process.ExitCode | ConvertTo-Json -Depth 6
         exit $EXIT_INSTALL_FAILED
     }
 
     Write-CharacterForgeAILog "$ToolName installation completed."
-    New-Result -ExitCode $EXIT_SUCCESS -Message "Installation completed." -Downloaded $true -Installed $true -InstallerPath $installerPath | ConvertTo-Json -Depth 6
+    New-Result -ExitCode $EXIT_SUCCESS -Message "Installation completed." -Downloaded $true -Installed $true -InstallerPath $installerPath -InstallerExitCode $process.ExitCode -DetectedPath $afterInstall.path -DetectedVersion $afterInstall.version | ConvertTo-Json -Depth 6
     exit $EXIT_SUCCESS
 } catch [System.Management.Automation.ParameterBindingException] {
     Write-CharacterForgeAILog "Invalid arguments supplied."

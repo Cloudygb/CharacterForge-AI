@@ -118,6 +118,22 @@ def test_prerequisite_installer_scripts_use_official_https_sources_and_stable_ex
             assert term not in normalized
 
 
+def test_prerequisite_installers_check_existing_tools_before_download_or_install() -> None:
+    for name, script_path in INSTALL_SCRIPTS.items():
+        script = script_path.read_text(encoding="utf-8")
+        normalized = script.lower()
+
+        assert "test-dependencyinstalled" in normalized
+        assert "already installed; skipping download and install." in normalized
+        assert "installerexitcode" in normalized
+        assert "msi log" in normalized or "installer log" in normalized
+
+        precheck_position = normalized.index("test-dependencyinstalled")
+        download_position = normalized.index("invoke-webrequest")
+        install_position = normalized.index("start-process")
+        assert precheck_position < download_position < install_position, name
+
+
 def test_docker_guidance_script_detects_and_guides_without_installing_docker() -> None:
     script = DOCKER_GUIDANCE.read_text(encoding="utf-8")
     normalized = script.lower()

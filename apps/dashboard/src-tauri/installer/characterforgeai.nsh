@@ -1,8 +1,9 @@
 ; CharacterForgeAI NSIS installer page flow and hooks.
 ; This file is product installer behavior, not an internal plan.
-; UAC/admin safety: Tauri is configured for current-user installation, and this
-; hook intentionally documents requestexecutionlevel user behavior instead of
-; requiring elevation for the whole installer.
+; UAC/admin safety: Tauri is configured for per-machine installation so the
+; generated NSIS installer requests elevation. This is intentional because
+; WebView2, AWS CLI v2, and AWS SAM CLI installers can require Administrator
+; rights. Expected generated behavior: RequestExecutionLevel admin.
 
 !include LogicLib.nsh
 !include nsDialogs.nsh
@@ -70,13 +71,15 @@ Page custom CFAI_CreateFinishPage CFAI_LeaveFinishPage
 
 !macro CFAI_RunDependencyInstallers
   ${If} $CFAI_RunDependencyInstallers == "1"
-    DetailPrint "Installing WebView2 Runtime if needed..."
+    DetailPrint "Installing only missing prerequisites. Existing tools are detected and skipped by each helper."
+
+    DetailPrint "Checking WebView2 Runtime before download/install..."
     nsExec::ExecToLog 'powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$PLUGINSDIR\install-webview2-runtime.ps1" -LogPath "${CFAI_LOG_DIR}\install-webview2-runtime.log"'
 
-    DetailPrint "Installing AWS CLI v2 if needed..."
+    DetailPrint "Checking AWS CLI v2 before download/install..."
     nsExec::ExecToLog 'powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$PLUGINSDIR\install-aws-cli-v2.ps1" -LogPath "${CFAI_LOG_DIR}\install-aws-cli-v2.log"'
 
-    DetailPrint "Installing AWS SAM CLI if needed..."
+    DetailPrint "Checking AWS SAM CLI before download/install..."
     nsExec::ExecToLog 'powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$PLUGINSDIR\install-aws-sam-cli.ps1" -LogPath "${CFAI_LOG_DIR}\install-aws-sam-cli.log"'
 
     DetailPrint "Showing Docker Desktop guided-install status..."
@@ -107,7 +110,7 @@ Page custom CFAI_CreateFinishPage CFAI_LeaveFinishPage
 !macroend
 
 !macro CFAI_ApplyShortcutChoices
-  SetShellVarContext current
+  SetShellVarContext all
 
   ${If} $CFAI_CreateStartMenuShortcut == "1"
     CreateDirectory "${CFAI_START_MENU_DIR}"
@@ -213,7 +216,7 @@ Function CFAI_CreateShortcutOptionsPage
 
   ${NSD_CreateLabel} 0 0 100% 24u "Shortcut options"
   Pop $0
-  ${NSD_CreateLabel} 0 32u 100% 36u "Choose which Windows shortcuts CharacterForgeAI should create for the current user."
+  ${NSD_CreateLabel} 0 32u 100% 36u "Choose which Windows shortcuts CharacterForgeAI should create. The installer runs elevated so shortcuts are created in the all-users locations."
   Pop $0
   ${NSD_CreateCheckbox} 0 78u 100% 12u "Desktop shortcut"
   Pop $CFAI_DesktopShortcutCheckbox
@@ -254,7 +257,7 @@ Function CFAI_CreateFinishPage
 
   ${NSD_CreateLabel} 0 0 100% 24u "CharacterForgeAI is ready"
   Pop $0
-  ${NSD_CreateLabel} 0 34u 100% 50u "Setup has finished installing CharacterForgeAI for this Windows user. You can launch it now, or start it later from the shortcuts you selected."
+  ${NSD_CreateLabel} 0 34u 100% 50u "Setup has finished installing CharacterForgeAI. You can launch it now, or start it later from the shortcuts you selected."
   Pop $0
   ${NSD_CreateCheckbox} 0 94u 100% 12u "Launch CharacterForgeAI now"
   Pop $CFAI_LaunchNowCheckbox
@@ -270,8 +273,10 @@ Function CFAI_LeaveFinishPage
   ${If} $0 == ${BST_CHECKED}
     StrCpy $CFAI_LaunchNow "1"
     ExecShell "open" "$INSTDIR\${CFAI_EXE_NAME}"
+    Quit
   ${Else}
     StrCpy $CFAI_LaunchNow "0"
+    Quit
   ${EndIf}
 FunctionEnd
 
