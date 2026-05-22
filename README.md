@@ -191,11 +191,6 @@ Before deletion:
 
 If a deployment rolls back or deletion fails, inspect the CloudFormation events and CloudWatch logs before retrying. Partial stacks may still contain resources that can incur AWS charges.
 
-### 8. Why Terraform is optional later
-
-CharacterForge AI currently uses SAM and CloudFormation directly because they are the shortest path for this serverless app: Lambda, API Gateway, DynamoDB, IAM, CloudWatch, and Bedrock permissions all fit naturally in one SAM template.
-
-Terraform can be added later if the project needs broader multi-environment infrastructure orchestration, shared cloud modules, or non-AWS resources. It is not required for the current desktop Start/End deployment flow.
 
 ---
 
