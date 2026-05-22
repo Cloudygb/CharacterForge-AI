@@ -15,13 +15,14 @@ CharacterForge AI is a desktop-first game AI platform for creating, testing, pac
 
 ### Current Windows release
 
-- **Installer:** [`characterforgeai-installer.exe`](https://github.com/Cloudygb/CharacterForge-AI/releases/download/v0.1.0-rc1/characterforgeai-installer.exe)
-- **Release page:** [`v0.1.0-rc1`](https://github.com/Cloudygb/CharacterForge-AI/releases/tag/v0.1.0-rc1)
-- **Installer SHA-256:** `6134f21f4a76f6a2455bd8d0bc1bc2d3915a8272445d257385eacff65fcc5df4`
+- **Installer:** [`characterforgeai-installer.exe`](https://github.com/Cloudygb/CharacterForge-AI/releases/download/v0.1.0-rc2/characterforgeai-installer.exe)
+- **Release page:** [`v0.1.0-rc2`](https://github.com/Cloudygb/CharacterForge-AI/releases/tag/v0.1.0-rc2)
+- **Installer SHA-256:** `660d54072af41a14edcd308c5db7b3d06c34ac230c202a9ba4dcac3c14f0fa0d`
+- **Installer note:** This release includes the new CharacterForgeAI app icon for the Windows executable and shortcuts.
 
 ### How to install on Windows
 
-1. Download [`characterforgeai-installer.exe`](https://github.com/Cloudygb/CharacterForge-AI/releases/download/v0.1.0-rc1/characterforgeai-installer.exe).
+1. Download [`characterforgeai-installer.exe`](https://github.com/Cloudygb/CharacterForge-AI/releases/download/v0.1.0-rc2/characterforgeai-installer.exe).
 2. Open the downloaded installer.
 3. If Windows SmartScreen warns that the app is from an unknown publisher, choose **More info** and then **Run anyway** if you trust this release. The current release candidate is unsigned.
 4. Finish the installer wizard.
