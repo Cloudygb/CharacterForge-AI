@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="docs/assets/readme/characterforge-readme-banner.png" alt="Character Forge AI banner" width="100%">
+</p>
+
 # CharacterForge AI
 
 CharacterForge AI is a desktop-first game AI platform for creating, testing, packaging, and deploying AI-powered game characters. It combines a local Windows application, a guided AWS setup flow, portable character packs, a serverless backend, and game-client integration examples.
