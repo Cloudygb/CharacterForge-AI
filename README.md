@@ -18,7 +18,6 @@ CharacterForge AI is a desktop-first game AI platform for creating, testing, pac
 - **Installer:** [`characterforgeai-installer.exe`](https://github.com/Cloudygb/CharacterForge-AI/releases/download/v0.1.0-rc2/characterforgeai-installer.exe)
 - **Release page:** [`v0.1.0-rc2`](https://github.com/Cloudygb/CharacterForge-AI/releases/tag/v0.1.0-rc2)
 - **Installer SHA-256:** `660d54072af41a14edcd308c5db7b3d06c34ac230c202a9ba4dcac3c14f0fa0d`
-- **Installer note:** This release includes the new CharacterForgeAI app icon for the Windows executable and shortcuts.
 
 ### How to install on Windows
 
