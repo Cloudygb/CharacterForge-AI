@@ -76,7 +76,8 @@ nav {
   gap: 0.65rem;
 }
 
-nav button {
+nav button,
+.advanced-navigation button {
   width: 100%;
   padding: 0.85rem 1rem;
   border: 1px solid transparent;
@@ -92,10 +93,32 @@ nav button {
 }
 
 nav button:hover,
-nav button.active {
+nav button.active,
+.advanced-navigation button:hover,
+.advanced-navigation button.active {
   border-color: rgba(105, 159, 255, 0.6);
   background: rgba(63, 110, 211, 0.2);
   color: #ffffff;
+}
+
+.advanced-navigation {
+  border-top: 1px solid rgba(156, 180, 255, 0.16);
+  color: #99a9c6;
+  padding-top: 1rem;
+}
+
+.advanced-navigation summary {
+  cursor: pointer;
+  font-size: 0.85rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.advanced-navigation-buttons {
+  display: grid;
+  gap: 0.45rem;
+  margin-top: 0.75rem;
 }
 
 .button-row {
