@@ -32,22 +32,15 @@ describe("CharacterForge dashboard", () => {
     window.localStorage.clear();
   });
 
-  it("renders the required dashboard screens in the sidebar", () => {
+  it("renders only the simplified next-release dashboard sections in the sidebar", () => {
     render(<App />);
 
     const navigation = screen.getByRole("navigation", { name: /dashboard screens/i });
-    for (const screenName of [
-      "Welcome",
-      "API Settings",
-      "Setup Check",
-      "Deployment",
-      "Characters",
-      "Character Editor",
-      "Character Packs",
-      "Chat Test",
-      "Raw JSON Preview"
-    ]) {
-      expect(within(navigation).getByRole("button", { name: screenName })).toBeInTheDocument();
+    const topLevelButtons = within(navigation).getAllByRole("button");
+    expect(topLevelButtons.map((button) => button.textContent)).toEqual(["Welcome", "Deployment", "Characters", "Chat", "Settings"]);
+
+    for (const removedScreenName of ["API Settings", "Setup Check", "Character Editor", "Character Packs", "Chat Test", "Raw JSON Preview"]) {
+      expect(within(navigation).queryByRole("button", { name: removedScreenName })).not.toBeInTheDocument();
     }
   });
 
@@ -83,10 +76,10 @@ describe("CharacterForge dashboard", () => {
 
     await user.click(screen.getByRole("button", { name: /next: dashboard tour/i }));
     expect(screen.getByText(/step 4 of 4/i)).toBeInTheDocument();
-    expect(screen.getByText(/use character packs to import and export local content/i)).toBeInTheDocument();
+    expect(screen.getByText(/use characters to manage local content/i)).toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: /finish tutorial and open api settings/i }));
-    expect(screen.getByRole("heading", { name: /api settings/i })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /finish tutorial and open settings/i }));
+    expect(screen.getByRole("heading", { name: /settings/i })).toBeInTheDocument();
     expect(screen.getByText(/review these safety notes before entering setup values/i)).toBeInTheDocument();
     expect(screen.getByText(/aws cost warning/i)).toBeInTheDocument();
     expect(screen.getByText(/credential safety warning/i)).toBeInTheDocument();
@@ -112,7 +105,7 @@ describe("CharacterForge dashboard", () => {
     await user.click(screen.getByRole("button", { name: /next: safety/i }));
     await user.click(screen.getByRole("button", { name: /next: credentials/i }));
     await user.click(screen.getByRole("button", { name: /next: dashboard tour/i }));
-    await user.click(screen.getByRole("button", { name: /finish tutorial and open api settings/i }));
+    await user.click(screen.getByRole("button", { name: /finish tutorial and open settings/i }));
 
     await waitFor(() =>
       expect(invoke).toHaveBeenCalledWith(
@@ -158,10 +151,11 @@ describe("CharacterForge dashboard", () => {
     expect(screen.queryByRole("heading", { name: /^first-run tutorial$/i })).not.toBeInTheDocument();
   });
 
-  it("navigates between setup check, character, editor, chat, settings, and JSON preview screens", async () => {
+  it("navigates between simplified sections and advanced diagnostics screens", async () => {
     const user = userEvent.setup();
     render(<App />);
 
+    await user.click(screen.getByText("Developer / Advanced"));
     await user.click(screen.getByRole("button", { name: "Setup Check" }));
     expect(screen.getByRole("heading", { name: /setup check/i })).toBeInTheDocument();
     expect(screen.getByText(/mocked setup-check adapter/i)).toBeInTheDocument();
@@ -181,13 +175,13 @@ describe("CharacterForge dashboard", () => {
     expect(screen.getByRole("heading", { name: /character packs/i })).toBeInTheDocument();
     expect(screen.getByText(/load a local pack/i)).toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: "Chat Test" }));
-    expect(screen.getByRole("heading", { name: /chat test/i })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Chat" }));
+    expect(screen.getByRole("heading", { name: /^chat$/i })).toBeInTheDocument();
     expect(screen.getByText(/meet me at the eastern dock/i)).toBeInTheDocument();
     expect(screen.getByText(/give_quest/i)).toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: "API Settings" }));
-    expect(screen.getByRole("heading", { name: /api settings/i })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Settings" }));
+    expect(screen.getByRole("heading", { name: /settings/i })).toBeInTheDocument();
     expect(screen.getByLabelText(/api base url/i)).toHaveValue("");
     expect(screen.getByText(/do not paste production api keys into committed files/i)).toBeInTheDocument();
 
@@ -425,7 +419,7 @@ describe("CharacterForge dashboard", () => {
     const user = userEvent.setup();
     render(<App />);
 
-    await user.click(screen.getByRole("button", { name: "API Settings" }));
+    await user.click(screen.getByRole("button", { name: "Settings" }));
     await user.click(screen.getByRole("button", { name: /test connection/i }));
 
     expect(await screen.findByText(/mock mode is active/i)).toBeInTheDocument();
@@ -455,7 +449,7 @@ describe("CharacterForge dashboard", () => {
     window.__TAURI__ = { core: { invoke } };
 
     render(<App />);
-    await user.click(screen.getByRole("button", { name: "API Settings" }));
+    await user.click(screen.getByRole("button", { name: "Settings" }));
 
     expect(screen.getByRole("heading", { name: /check for updates/i })).toBeInTheDocument();
     expect(screen.getByText(/future-ready placeholder/i)).toBeInTheDocument();
@@ -501,7 +495,7 @@ describe("CharacterForge dashboard", () => {
 
     render(<App />);
 
-    await user.click(screen.getByRole("button", { name: "API Settings" }));
+    await user.click(screen.getByRole("button", { name: "Settings" }));
     await user.type(screen.getByLabelText(/api base url/i), "https://api.example.test/dev");
     await user.type(screen.getByLabelText(/^api key$/i), "test-api-key");
     await user.click(screen.getByRole("button", { name: /save settings/i }));
@@ -522,7 +516,7 @@ describe("CharacterForge dashboard", () => {
 
     render(<App />);
 
-    await user.click(screen.getByRole("button", { name: "API Settings" }));
+    await user.click(screen.getByRole("button", { name: "Settings" }));
     await user.type(screen.getByLabelText(/api base url/i), "https://api.example.test/dev");
     await user.type(screen.getByLabelText(/^api key$/i), "test-api-key");
     await user.click(screen.getByRole("button", { name: /save settings/i }));
@@ -645,7 +639,7 @@ describe("CharacterForge dashboard", () => {
 
     await user.type(screen.getByLabelText(/character name/i), "Captain Mira Voss");
 
-    await user.click(screen.getByRole("button", { name: "API Settings" }));
+    await user.click(screen.getByRole("button", { name: "Settings" }));
     await user.type(screen.getByLabelText(/api base url/i), "https://api.example.test/dev");
     await user.click(screen.getByRole("button", { name: /save settings/i }));
 
@@ -745,7 +739,7 @@ describe("CharacterForge dashboard", () => {
 
     render(<App />);
 
-    await user.click(screen.getByRole("button", { name: "API Settings" }));
+    await user.click(screen.getByRole("button", { name: "Settings" }));
     await user.type(screen.getByLabelText(/api base url/i), "https://api.example.test/dev");
     await user.click(screen.getByRole("button", { name: /save settings/i }));
     await user.click(screen.getByRole("button", { name: "Character Packs" }));

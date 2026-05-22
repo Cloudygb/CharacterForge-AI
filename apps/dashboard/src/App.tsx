@@ -226,13 +226,16 @@ const defaultAppConfig: AppConfig = {
 
 const screens: Array<{ id: ScreenId; label: string }> = [
   { id: "welcome", label: "Welcome" },
-  { id: "settings", label: "API Settings" },
-  { id: "setup", label: "Setup Check" },
   { id: "deployment", label: "Deployment" },
   { id: "characters", label: "Characters" },
+  { id: "chat", label: "Chat" },
+  { id: "settings", label: "Settings" }
+];
+
+const developerScreens: Array<{ id: ScreenId; label: string }> = [
+  { id: "setup", label: "Setup Check" },
   { id: "editor", label: "Character Editor" },
   { id: "packs", label: "Character Packs" },
-  { id: "chat", label: "Chat Test" },
   { id: "json", label: "Raw JSON Preview" }
 ];
 
@@ -404,9 +407,9 @@ const firstRunTutorialSteps: TutorialStep[] = [
   },
   {
     title: "Dashboard tour",
-    body: "Use Character Packs to import and export local content, Character Editor to shape payloads, and Raw JSON Preview to inspect safe mock state.",
-    checklist: ["Keep mock mode until you intentionally connect", "Validate local packs before importing", "Review JSON before sharing artifacts"],
-    nextLabel: "Finish tutorial and open API Settings"
+    body: "Use Characters to manage local content, Chat to try conversations, and Developer / Advanced only when you need diagnostics.",
+    checklist: ["Keep mock mode until you intentionally connect", "Manage character content from one Characters section", "Open advanced diagnostics only when needed"],
+    nextLabel: "Finish tutorial and open Settings"
   }
 ];
 
@@ -997,7 +1000,7 @@ function WelcomeScreen({
           </p>
           <div className="button-row">
             <button type="button" onClick={onReopenTutorial}>Reopen first-run tutorial</button>
-            <button className="secondary" type="button" onClick={onOpenSettings}>Open API Settings</button>
+            <button className="secondary" type="button" onClick={onOpenSettings}>Open Settings</button>
           </div>
         </section>
       )}
@@ -1038,7 +1041,7 @@ function ApiSettingsScreen({
   return (
     <section className="screen-card" aria-labelledby="settings-title">
       <p className="eyebrow">Connection setup</p>
-      <h1 id="settings-title">API Settings</h1>
+      <h1 id="settings-title">Settings</h1>
       <p>
         Add a CharacterForge API base URL and API key to load live character summaries. Leave the base URL blank to keep
         using mock mode.
@@ -1872,7 +1875,7 @@ function ChatTestScreen() {
   return (
     <section className="screen-card" aria-labelledby="chat-title">
       <p className="eyebrow">Dialogue sandbox</p>
-      <h1 id="chat-title">Chat Test</h1>
+      <h1 id="chat-title">Chat</h1>
       <div className="notice compact">Chat remains mock-only in this step; API chat wiring comes after connection setup.</div>
       <div className="chat-window">
         {mockChatMessages.map((message) => (
@@ -2435,6 +2438,22 @@ export default function App() {
             </button>
           ))}
         </nav>
+        <details className="advanced-navigation">
+          <summary>Developer / Advanced</summary>
+          <div className="advanced-navigation-buttons">
+            {developerScreens.map((screen) => (
+              <button
+                aria-current={activeScreen === screen.id ? "page" : undefined}
+                className={activeScreen === screen.id ? "active" : undefined}
+                key={screen.id}
+                onClick={() => setActiveScreen(screen.id)}
+                type="button"
+              >
+                {screen.label}
+              </button>
+            ))}
+          </div>
+        </details>
       </aside>
       <main>{renderScreen()}</main>
     </div>
