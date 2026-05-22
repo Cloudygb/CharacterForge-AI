@@ -47,7 +47,7 @@ def test_tauri_config_packages_existing_dashboard_build() -> None:
     assert resources["../../../schemas"] == "deployment/schemas"
     assert resources["../../../LICENSE"] == "deployment/LICENSE"
     nsis = config["bundle"]["windows"]["nsis"]
-    assert nsis["installMode"] == "currentUser"
+    assert nsis["installMode"] == "perMachine"
     assert nsis["startMenuFolder"] == "CharacterForgeAI"
     assert nsis["installerHooks"] == "installer/characterforgeai.nsh"
 
@@ -86,7 +86,8 @@ def test_custom_nsis_installer_hook_is_user_friendly_and_safe() -> None:
     assert "desktop shortcut" in normalized
     assert "start menu" in normalized
     assert "launch characterforgeai" in normalized
-    assert "requestexecutionlevel user" in normalized
+    assert "requestexecutionlevel admin" in normalized
+    assert "setshellvarcontext all" in normalized
     assert "install-webview2-runtime.ps1" in normalized
     assert "install-aws-cli-v2.ps1" in normalized
     assert "install-aws-sam-cli.ps1" in normalized
@@ -97,7 +98,6 @@ def test_custom_nsis_installer_hook_is_user_friendly_and_safe() -> None:
     assert "silent installs skip custom pages" in normalized
 
     forbidden = [
-        "requestexecutionlevel admin",
         "aws configure",
         "sam deploy",
         "aws cloudformation",
@@ -149,6 +149,8 @@ def test_custom_nsis_installer_hook_defines_the_intended_page_flow() -> None:
 
     assert "messagebox mb_yesno" not in normalized
     assert "messagebox mb_ok" not in normalized
+    assert "quit" in normalized
+    assert "execshell \"open\" \"$instdir\\${cfai_exe_name}\"" in normalized
 
 
 def test_tauri_bundles_deployment_resources_for_packaged_start_end_flows() -> None:
