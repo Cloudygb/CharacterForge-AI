@@ -927,28 +927,37 @@ function downloadJsonFile(payload: unknown): string {
 }
 
 function WelcomeScreen({
-  mode,
+  onOpenDeployment,
   onOpenSettings,
   onReopenTutorial,
   onSkipTutorial,
   onTutorialComplete,
   onTutorialStepChange,
   readiness,
+  sharedState,
   showTutorial,
   tutorialStepIndex
 }: {
-  mode: "api" | "mock";
+  onOpenDeployment: () => void;
   onOpenSettings: () => void;
   onReopenTutorial: () => void;
   onSkipTutorial: () => void;
   onTutorialComplete: () => void;
   onTutorialStepChange: (stepIndex: number) => void;
   readiness: DashboardReadiness;
+  sharedState: SharedDashboardState;
   showTutorial: boolean;
   tutorialStepIndex: number;
 }) {
   const tutorialStep = firstRunTutorialSteps[tutorialStepIndex];
   const finalStep = tutorialStepIndex === firstRunTutorialSteps.length - 1;
+  const endpointStatus = sharedState.apiConnection.apiBaseUrl || "Not connected";
+  const connected = readiness.canLoadCharacters;
+  const deploymentStatus =
+    sharedState.deployment.stackStatus ??
+    (sharedState.deployment.phase === "not_configured" ? "No stack connected" : sharedState.deployment.phase.replaceAll("_", " "));
+  const characterCountLabel = connected ? sharedState.characters.length.toString() : "None loaded";
+  const connectionLabel = connected ? "Connected" : "Not connected";
 
   function handleTutorialNext() {
     if (finalStep) {
@@ -960,21 +969,36 @@ function WelcomeScreen({
 
   return (
     <section className="screen-card" aria-labelledby="welcome-title">
-      <p className="eyebrow">{mode === "api" ? "API-connected dashboard" : "Mock dashboard"}</p>
+      <p className="eyebrow">{connected ? "API-connected dashboard" : "Setup needed"}</p>
       <h1 id="welcome-title">Welcome to CharacterForgeAI</h1>
       <p>
-        Review character profiles, inspect action payloads, and test the dashboard flow before wiring deeper edit and
-        chat actions into the deployed CharacterForge API.
+        See whether CharacterForgeAI is connected, whether the deployment is ready, and what to do next before creating
+        or chatting with characters.
       </p>
-      <div className="notice">
-        {mode === "api"
-          ? "An API base URL is set. Character listing and connection tests use the TypeScript SDK client."
-          : "No API base URL is set, so mock mode is active and the dashboard uses local sample data."}
+      <div className={connected ? "notice" : "notice empty-state"}>
+        {connected ? (
+          <>
+            CharacterForgeAI is connected to your configured API endpoint. Status cards below reflect the current
+            connection and character state without showing API keys.
+          </>
+        ) : (
+          <>
+            <strong>No AWS backend connected yet.</strong> Go to Deployment to launch or connect your CharacterForgeAI
+            stack.
+          </>
+        )}
       </div>
-      <div className="summary-grid">
-        <SummaryCard label={mode === "api" ? "Character source" : "Mock characters"} value={mode === "api" ? "API" : mockCharacters.length.toString()} />
-        <SummaryCard label="Ready to chat" value={readiness.canChat ? "Yes" : "Not yet"} />
-        <SummaryCard label="API mode" value={mode === "api" ? "Connected" : "Mock"} />
+      {!connected ? (
+        <div className="button-row">
+          <button type="button" onClick={onOpenDeployment}>Open Deployment Setup</button>
+          <button className="secondary" type="button" onClick={onReopenTutorial}>Start Guided Setup</button>
+        </div>
+      ) : null}
+      <div className="summary-grid" aria-label="Welcome status summary">
+        <SummaryCard label="Connection" value={connectionLabel} />
+        <SummaryCard label="Deployment" value={deploymentStatus} />
+        <SummaryCard label="Characters" value={characterCountLabel} />
+        <SummaryCard label="API endpoint" value={endpointStatus} />
       </div>
       {showTutorial ? (
         <section className="tutorial-card" aria-labelledby="tutorial-title">
@@ -2007,6 +2031,7 @@ export default function App() {
 
   const apiMode = Boolean(settings.apiBaseUrl.trim());
   const activeCharacters = apiMode && apiCharacters.length ? apiCharacters : mockCharacters;
+  const sharedStateCharacters = apiMode ? apiCharacters : activeCharacters;
   const deploymentConfig = useMemo(
     () =>
       buildDeploymentConfig({
@@ -2035,7 +2060,7 @@ export default function App() {
           path: loadedPack ? loadedPack.manifest.slug : undefined,
           state: loadedPack ? (loadedPack.errors.length ? "error" : "ready") : "not_configured"
         },
-        characters: activeCharacters.map((character) =>
+        characters: sharedStateCharacters.map((character) =>
           toCharacterRecord({
             allowedActions: character.allowedActions,
             archetype: character.archetype,
@@ -2043,7 +2068,7 @@ export default function App() {
             id: character.id,
             name: character.name,
             status: character.status,
-            syncStatus: apiMode && apiCharacters.length ? "api_synced" : "mock"
+            syncStatus: apiMode ? "api_synced" : "mock"
           })
         ),
         deployment: toDeploymentStatus({
@@ -2052,10 +2077,10 @@ export default function App() {
           stackStatus: deploymentStartResult?.finalStackStatus ?? deploymentEndResult?.finalStackStatus,
           state: deploymentStatus.state
         }),
-        selectedCharacterId: apiMode && !apiCharacters.length ? undefined : activeCharacters[0]?.id
+        selectedCharacterId: sharedStateCharacters[0]?.id
       }),
     [
-      activeCharacters,
+      sharedStateCharacters,
       apiCharacters.length,
       apiMode,
       connectionStatus.message,
@@ -2481,13 +2506,14 @@ export default function App() {
       default:
         return (
           <WelcomeScreen
-            mode={apiMode ? "api" : "mock"}
+            onOpenDeployment={() => setActiveScreen("deployment")}
             onOpenSettings={() => setActiveScreen("settings")}
             onReopenTutorial={handleReopenTutorial}
             onSkipTutorial={handleSkipTutorial}
             onTutorialComplete={handleTutorialComplete}
             onTutorialStepChange={setTutorialStepIndex}
             readiness={dashboardReadiness}
+            sharedState={sharedDashboardState}
             showTutorial={showTutorial}
             tutorialStepIndex={tutorialStepIndex}
           />
