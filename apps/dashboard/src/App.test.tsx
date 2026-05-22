@@ -59,7 +59,7 @@ describe("CharacterForge dashboard", () => {
     expect(screen.queryByText(/mock dashboard/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/mock characters/i)).not.toBeInTheDocument();
     expect(screen.getByRole("heading", { name: /first-run tutorial/i })).toBeInTheDocument();
-    expect(screen.getByText(/mock mode keeps this walkthrough safe/i)).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: /what characterforgeai does/i })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /start guided setup/i })).toBeInTheDocument();
     expect(screen.queryByLabelText(/api base url/i)).not.toBeInTheDocument();
 
@@ -76,39 +76,114 @@ describe("CharacterForge dashboard", () => {
 
     render(<App />);
 
-    await waitFor(() => expect(screen.queryByText(/step 1 of 4/i)).not.toBeInTheDocument());
+    await waitFor(() => expect(screen.queryByText(/step 1 of 8/i)).not.toBeInTheDocument());
     await user.click(screen.getByRole("button", { name: /start guided setup/i }));
     expect(screen.getByRole("heading", { name: /first-run tutorial/i })).toBeInTheDocument();
-    expect(screen.getByText(/step 1 of 4/i)).toBeInTheDocument();
+    expect(screen.getByText(/step 1 of 8/i)).toBeInTheDocument();
   });
 
-  it("walks through mock first-run tutorial screens before opening setup", async () => {
+  it("walks through practical first-run guided setup content before opening Settings", async () => {
     const user = userEvent.setup();
     render(<App />);
 
-    expect(screen.getByText(/step 1 of 4/i)).toBeInTheDocument();
-    expect(screen.getByText(/mock mode keeps this walkthrough safe/i)).toBeInTheDocument();
+    expect(screen.getByText(/step 1 of 8/i)).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: /what characterforgeai does/i })).toBeInTheDocument();
+    expect(screen.getByText(/create characters, deploy the backend, and chat test/i)).toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: /next: safety/i }));
-    expect(screen.getByText(/step 2 of 4/i)).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: /aws can charge for deployed resources/i })).toBeInTheDocument();
-    expect(screen.getAllByText(/set budgets and delete test stacks/i).length).toBeGreaterThan(0);
+    await user.click(screen.getByRole("button", { name: /next: prerequisites/i }));
+    expect(screen.getByText(/step 2 of 8/i)).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: /prerequisites before you deploy/i })).toBeInTheDocument();
+    expect(screen.getAllByText(/aws profile/i).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/aws region/i).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/bedrock model access/i).length).toBeGreaterThan(0);
 
-    await user.click(screen.getByRole("button", { name: /next: credentials/i }));
-    expect(screen.getByText(/step 3 of 4/i)).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: /never paste production credentials/i })).toBeInTheDocument();
-    expect(screen.getByText(/browser fields are for local test keys only/i)).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /next: deployment setup/i }));
+    expect(screen.getByText(/step 3 of 8/i)).toBeInTheDocument();
+    expect(screen.getAllByText(/stack name/i).length).toBeGreaterThan(0);
+    expect(screen.getByRole("button", { name: /^open deployment$/i })).toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: /next: dashboard tour/i }));
-    expect(screen.getByText(/step 4 of 4/i)).toBeInTheDocument();
-    expect(screen.getByText(/use characters to manage local content/i)).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /next: start backend/i }));
+    expect(screen.getByText(/step 4 of 8/i)).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: /start the backend/i })).toBeInTheDocument();
+    expect(screen.getByText(/press start/i)).toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: /finish tutorial and open settings/i }));
+    await user.click(screen.getByRole("button", { name: /next: connect api/i }));
+    expect(screen.getByText(/step 5 of 8/i)).toBeInTheDocument();
+    expect(screen.getAllByText(/api base url/i).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/api key/i).length).toBeGreaterThan(0);
+    expect(screen.getByRole("button", { name: /open settings/i })).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: /next: characters/i }));
+    expect(screen.getByText(/step 6 of 8/i)).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: /create or import characters/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /open characters/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /open character editor/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /open character packs/i })).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: /next: chat and payloads/i }));
+    expect(screen.getByText(/step 7 of 8/i)).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: /chat with a synced character/i })).toBeInTheDocument();
+    expect(screen.getAllByText(/payload/i).length).toBeGreaterThan(0);
+    expect(screen.getByRole("button", { name: /open chat/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /open payload preview/i })).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: /next: end safely/i }));
+    expect(screen.getByText(/step 8 of 8/i)).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: /end deployment safely/i })).toBeInTheDocument();
+    expect(screen.getAllByText(/export\/save before delete/i).length).toBeGreaterThan(0);
+    expect(screen.getByText(/end button/i)).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: /finish guided setup and open settings/i }));
     expect(screen.getByRole("heading", { name: /settings/i })).toBeInTheDocument();
-    expect(screen.getByText(/review these safety notes before entering setup values/i)).toBeInTheDocument();
-    expect(screen.getByText(/aws cost warning/i)).toBeInTheDocument();
-    expect(screen.getByText(/credential safety warning/i)).toBeInTheDocument();
     expect(screen.getByLabelText(/api base url/i)).toBeInTheDocument();
+  });
+
+  it("provides page navigation actions from guided setup steps without exposing secrets", async () => {
+    const user = userEvent.setup();
+    window.localStorage.setItem(
+      "characterforge.dashboard.settings",
+      JSON.stringify({ apiBaseUrl: "https://characters.example.test", apiKey: "test-api-key" })
+    );
+    render(<App />);
+
+    expect(screen.queryByText("test-api-key")).not.toBeInTheDocument();
+    expect(screen.queryByDisplayValue("test-api-key")).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /next: prerequisites/i }));
+    await user.click(screen.getByRole("button", { name: /next: deployment setup/i }));
+    await user.click(screen.getByRole("button", { name: /^open deployment$/i }));
+    expect(screen.getByRole("heading", { name: /deployment start/i })).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Welcome" }));
+    await user.click(screen.getByRole("button", { name: /next: start backend/i }));
+    await user.click(screen.getByRole("button", { name: /next: connect api/i }));
+    await user.click(screen.getByRole("button", { name: /open settings/i }));
+    expect(screen.getByRole("heading", { name: /settings/i })).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Welcome" }));
+    await user.click(screen.getByRole("button", { name: /next: characters/i }));
+    await user.click(screen.getByRole("button", { name: /open characters/i }));
+    expect(screen.getByRole("heading", { name: /characters/i })).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Welcome" }));
+    await user.click(screen.getByRole("button", { name: /open character editor/i }));
+    expect(screen.getByRole("heading", { name: /character editor/i })).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Welcome" }));
+    await user.click(screen.getByRole("button", { name: /open character packs/i }));
+    expect(screen.getByRole("heading", { name: /character packs/i })).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Welcome" }));
+    await user.click(screen.getByRole("button", { name: /next: chat and payloads/i }));
+    await user.click(screen.getByRole("button", { name: /open chat/i }));
+    expect(screen.getByRole("heading", { name: /chat/i })).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Welcome" }));
+    await user.click(screen.getByRole("button", { name: /open payload preview/i }));
+    expect(screen.getByRole("heading", { name: /raw json preview/i })).toBeInTheDocument();
+
+    expect(screen.queryByText("test-api-key")).not.toBeInTheDocument();
+    expect(screen.queryByDisplayValue("test-api-key")).not.toBeInTheDocument();
+    expect(screen.queryByText(/example secret/i)).not.toBeInTheDocument();
   });
 
   it("persists first-run tutorial completion through Tauri config commands", async () => {
@@ -127,10 +202,14 @@ describe("CharacterForge dashboard", () => {
     render(<App />);
 
     expect(await screen.findByRole("heading", { name: /first-run tutorial/i })).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: /next: safety/i }));
-    await user.click(screen.getByRole("button", { name: /next: credentials/i }));
-    await user.click(screen.getByRole("button", { name: /next: dashboard tour/i }));
-    await user.click(screen.getByRole("button", { name: /finish tutorial and open settings/i }));
+    await user.click(screen.getByRole("button", { name: /next: prerequisites/i }));
+    await user.click(screen.getByRole("button", { name: /next: deployment setup/i }));
+    await user.click(screen.getByRole("button", { name: /next: start backend/i }));
+    await user.click(screen.getByRole("button", { name: /next: connect api/i }));
+    await user.click(screen.getByRole("button", { name: /next: characters/i }));
+    await user.click(screen.getByRole("button", { name: /next: chat and payloads/i }));
+    await user.click(screen.getByRole("button", { name: /next: end safely/i }));
+    await user.click(screen.getByRole("button", { name: /finish guided setup and open settings/i }));
 
     await waitFor(() =>
       expect(invoke).toHaveBeenCalledWith(
@@ -534,6 +613,7 @@ describe("CharacterForge dashboard", () => {
     expect(connectedSummary.getByText("2")).toBeInTheDocument();
     expect(connectedSummary.getByText("https://api.example.test/dev")).toBeInTheDocument();
     expect(screen.queryByText("test-api-key")).not.toBeInTheDocument();
+    expect(screen.queryByDisplayValue("test-api-key")).not.toBeInTheDocument();
     expect(screen.queryByText(/mock characters/i)).not.toBeInTheDocument();
   });
 

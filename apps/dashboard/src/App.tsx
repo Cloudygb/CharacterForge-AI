@@ -162,11 +162,17 @@ type PackExportState = {
   preview: CharacterPackManifest;
 };
 
+type TutorialAction = {
+  label: string;
+  screen: ScreenId;
+};
+
 type TutorialStep = {
   title: string;
   body: string;
   checklist: string[];
   nextLabel: string;
+  actions?: TutorialAction[];
 };
 
 type UpdateSettings = {
@@ -398,28 +404,97 @@ const bedrockModelOptions = [
 
 const firstRunTutorialSteps: TutorialStep[] = [
   {
-    title: "Mock mode keeps this walkthrough safe",
-    body: "Start in mock state so you can tour CharacterForge without creating AWS resources or sending live API requests.",
-    checklist: ["Review the dashboard screens", "Open sample characters", "Try local pack previews before any live setup"],
-    nextLabel: "Next: Safety"
+    title: "What CharacterForgeAI does",
+    body: "CharacterForgeAI helps you create characters, deploy the backend, and chat test character behavior before using it in a game.",
+    checklist: [
+      "Use Welcome to see connection and deployment status.",
+      "Use Deployment to launch or connect the AWS stack.",
+      "Use Characters and Chat to build, sync, and test character interactions."
+    ],
+    nextLabel: "Next: Prerequisites"
   },
   {
-    title: "AWS can charge for deployed resources",
-    body: "Even small Lambda, API Gateway, DynamoDB, CloudWatch, or storage experiments can create usage charges after deployment.",
-    checklist: ["Set budgets and delete test stacks when finished", "Use the AWS free tier only as a limit guide", "Check billing before sharing a demo"],
-    nextLabel: "Next: Credentials"
+    title: "Prerequisites before you deploy",
+    body: "Before pressing Start, confirm you have an AWS account, an AWS profile in the AWS CLI, an AWS region picked, Bedrock model access, and local desktop dependencies installed.",
+    checklist: [
+      "AWS profile: choose the CLI profile the app should use; do not paste raw AWS keys.",
+      "AWS region: pick the region where the stack and Bedrock model access are available.",
+      "Bedrock model access: enable the selected model in the AWS console before deployment."
+    ],
+    nextLabel: "Next: Deployment setup"
   },
   {
-    title: "Never paste production credentials",
-    body: "Browser fields are for local test keys only. Production games should call a trusted backend or proxy that keeps secrets server-side.",
-    checklist: ["Do not commit API keys", "Do not screenshot real secrets", "Rotate any key that may have been exposed"],
-    nextLabel: "Next: Dashboard tour"
+    title: "Open Deployment and choose setup values",
+    body: "Deployment collects the AWS profile, AWS region, Bedrock model, and stack name that identify the backend you are about to create or reconnect.",
+    checklist: [
+      "Use a clear stack name so you can recognize it later in CloudFormation.",
+      "Review the dry-run preview before starting live work.",
+      "Keep the API Base URL and API Key fields blank until the stack provides real connection values."
+    ],
+    nextLabel: "Next: Start backend",
+    actions: [{ label: "Open Deployment", screen: "deployment" }]
   },
   {
-    title: "Dashboard tour",
-    body: "Use Characters to manage local content, Chat to try conversations, and Developer / Advanced only when you need diagnostics.",
-    checklist: ["Keep mock mode until you intentionally connect", "Manage character content from one Characters section", "Open advanced diagnostics only when needed"],
-    nextLabel: "Finish tutorial and open Settings"
+    title: "Start the backend",
+    body: "When prerequisites are ready, press Start from Deployment, watch the stack status, and wait for outputs before connecting the dashboard.",
+    checklist: [
+      "Start can create AWS resources that may cost money.",
+      "Wait for CloudFormation status and deployment logs to finish.",
+      "If Start fails, fix the setup value or AWS permission before retrying."
+    ],
+    nextLabel: "Next: Connect API",
+    actions: [{ label: "Open Deployment", screen: "deployment" }]
+  },
+  {
+    title: "Connect with API Base URL and API Key",
+    body: "After deployment, copy or accept the API Base URL and API Key from the stack outputs, then test the connection from Settings.",
+    checklist: [
+      "API Base URL identifies the deployed CharacterForgeAI API endpoint.",
+      "API Key is kept in memory for this session and should never be committed, screenshotted, or shared.",
+      "Use Test Connection to load real character status before chatting."
+    ],
+    nextLabel: "Next: Characters",
+    actions: [{ label: "Open Settings", screen: "settings" }]
+  },
+  {
+    title: "Create or import characters",
+    body: "Use Characters to create or import characters, review local folder status, and sync safe records before testing conversations.",
+    checklist: [
+      "Create a character when you want a new profile and action set.",
+      "Import a local character folder or pack when content already exists.",
+      "Confirm records are synced before relying on them in Chat."
+    ],
+    nextLabel: "Next: Chat and payloads",
+    actions: [
+      { label: "Open Characters", screen: "characters" },
+      { label: "Open Character Editor", screen: "editor" },
+      { label: "Open Character Packs", screen: "packs" }
+    ]
+  },
+  {
+    title: "Chat with a synced character and inspect payloads",
+    body: "Use Chat with a synced character to test replies, then view response payload details when you need to debug actions or raw JSON.",
+    checklist: [
+      "Select a synced character before sending a chat prompt.",
+      "Review action payload output to confirm quests, items, flags, combat, or relationship changes are shaped correctly.",
+      "Open payload preview only when you need diagnostics; do not share raw outputs that contain private test data."
+    ],
+    nextLabel: "Next: End safely",
+    actions: [
+      { label: "Open Chat", screen: "chat" },
+      { label: "Open Payload Preview", screen: "json" }
+    ]
+  },
+  {
+    title: "End deployment safely",
+    body: "When you are finished, export/save before delete, then use the End button only when you are ready to delete the AWS stack and stop charges.",
+    checklist: [
+      "Export/save before delete so local characters and payload examples are not lost.",
+      "Use End from Deployment to delete the stack only after confirming the exact stack name.",
+      "Verify deletion completes in CloudFormation and keep no raw secrets in logs or screenshots."
+    ],
+    nextLabel: "Finish guided setup and open Settings",
+    actions: [{ label: "Open Deployment", screen: "deployment" }]
   }
 ];
 
@@ -483,7 +558,7 @@ function loadInitialSettings(): ApiSettings {
     const parsed = JSON.parse(storedSettings) as Partial<ApiSettings>;
     return {
       apiBaseUrl: typeof parsed.apiBaseUrl === "string" ? parsed.apiBaseUrl : "",
-      apiKey: typeof parsed.apiKey === "string" ? parsed.apiKey : ""
+      apiKey: ""
     };
   } catch {
     return { apiBaseUrl: "", apiKey: "" };
@@ -927,7 +1002,7 @@ function downloadJsonFile(payload: unknown): string {
 }
 
 function WelcomeScreen({
-  onOpenDeployment,
+  onOpenScreen,
   onOpenSettings,
   onReopenTutorial,
   onSkipTutorial,
@@ -938,7 +1013,7 @@ function WelcomeScreen({
   showTutorial,
   tutorialStepIndex
 }: {
-  onOpenDeployment: () => void;
+  onOpenScreen: (screen: ScreenId) => void;
   onOpenSettings: () => void;
   onReopenTutorial: () => void;
   onSkipTutorial: () => void;
@@ -958,6 +1033,7 @@ function WelcomeScreen({
     (sharedState.deployment.phase === "not_configured" ? "No stack connected" : sharedState.deployment.phase.replaceAll("_", " "));
   const characterCountLabel = connected ? sharedState.characters.length.toString() : "None loaded";
   const connectionLabel = connected ? "Connected" : "Not connected";
+  const tutorialStepLabel = `Step ${tutorialStepIndex + 1} of ${firstRunTutorialSteps.length}`;
 
   function handleTutorialNext() {
     if (finalStep) {
@@ -990,7 +1066,7 @@ function WelcomeScreen({
       </div>
       {!connected ? (
         <div className="button-row">
-          <button type="button" onClick={onOpenDeployment}>Open Deployment Setup</button>
+          <button type="button" onClick={() => onOpenScreen("deployment")}>Open Deployment Setup</button>
           <button className="secondary" type="button" onClick={onReopenTutorial}>Start Guided Setup</button>
         </div>
       ) : null}
@@ -1002,7 +1078,7 @@ function WelcomeScreen({
       </div>
       {showTutorial ? (
         <section className="tutorial-card" aria-labelledby="tutorial-title">
-          <p className="eyebrow">Step {tutorialStepIndex + 1} of {firstRunTutorialSteps.length}</p>
+          <p className="eyebrow">{tutorialStepLabel}</p>
           <h2 id="tutorial-title">First-run tutorial</h2>
           <h3>{tutorialStep.title}</h3>
           <p>{tutorialStep.body}</p>
@@ -1023,6 +1099,11 @@ function WelcomeScreen({
           </div>
           <div className="button-row">
             <button type="button" onClick={handleTutorialNext}>{tutorialStep.nextLabel}</button>
+            {tutorialStep.actions?.map((action) => (
+              <button className="secondary" type="button" key={action.label} onClick={() => onOpenScreen(action.screen)}>
+                {action.label}
+              </button>
+            ))}
             <button className="secondary" type="button" onClick={onSkipTutorial}>Skip tutorial</button>
           </div>
         </section>
@@ -2506,7 +2587,7 @@ export default function App() {
       default:
         return (
           <WelcomeScreen
-            onOpenDeployment={() => setActiveScreen("deployment")}
+            onOpenScreen={setActiveScreen}
             onOpenSettings={() => setActiveScreen("settings")}
             onReopenTutorial={handleReopenTutorial}
             onSkipTutorial={handleSkipTutorial}
