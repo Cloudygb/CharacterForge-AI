@@ -27,7 +27,7 @@ import {
 } from "./appState";
 import "./styles.css";
 
-type ScreenId = "welcome" | "settings" | "setup" | "deployment" | "characters" | "editor" | "packs" | "chat" | "json";
+type ScreenId = "welcome" | "settings" | "deployment" | "characters" | "editor" | "packs" | "chat" | "json";
 
 declare global {
   interface Window {
@@ -249,7 +249,6 @@ const screens: Array<{ id: ScreenId; label: string }> = [
 ];
 
 const developerScreens: Array<{ id: ScreenId; label: string }> = [
-  { id: "setup", label: "Setup Check" },
   { id: "editor", label: "Character Editor" },
   { id: "packs", label: "Character Packs" },
   { id: "json", label: "Raw JSON Preview" }
@@ -307,7 +306,7 @@ const defaultSetupCheckForm: SetupCheckForm = {
 
 const defaultDeploymentForm: DeploymentStartRequest = {
   awsRegion: "us-east-1",
-  bedrockModel: "amazon.nova-micro-v1:0",
+  bedrockModel: "anthropic.claude-3-haiku-20240307-v1:0",
   stackName: "characterforge-ai-dev",
   environmentName: "dev",
   credentialMode: "profile",
@@ -447,14 +446,14 @@ const firstRunTutorialSteps: TutorialStep[] = [
   },
   {
     title: "Connect with API Base URL and API Key",
-    body: "After deployment, copy or accept the API Base URL and API Key from the stack outputs, then test the connection from Settings.",
+    body: "After deployment, copy or accept the API Base URL and API Key from the stack outputs, then test the connection from Deployment.",
     checklist: [
       "API Base URL identifies the deployed CharacterForgeAI API endpoint.",
       "API Key is kept in memory for this session and should never be committed, screenshotted, or shared.",
       "Use Test Connection to load real character status before chatting."
     ],
     nextLabel: "Next: Characters",
-    actions: [{ label: "Open Settings", screen: "settings" }]
+    actions: [{ label: "Open Deployment", screen: "deployment" }]
   },
   {
     title: "Create or import characters",
@@ -493,7 +492,7 @@ const firstRunTutorialSteps: TutorialStep[] = [
       "Use End from Deployment to delete the stack only after confirming the exact stack name.",
       "Verify deletion completes in CloudFormation and keep no raw secrets in logs or screenshots."
     ],
-    nextLabel: "Finish guided setup and open Settings",
+    nextLabel: "Finish guided setup and open Deployment",
     actions: [{ label: "Open Deployment", screen: "deployment" }]
   }
 ];
@@ -1134,85 +1133,25 @@ function SummaryCard({ label, value }: { label: string; value: string }) {
   );
 }
 
-function ApiSettingsScreen({
-  connectionStatus,
-  draftSettings,
-  onDraftSettingsChange,
-  onSaveSettings,
+function SettingsScreen({
   onSaveUpdateSettings,
-  onTestConnection,
   onUpdateSettingsChange,
   updateSettings,
   updateStatus
 }: {
-  connectionStatus: ConnectionStatus;
-  draftSettings: ApiSettings;
-  onDraftSettingsChange: (settings: ApiSettings) => void;
-  onSaveSettings: () => void;
   onSaveUpdateSettings: () => void;
-  onTestConnection: () => void;
   onUpdateSettingsChange: (settings: UpdateSettings) => void;
   updateSettings: UpdateSettings;
   updateStatus: ConnectionStatus;
 }) {
   return (
     <section className="screen-card" aria-labelledby="settings-title">
-      <p className="eyebrow">Connection setup</p>
+      <p className="eyebrow">Application preferences</p>
       <h1 id="settings-title">Settings</h1>
       <p>
-        Add a CharacterForge API base URL and API key to load live character summaries. Leave the base URL blank to keep
-        using mock mode.
+        Plan desktop update behavior here. API setup, AWS readiness checks, and deployment connection fields now live on
+        Deployment so users have one setup path.
       </p>
-      <div className="setup-safety-panel" aria-label="Setup safety warnings">
-        <p className="eyebrow">Review these safety notes before entering setup values</p>
-        <div className="warning">
-          <strong>AWS cost warning</strong>
-          <p>
-            AWS can charge for deployed resources such as Lambda, API Gateway, DynamoDB, CloudWatch logs, and storage.
-            Set budgets and delete test stacks when finished.
-          </p>
-        </div>
-        <div className="warning">
-          <strong>Credential safety warning</strong>
-          <p>
-            Never paste production credentials into this browser demo. Use local test keys only, do not persist keys in
-            committed files, and put production secrets behind a trusted backend.
-          </p>
-        </div>
-      </div>
-      <label className="field">
-        API base URL
-        <input
-          placeholder="https://<api-id>.execute-api.<region>.amazonaws.com/<stage>"
-          value={draftSettings.apiBaseUrl}
-          onChange={(event) => onDraftSettingsChange({ ...draftSettings, apiBaseUrl: event.target.value })}
-        />
-      </label>
-      <label className="field">
-        API key
-        <input
-          autoComplete="off"
-          placeholder="Paste only a local test key"
-          type="password"
-          value={draftSettings.apiKey}
-          onChange={(event) => onDraftSettingsChange({ ...draftSettings, apiKey: event.target.value })}
-        />
-      </label>
-      <div className="button-row">
-        <button type="button" onClick={onSaveSettings}>
-          Save settings
-        </button>
-        <button type="button" onClick={onTestConnection}>
-          Test connection
-        </button>
-      </div>
-      <div className={`connection-status ${connectionStatus.state}`} role="status">
-        {connectionStatus.message}
-      </div>
-      <div className="warning">
-        Do not paste production API keys into committed files, browser bundles, screenshots, or client-side config.
-        Public builds should call a server-side proxy that stores the key outside the game or dashboard client.
-      </div>
       <section className="setup-safety-panel" aria-labelledby="updates-title">
         <p className="eyebrow">Future-ready placeholder</p>
         <h2 id="updates-title">Check for Updates</h2>
@@ -1329,7 +1268,7 @@ function SetupCheckScreen({
         </label>
       </div>
       <div className="button-row">
-        <button type="button" onClick={onRunCheck}>Run setup check</button>
+        <button type="button" onClick={onRunCheck}>Run readiness check</button>
       </div>
       <section className="tutorial-card" aria-labelledby="aws-setup-wizard-title">
         <p className="eyebrow">Guided AWS setup</p>
@@ -1436,16 +1375,27 @@ function SetupCheckCard({ label, value }: { label: string; value: string }) {
 
 function DeploymentStartScreen({
   confirmationText,
+  connectionStatus,
   endConfirmationText,
   exportBeforeEndConfirmed,
   form,
   isDesktopShell,
+  settings,
+  setupResult,
+  setupStatus,
+  wizardResult,
+  wizardStatus,
+  onApiSettingsChange,
   onConfirmationChange,
   onEndConfirmationChange,
   onExportBeforeEndConfirmedChange,
   onFormChange,
   onPreviewStart,
   onRealEnd,
+  onRunAwsSetupWizard,
+  onRunCheck,
+  onSaveSettings,
+  onTestConnection,
   onRealStart,
   preview,
   endResult,
@@ -1453,16 +1403,27 @@ function DeploymentStartScreen({
   status
 }: {
   confirmationText: string;
+  connectionStatus: ConnectionStatus;
   endConfirmationText: string;
   exportBeforeEndConfirmed: boolean;
   form: DeploymentStartRequest;
   isDesktopShell: boolean;
+  settings: ApiSettings;
+  setupResult: SetupCheckResult | null;
+  setupStatus: ConnectionStatus;
+  wizardResult: AwsSetupWizardResult | null;
+  wizardStatus: ConnectionStatus;
+  onApiSettingsChange: (settings: ApiSettings) => void;
   onConfirmationChange: (value: string) => void;
   onEndConfirmationChange: (value: string) => void;
   onExportBeforeEndConfirmedChange: (value: boolean) => void;
   onFormChange: (form: DeploymentStartRequest) => void;
   onPreviewStart: () => void;
   onRealEnd: () => void;
+  onRunAwsSetupWizard: () => void;
+  onRunCheck: () => void;
+  onSaveSettings: () => void;
+  onTestConnection: () => void;
   onRealStart: () => void;
   preview: DeploymentStartPreview | null;
   endResult: DeploymentEndResult | null;
@@ -1485,12 +1446,51 @@ function DeploymentStartScreen({
 
   return (
     <section className="screen-card" aria-labelledby="deployment-title">
-      <p className="eyebrow">Dry-run deployment</p>
-      <h1 id="deployment-title">Deployment Start</h1>
+      <p className="eyebrow">API setup and AWS deployment</p>
+      <h1 id="deployment-title">Deployment</h1>
       <p>
-        Preview the local desktop Start flow before enabling real AWS deployment. Dry-run mode only builds the SAM and
-        CloudFormation command plan; it never calls AWS, SAM, Bedrock, CloudFormation, or credential providers.
+        Configure the deployed CharacterForgeAI API, verify AWS readiness, and preview the local desktop Start/End flow from
+        one place.
       </p>
+      <section className="setup-safety-panel" aria-labelledby="api-connection-title">
+        <h2 id="api-connection-title">API connection</h2>
+        <p>
+          API Base URL comes from the CloudFormation or SAM deployment outputs for the deployed API endpoint. API Key comes
+          from the deployment outputs that create the API Gateway usage-plan key, or from API Gateway if your stack
+          rotation process issued a new one.
+        </p>
+        <p className="warning">
+          <strong>Credential safety warning:</strong> API keys should be treated as secrets: do not commit them, paste production secrets into demos, screenshots, or issue reports,
+          and remove them from this field before sharing your screen.
+        </p>
+        <div className="editor-grid">
+          <label className="field">
+            API Base URL
+            <input
+              placeholder="https://api-base-url-from-your-deployment.example.invalid/prod"
+              value={settings.apiBaseUrl}
+              onChange={(event) => onApiSettingsChange({ ...settings, apiBaseUrl: event.target.value })}
+            />
+          </label>
+          <label className="field">
+            API Key
+            <input
+              autoComplete="off"
+              placeholder="Paste a non-production API key for local testing"
+              type="password"
+              value={settings.apiKey}
+              onChange={(event) => onApiSettingsChange({ ...settings, apiKey: event.target.value })}
+            />
+          </label>
+        </div>
+        <div className="button-row">
+          <button type="button" onClick={onSaveSettings}>Save settings</button>
+          <button type="button" onClick={onTestConnection}>Test connection</button>
+        </div>
+        <div className={`connection-status ${connectionStatus.state}`} role="status">
+          {connectionStatus.message}
+        </div>
+      </section>
       <div className="notice compact">Dry-run mode only: safe local command preview, no AWS requests.</div>
       <div className="editor-grid">
         <label className="field">
@@ -1574,6 +1574,72 @@ function DeploymentStartScreen({
           </label>
         </div>
       )}
+
+      <section className="setup-safety-panel" aria-labelledby="deployment-readiness-title">
+        <h2 id="deployment-readiness-title">Credential-safe AWS setup wizard</h2>
+        <p>
+          This merged Deployment wizard uses named AWS CLI profiles, guides region and Bedrock model selection, previews
+          stack settings, and keeps the setup summary together with Start. In browser preview mode it uses the mocked
+          setup-check adapter so no AWS calls are made.
+        </p>
+        <div className="setup-check-grid">
+          <article className="summary-card">
+            <span>Credential safety</span>
+            <strong>No access keys, secret keys, session tokens, passwords, or auth headers are stored, logged, or shown.</strong>
+          </article>
+          <article className="summary-card">
+            <span>Cost awareness</span>
+            <strong>Bedrock and deployed AWS resources can create charges; review pricing, budgets, and cleanup plans.</strong>
+          </article>
+          <article className="summary-card">
+            <span>Bedrock access</span>
+            <strong>Checks use the safe Bedrock control-plane model list, not a runtime prompt.</strong>
+          </article>
+        </div>
+        <h3>Readiness checks and setup summary</h3>
+        <p>
+          Check your local AWS CLI profile, selected region, Bedrock model access, and existing CloudFormation stack before
+          you run Start. The check uses safe control-plane calls only and never stores raw credentials.
+        </p>
+        <div className="button-row">
+          <button type="button" onClick={onRunCheck}>Run readiness check</button>
+          <button type="button" onClick={onRunAwsSetupWizard}>Load AWS setup wizard</button>
+        </div>
+        <div className={`connection-status ${setupStatus.state}`} role="status">
+          {setupStatus.message}
+        </div>
+        <div className={`connection-status ${wizardStatus.state}`} role="status">
+          {wizardStatus.message}
+        </div>
+        <div className="setup-check-grid">
+          <SetupCheckCard label="AWS region" value={setupResult?.awsRegion ?? form.awsRegion} />
+          <SetupCheckCard label="Selected Bedrock model" value={setupResult?.bedrockModel ?? form.bedrockModel} />
+          <SetupCheckCard label="AWS profile" value={setupResult?.profileName ?? form.profileName} />
+          <SetupCheckCard label="Stack name" value={setupResult?.stackName ?? form.stackName} />
+          <SetupCheckCard label="Credential status" value={setupResult?.credentialStatus ?? "Not checked yet"} />
+          <SetupCheckCard label="Bedrock access status" value={setupResult?.bedrockAccessStatus ?? "Not checked yet"} />
+          <SetupCheckCard label="Existing stack status" value={setupResult?.existingStackStatus ?? "Not checked yet"} />
+        </div>
+        {wizardResult ? <AwsSetupWizardSummary result={wizardResult} /> : null}
+        {setupResult?.checks.length ? (
+          <section className="setup-warning-list" aria-labelledby="readiness-details-title">
+            <h3 id="readiness-details-title">Readiness details</h3>
+            <div className="setup-check-grid">
+              {setupResult.checks.map((check) => (
+                <SetupCheckCard key={check.id} label={check.label} value={`${check.status}: ${check.detail}`} />
+              ))}
+            </div>
+          </section>
+        ) : null}
+        <section className="warning setup-warning-list" aria-labelledby="setup-warnings-title">
+          <h3 id="setup-warnings-title">Warnings</h3>
+          <ul>
+            {(setupResult?.warnings ?? ["Mock results only — run the setup check before using this for deployment decisions."]).map((warning) => (
+              <li key={warning}>{warning}</li>
+            ))}
+          </ul>
+        </section>
+      </section>
 
       <div className="button-row">
         <button type="button" onClick={onPreviewStart}>Preview Start dry run</button>
@@ -2087,7 +2153,6 @@ export default function App() {
   });
   const [tutorialStepIndex, setTutorialStepIndex] = useState(0);
   const [showTutorial, setShowTutorial] = useState(true);
-  const [setupCheckForm, setSetupCheckForm] = useState<SetupCheckForm>(defaultSetupCheckForm);
   const [setupCheckResult, setSetupCheckResult] = useState<SetupCheckResult | null>(null);
   const [awsSetupWizardResult, setAwsSetupWizardResult] = useState<AwsSetupWizardResult | null>(null);
   const [awsSetupWizardStatus, setAwsSetupWizardStatus] = useState<ConnectionStatus>({
@@ -2211,7 +2276,7 @@ export default function App() {
   function handleTutorialComplete() {
     persistAppConfig({ firstRunTutorialCompleted: true, firstRunTutorialSkipped: false });
     setShowTutorial(false);
-    setActiveScreen("settings");
+    setActiveScreen("deployment");
   }
 
   function handleSkipTutorial() {
@@ -2286,11 +2351,20 @@ export default function App() {
     }
   }
 
+  function getDeploymentSetupForm(): SetupCheckForm {
+    return {
+      awsRegion: deploymentForm.awsRegion,
+      bedrockModel: deploymentForm.bedrockModel,
+      profileName: deploymentForm.profileName,
+      stackName: deploymentForm.stackName
+    };
+  }
+
   async function handleRunSetupCheck() {
     const desktopMode = hasTauriInvoke();
     setSetupCheckStatus({ message: desktopMode ? "Running desktop setup readiness check..." : "Running mocked setup check...", state: "loading" });
     try {
-      const result = await runSetupReadinessCheck(setupCheckForm);
+      const result = await runSetupReadinessCheck(getDeploymentSetupForm());
       setSetupCheckResult(result);
       setSetupCheckStatus({
         message: desktopMode ? "Desktop setup readiness check complete." : "Mock setup check complete.",
@@ -2304,7 +2378,7 @@ export default function App() {
   async function handleRunAwsSetupWizard() {
     setAwsSetupWizardStatus({ message: "Loading credential-safe AWS setup wizard...", state: "loading" });
     try {
-      const result = await runAwsSetupWizardCheck(setupCheckForm);
+      const result = await runAwsSetupWizardCheck(getDeploymentSetupForm());
       setAwsSetupWizardResult(result);
       setAwsSetupWizardStatus({ message: "AWS setup wizard ready.", state: "success" });
     } catch (error) {
@@ -2499,45 +2573,38 @@ export default function App() {
     switch (activeScreen) {
       case "settings":
         return (
-          <ApiSettingsScreen
-            connectionStatus={connectionStatus}
-            draftSettings={draftSettings}
-            onDraftSettingsChange={setDraftSettings}
-            onSaveSettings={handleSaveSettings}
+          <SettingsScreen
             onSaveUpdateSettings={handleSaveUpdateSettings}
-            onTestConnection={handleTestConnection}
             onUpdateSettingsChange={handleUpdateSettingsChange}
             updateSettings={appConfig.updateSettings}
             updateStatus={updateStatus}
-          />
-        );
-      case "setup":
-        return (
-          <SetupCheckScreen
-            form={setupCheckForm}
-            onFormChange={setSetupCheckForm}
-            onRunCheck={handleRunSetupCheck}
-            onRunAwsSetupWizard={handleRunAwsSetupWizard}
-            result={setupCheckResult}
-            status={setupCheckStatus}
-            wizardResult={awsSetupWizardResult}
-            wizardStatus={awsSetupWizardStatus}
           />
         );
       case "deployment":
         return (
           <DeploymentStartScreen
             confirmationText={deploymentConfirmation}
+            connectionStatus={connectionStatus}
             endConfirmationText={deploymentEndConfirmation}
             exportBeforeEndConfirmed={exportBeforeEndConfirmed}
             form={deploymentForm}
             isDesktopShell={isRealDeploymentAdapter(deploymentAdapter)}
+            settings={draftSettings}
+            setupResult={setupCheckResult}
+            setupStatus={setupCheckStatus}
+            wizardResult={awsSetupWizardResult}
+            wizardStatus={awsSetupWizardStatus}
+            onApiSettingsChange={setDraftSettings}
             onConfirmationChange={setDeploymentConfirmation}
             onEndConfirmationChange={setDeploymentEndConfirmation}
             onExportBeforeEndConfirmedChange={setExportBeforeEndConfirmed}
             onFormChange={setDeploymentForm}
             onPreviewStart={handlePreviewDeploymentStart}
             onRealEnd={handleRealDeploymentEnd}
+            onRunAwsSetupWizard={handleRunAwsSetupWizard}
+            onRunCheck={handleRunSetupCheck}
+            onSaveSettings={handleSaveSettings}
+            onTestConnection={handleTestConnection}
             onRealStart={handleRealDeploymentStart}
             preview={deploymentPreview}
             endResult={deploymentEndResult}
