@@ -7,6 +7,7 @@ import App from "./App";
 const listCharactersMock = vi.fn();
 const createCharacterMock = vi.fn();
 const updateCharacterMock = vi.fn();
+const deleteCharacterMock = vi.fn();
 
 vi.mock("@characterforge/characterforge-ai", () => ({
   CharacterForgeClient: vi.fn().mockImplementation(function CharacterForgeClientMock(
@@ -14,12 +15,14 @@ vi.mock("@characterforge/characterforge-ai", () => ({
       createCharacter: (payload: unknown) => Promise<unknown>;
       listCharacters: () => Promise<unknown>;
       updateCharacter: (characterId: string, payload: unknown) => Promise<unknown>;
+      deleteCharacter: (characterId: string) => Promise<void>;
     },
     options: { apiKey?: string; baseUrl: string }
   ) {
     this.createCharacter = (payload: unknown) => createCharacterMock(options, payload);
     this.listCharacters = () => listCharactersMock(options);
     this.updateCharacter = (characterId: string, payload: unknown) => updateCharacterMock(options, characterId, payload);
+    this.deleteCharacter = (characterId: string) => deleteCharacterMock(options, characterId);
   })
 }));
 
@@ -28,6 +31,7 @@ describe("CharacterForge dashboard", () => {
     listCharactersMock.mockReset();
     createCharacterMock.mockReset();
     updateCharacterMock.mockReset();
+    deleteCharacterMock.mockReset();
     delete window.__TAURI__;
     window.localStorage.clear();
   });
@@ -346,16 +350,75 @@ describe("CharacterForge dashboard", () => {
 
     await user.click(within(miraCard).getByRole("button", { name: /delete captain mira voss/i }));
     expect(screen.getByRole("alertdialog", { name: /delete captain mira voss/i })).toBeInTheDocument();
-    expect(screen.getByText(/this only removes the character from this dashboard view/i)).toBeInTheDocument();
+    expect(screen.getByText(/delete this local character record/i)).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: /cancel delete/i }));
     expect(screen.getByText("Captain Mira Voss")).toBeInTheDocument();
 
     await user.click(within(miraCard).getByRole("button", { name: /delete captain mira voss/i }));
     await user.click(screen.getByRole("button", { name: /confirm delete/i }));
     expect(screen.queryByText("Captain Mira Voss")).not.toBeInTheDocument();
-    expect(screen.getByText(/character removed from this dashboard view/i)).toBeInTheDocument();
+    expect(screen.getByText(/saved: deleted captain mira voss from local character storage/i)).toBeInTheDocument();
+    expect(JSON.parse(window.localStorage.getItem("characterforge.dashboard.localCharacterIndex") ?? "{}")).toEqual({
+      deletedCharacterIds: ["char_mock_mira"]
+    });
     expect(listCharactersMock).not.toHaveBeenCalled();
     expect(createCharacterMock).not.toHaveBeenCalled();
+  });
+
+  it("deletes an API character only after backend success and shows sync status", async () => {
+    const user = userEvent.setup();
+    listCharactersMock.mockResolvedValueOnce({
+      characters: [{ id: "char_api_arden", name: "Arden Vale", archetype: "API ranger", description: "Fetched from API." }]
+    });
+    let resolveDelete: () => void = () => undefined;
+    deleteCharacterMock.mockReturnValueOnce(new Promise<void>((resolve) => {
+      resolveDelete = resolve;
+    }));
+
+    render(<App />);
+
+    await user.click(screen.getByRole("button", { name: "Deployment" }));
+    await user.type(screen.getByLabelText(/api base url/i), "https://api.example.test/dev");
+    await user.click(screen.getByRole("button", { name: /test connection/i }));
+    await screen.findAllByText(/connected to characterforge api/i);
+
+    await user.click(screen.getByRole("button", { name: "Characters" }));
+    const ardenCard = screen.getByRole("article", { name: /arden vale/i });
+    await user.click(within(ardenCard).getByRole("button", { name: /delete arden vale/i }));
+    expect(screen.getByRole("alertdialog", { name: /delete arden vale/i })).toBeInTheDocument();
+    expect(screen.getByText(/delete arden vale through the connected characterforge api/i)).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: /confirm delete/i }));
+    expect(await screen.findByText(/saving: deleting arden vale through the characterforge api/i)).toBeInTheDocument();
+    await waitFor(() => expect(deleteCharacterMock).toHaveBeenCalledWith({ baseUrl: "https://api.example.test/dev", apiKey: undefined }, "char_api_arden"));
+    expect(screen.getByText("Arden Vale")).toBeInTheDocument();
+    resolveDelete();
+    await waitFor(() => expect(screen.queryByText("Arden Vale")).not.toBeInTheDocument());
+    expect(await screen.findByText(/saved: deleted arden vale from the api and local index/i)).toBeInTheDocument();
+  });
+
+  it("keeps an API character visible when backend delete fails", async () => {
+    const user = userEvent.setup();
+    listCharactersMock.mockResolvedValueOnce({
+      characters: [{ id: "char_api_lyra", name: "Lyra Quill", archetype: "API bard", description: "Fetched from API." }]
+    });
+    deleteCharacterMock.mockRejectedValueOnce(new Error("DynamoDB delete denied"));
+
+    render(<App />);
+
+    await user.click(screen.getByRole("button", { name: "Deployment" }));
+    await user.type(screen.getByLabelText(/api base url/i), "https://api.example.test/dev");
+    await user.click(screen.getByRole("button", { name: /test connection/i }));
+    await screen.findAllByText(/connected to characterforge api/i);
+
+    await user.click(screen.getByRole("button", { name: "Characters" }));
+    const lyraCard = screen.getByRole("article", { name: /lyra quill/i });
+    await user.click(within(lyraCard).getByRole("button", { name: /delete lyra quill/i }));
+    await user.click(screen.getByRole("button", { name: /confirm delete/i }));
+
+    await waitFor(() => expect(deleteCharacterMock).toHaveBeenCalledWith({ baseUrl: "https://api.example.test/dev", apiKey: undefined }, "char_api_lyra"));
+    expect(await screen.findByText(/failed: could not delete lyra quill from the api: dynamodb delete denied/i)).toBeInTheDocument();
+    expect(screen.getByRole("article", { name: /lyra quill/i })).toBeInTheDocument();
   });
 
   it("runs mocked setup checks for AWS readiness without calling AWS", async () => {
@@ -1334,7 +1397,7 @@ describe("CharacterForge dashboard", () => {
       expectedPayload
     );
     expect(updateCharacterMock).not.toHaveBeenCalled();
-    expect(await screen.findByText(/created character profile/i)).toBeInTheDocument();
+    expect(await screen.findByText(/saved: created character profile/i)).toBeInTheDocument();
   });
 
   it("validates create/edit character dialogs and closes without saving on cancel", async () => {
@@ -1386,7 +1449,7 @@ describe("CharacterForge dashboard", () => {
       })
     );
     expect(createCharacterMock).not.toHaveBeenCalled();
-    expect(await screen.findByText(/updated character profile/i)).toBeInTheDocument();
+    expect(await screen.findByText(/saved: updated character profile/i)).toBeInTheDocument();
   });
 
 

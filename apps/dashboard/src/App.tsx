@@ -72,7 +72,7 @@ type ApiSettings = {
 
 type EditorStatus = {
   message: string;
-  state: "idle" | "success" | "error";
+  state: "idle" | "loading" | "success" | "error";
 };
 
 type CharacterActionDefinition = {
@@ -228,6 +228,7 @@ type AwsSetupWizardResult = {
 
 const settingsStorageKey = "characterforge.dashboard.settings";
 const appConfigStorageKey = "characterforge.dashboard.appConfig";
+const localCharacterIndexStorageKey = "characterforge.dashboard.localCharacterIndex";
 
 const defaultUpdateSettings: UpdateSettings = {
   channel: "stable",
@@ -589,6 +590,34 @@ function loadInitialSettings(): ApiSettings {
 
 function saveSettings(settings: ApiSettings) {
   window.localStorage.setItem(settingsStorageKey, JSON.stringify({ apiBaseUrl: settings.apiBaseUrl, apiKey: "" }));
+}
+
+function loadLocalDeletedCharacterIds(): string[] {
+  if (typeof window === "undefined") {
+    return [];
+  }
+  const storedIndex = window.localStorage.getItem(localCharacterIndexStorageKey);
+  if (!storedIndex) {
+    return [];
+  }
+  try {
+    const parsed = JSON.parse(storedIndex) as { deletedCharacterIds?: unknown };
+    return Array.isArray(parsed.deletedCharacterIds)
+      ? parsed.deletedCharacterIds.filter((id): id is string => typeof id === "string" && id.trim().length > 0)
+      : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveLocalDeletedCharacterIds(deletedCharacterIds: string[]) {
+  if (typeof window === "undefined") {
+    return;
+  }
+  window.localStorage.setItem(
+    localCharacterIndexStorageKey,
+    JSON.stringify({ deletedCharacterIds: [...new Set(deletedCharacterIds)] })
+  );
 }
 
 function normalizeUpdateSettings(_settings: Partial<UpdateSettings> | null | undefined): UpdateSettings {
@@ -2125,12 +2154,16 @@ function CharactersScreen({
       {pendingDelete ? (
         <div aria-labelledby="delete-character-title" aria-modal="true" className="modal-panel" role="alertdialog">
           <h2 id="delete-character-title">Delete {pendingDelete.name}?</h2>
-          <p>This only removes the character from this dashboard view. API deletion will be wired when backend delete support is ready.</p>
+          <p>
+            {mode === "api"
+              ? `Delete ${pendingDelete.name} through the connected CharacterForge API, then remove it from the local index after the backend confirms success.`
+              : `Delete this local character record from the local character storage/index. This does not call the CharacterForge API.`}
+          </p>
           <div className="button-row">
             <button onClick={onCancelDelete} type="button">
               Cancel delete
             </button>
-            <button className="danger-button" onClick={onConfirmDelete} type="button">
+            <button className="danger-button" disabled={deleteStatus.state === "loading"} onClick={onConfirmDelete} type="button">
               Confirm delete
             </button>
           </div>
@@ -2547,7 +2580,7 @@ export default function App() {
   const [charactersEditorVisible, setCharactersEditorVisible] = useState(false);
   const [characterPackToolsVisible, setCharacterPackToolsVisible] = useState(false);
   const [pendingDeleteCharacter, setPendingDeleteCharacter] = useState<Character | null>(null);
-  const [deletedCharacterIds, setDeletedCharacterIds] = useState<string[]>([]);
+  const [deletedCharacterIds, setDeletedCharacterIds] = useState<string[]>(() => loadLocalDeletedCharacterIds());
   const [characterDeleteStatus, setCharacterDeleteStatus] = useState<EditorStatus>({
     message: "Choose Edit or Delete on a character card, or create/import from the controls above.",
     state: "idle"
@@ -2591,9 +2624,10 @@ export default function App() {
   const [deploymentEndResult, setDeploymentEndResult] = useState<DeploymentEndResult | null>(null);
 
   const apiMode = Boolean(settings.apiBaseUrl.trim());
-  const sourceCharacters = apiMode && apiCharacters.length ? apiCharacters : mockCharacters;
+  const apiConnected = apiMode && connectionStatus.state === "success";
+  const sourceCharacters = apiConnected ? apiCharacters : mockCharacters;
   const activeCharacters = sourceCharacters.filter((character) => !deletedCharacterIds.includes(character.id));
-  const sharedStateCharacters = apiMode ? apiCharacters.filter((character) => !deletedCharacterIds.includes(character.id)) : activeCharacters;
+  const sharedStateCharacters = apiConnected ? apiCharacters.filter((character) => !deletedCharacterIds.includes(character.id)) : activeCharacters;
   const deploymentConfig = useMemo(
     () =>
       buildDeploymentConfig({
@@ -2630,7 +2664,7 @@ export default function App() {
             id: character.id,
             name: character.name,
             status: character.status,
-            syncStatus: apiMode ? "api_synced" : "mock"
+            syncStatus: apiConnected ? "api_synced" : "mock"
           })
         ),
         deployment: toDeploymentStatus({
@@ -2644,7 +2678,7 @@ export default function App() {
     [
       sharedStateCharacters,
       apiCharacters.length,
-      apiMode,
+      apiConnected,
       connectionStatus.message,
       connectionStatus.state,
       deploymentConfig.apiBaseUrl,
@@ -2933,13 +2967,47 @@ export default function App() {
     setCharacterDeleteStatus({ message: `Confirm before deleting ${character.name}.`, state: "idle" });
   }
 
-  function handleConfirmDeleteCharacter() {
+  function markCharacterDeleted(characterId: string) {
+    setDeletedCharacterIds((current) => {
+      const next = [...new Set([...current, characterId])];
+      saveLocalDeletedCharacterIds(next);
+      return next;
+    });
+  }
+
+  async function handleConfirmDeleteCharacter() {
     if (!pendingDeleteCharacter) {
       return;
     }
-    setDeletedCharacterIds((current) => [...new Set([...current, pendingDeleteCharacter.id])]);
-    setCharacterDeleteStatus({ message: "Character removed from this dashboard view.", state: "success" });
-    setPendingDeleteCharacter(null);
+    const character = pendingDeleteCharacter;
+    const apiDeleteMode = apiMode && connectionStatus.state === "success" && apiCharacters.some((apiCharacter) => apiCharacter.id === character.id);
+
+    if (!apiDeleteMode) {
+      setCharacterDeleteStatus({ message: `Saving: deleting ${character.name} from local character storage...`, state: "loading" });
+      markCharacterDeleted(character.id);
+      setCharacterDeleteStatus({ message: `Saved: deleted ${character.name} from local character storage.`, state: "success" });
+      setPendingDeleteCharacter(null);
+      return;
+    }
+
+    setCharacterDeleteStatus({ message: `Saving: deleting ${character.name} through the CharacterForge API...`, state: "loading" });
+    try {
+      const client = new CharacterForgeClient({ baseUrl: settings.apiBaseUrl, apiKey: settings.apiKey || undefined });
+      await client.deleteCharacter(character.id);
+      setApiCharacters((current) => current.filter((apiCharacter) => apiCharacter.id !== character.id));
+      markCharacterDeleted(character.id);
+      setCharacterDeleteStatus({ message: `Saved: deleted ${character.name} from the API and local index.`, state: "success" });
+      setPendingDeleteCharacter(null);
+    } catch (error) {
+      setCharacterDeleteStatus({
+        message:
+          error instanceof Error
+            ? `Failed: could not delete ${character.name} from the API: ${error.message}`
+            : `Failed: could not delete ${character.name} from the API.`,
+        state: "error"
+      });
+      setPendingDeleteCharacter(null);
+    }
   }
 
   async function handleSubmitCharacter() {
@@ -2952,20 +3020,20 @@ export default function App() {
       return;
     }
 
-    setEditorStatus({ message: "Submitting character profile to the CharacterForge API...", state: "idle" });
+    setEditorStatus({ message: "Saving: syncing character profile to the CharacterForge API...", state: "loading" });
     try {
       const client = new CharacterForgeClient({ baseUrl: settings.apiBaseUrl, apiKey: settings.apiKey || undefined });
       const characterId = editorForm.characterId.trim();
       if (characterId) {
         await client.updateCharacter(characterId, editorPayload);
-        setEditorStatus({ message: `Updated character profile ${characterId}.`, state: "success" });
+        setEditorStatus({ message: `Saved: updated character profile ${characterId}.`, state: "success" });
       } else {
         await client.createCharacter(editorPayload);
-        setEditorStatus({ message: "Created character profile.", state: "success" });
+        setEditorStatus({ message: "Saved: created character profile.", state: "success" });
       }
     } catch (error) {
       setEditorStatus({
-        message: error instanceof Error ? `Character submit failed: ${error.message}` : "Character submit failed.",
+        message: error instanceof Error ? `Failed: character sync failed: ${error.message}` : "Failed: character sync failed.",
         state: "error"
       });
     }
@@ -3108,7 +3176,7 @@ export default function App() {
               status: editorStatus,
               validationErrors: editorValidationErrors
             }}
-            mode={apiMode && apiCharacters.length ? "api" : "mock"}
+            mode={apiConnected ? "api" : "mock"}
             packTools={{
               exportState: packExportState,
               loadedPack,
@@ -3122,7 +3190,7 @@ export default function App() {
             }}
             pendingDelete={pendingDeleteCharacter}
             onCancelDelete={() => setPendingDeleteCharacter(null)}
-            onConfirmDelete={handleConfirmDeleteCharacter}
+            onConfirmDelete={() => void handleConfirmDeleteCharacter()}
             onCreateCharacter={handleCreateCharacterFromCharactersPage}
             onEditCharacter={handleEditCharacterFromCharactersPage}
             onRequestDelete={handleRequestDeleteCharacter}
