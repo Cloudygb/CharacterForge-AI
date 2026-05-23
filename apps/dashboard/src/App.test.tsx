@@ -58,12 +58,14 @@ describe("CharacterForge dashboard", () => {
     expect(screen.getByLabelText(/stack name/i)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /run readiness check/i })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /preview start dry run/i })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /start real deployment/i })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /end deployment and delete stack/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^start$/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^end$/i })).toBeInTheDocument();
+    expect(screen.queryByLabelText(/real deployment confirmation/i)).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/deployment end confirmation/i)).not.toBeInTheDocument();
     expect(screen.getByText(/deployment outputs/i)).toBeInTheDocument();
     expect(screen.getByText(/api base url comes from/i)).toBeInTheDocument();
     expect(screen.getByText(/api keys should be treated as secrets/i)).toBeInTheDocument();
-    expect(screen.getByText(/credential safety warning/i)).toBeInTheDocument();
+    expect(screen.getAllByText(/credential safety warning/i).length).toBeGreaterThan(0);
     expect(screen.queryByRole("heading", { name: /check for updates/i })).not.toBeInTheDocument();
   });
 
@@ -342,7 +344,7 @@ describe("CharacterForge dashboard", () => {
     expect(screen.getAllByText(/model access simulated as ready/i).length).toBeGreaterThan(0);
     expect(screen.getByText(/existing stack status/i)).toBeInTheDocument();
     expect(screen.getByText(/no existing stack found/i)).toBeInTheDocument();
-    expect(screen.getByText(/warnings/i)).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: /warnings/i })).toBeInTheDocument();
     expect(screen.getByText(/mock results only/i)).toBeInTheDocument();
     expect(screen.getByText(/confirm bedrock model access in the aws console/i)).toBeInTheDocument();
     expect(listCharactersMock).not.toHaveBeenCalled();
@@ -519,6 +521,245 @@ describe("CharacterForge dashboard", () => {
     expect(screen.getByText(/dynamodb tables for character profiles and session messages/i)).toBeInTheDocument();
     expect(listCharactersMock).not.toHaveBeenCalled();
     expect(createCharacterMock).not.toHaveBeenCalled();
+  });
+
+  it("keeps desktop Start disabled until setup, API, and safety confirmations are ready", async () => {
+    const user = userEvent.setup();
+    listCharactersMock.mockResolvedValueOnce({ characters: [] });
+    const invoke = vi.fn().mockImplementation((command: string) => {
+      if (command === "get_app_config") {
+        return Promise.resolve({ firstRunTutorialCompleted: true, firstRunTutorialSkipped: false });
+      }
+      if (command === "check_setup_readiness") {
+        return Promise.resolve({
+          overallStatus: "ready",
+          checks: [
+            { id: "awsProfile", label: "AWS profile", status: "ready", detail: "Profile game-dev is configured" },
+            { id: "awsRegion", label: "AWS region", status: "ready", detail: "Region us-west-2 selected" },
+            { id: "stack", label: "CloudFormation stack", status: "ready", detail: "Stack characterforge-demo is ready" },
+            { id: "model", label: "Bedrock model", status: "ready", detail: "Model appears in Bedrock foundation model list" }
+          ],
+          warnings: []
+        });
+      }
+      return Promise.reject(new Error(`unexpected command ${command}`));
+    });
+    window.__TAURI__ = { core: { invoke } };
+
+    render(<App />);
+    await user.click(screen.getByRole("button", { name: "Deployment" }));
+
+    const startButton = screen.getByRole("button", { name: /^start$/i });
+    expect(startButton).toBeDisabled();
+    expect(screen.getByText(/start is disabled until/i)).toBeInTheDocument();
+
+    await user.clear(screen.getByLabelText(/aws region/i));
+    await user.type(screen.getByLabelText(/aws region/i), "us-west-2");
+    await user.clear(screen.getByLabelText(/aws profile name/i));
+    await user.type(screen.getByLabelText(/aws profile name/i), "game-dev");
+    await user.clear(screen.getByLabelText(/stack name/i));
+    await user.type(screen.getByLabelText(/stack name/i), "characterforge-demo");
+    await user.type(screen.getByLabelText(/api base url/i), "https://api.example.test/dev");
+    await user.click(screen.getByRole("button", { name: /test connection/i }));
+    expect(await screen.findByText(/connected to characterforge api/i)).toBeInTheDocument();
+    expect(startButton).toBeDisabled();
+
+    await user.click(screen.getByRole("button", { name: /run readiness check/i }));
+    expect(await screen.findByText(/desktop setup readiness check complete/i)).toBeInTheDocument();
+    expect(startButton).toBeDisabled();
+
+    await user.click(screen.getByRole("checkbox", { name: /i reviewed the readiness results/i }));
+    expect(startButton).toBeEnabled();
+    expect(screen.queryByLabelText(/real deployment confirmation/i)).not.toBeInTheDocument();
+  });
+
+  it("disables Start when readiness or API connection checks are stale", async () => {
+    const user = userEvent.setup();
+    listCharactersMock.mockResolvedValue({ characters: [] });
+    const invoke = vi.fn().mockImplementation((command: string) => {
+      if (command === "get_app_config") {
+        return Promise.resolve({ firstRunTutorialCompleted: true, firstRunTutorialSkipped: false });
+      }
+      if (command === "check_setup_readiness") {
+        return Promise.resolve({
+          overallStatus: "ready",
+          checks: [
+            { id: "awsProfile", label: "AWS profile", status: "ready", detail: "Profile game-dev is configured" },
+            { id: "awsRegion", label: "AWS region", status: "ready", detail: "Region us-west-2 selected" },
+            { id: "stack", label: "CloudFormation stack", status: "ready", detail: "Stack characterforge-demo is ready" },
+            { id: "model", label: "Bedrock model", status: "ready", detail: "Model appears in Bedrock foundation model list" }
+          ],
+          warnings: []
+        });
+      }
+      return Promise.reject(new Error(`unexpected command ${command}`));
+    });
+    window.__TAURI__ = { core: { invoke } };
+
+    render(<App />);
+    await user.click(screen.getByRole("button", { name: "Deployment" }));
+    await user.clear(screen.getByLabelText(/aws region/i));
+    await user.type(screen.getByLabelText(/aws region/i), "us-west-2");
+    await user.clear(screen.getByLabelText(/aws profile name/i));
+    await user.type(screen.getByLabelText(/aws profile name/i), "game-dev");
+    await user.clear(screen.getByLabelText(/stack name/i));
+    await user.type(screen.getByLabelText(/stack name/i), "characterforge-demo");
+    await user.type(screen.getByLabelText(/api base url/i), "https://api.example.test/dev");
+    await user.click(screen.getByRole("button", { name: /test connection/i }));
+    await screen.findByText(/connected to characterforge api/i);
+    await user.click(screen.getByRole("button", { name: /run readiness check/i }));
+    await screen.findByText(/desktop setup readiness check complete/i);
+    await user.click(screen.getByRole("checkbox", { name: /i reviewed the readiness results/i }));
+
+    const startButton = screen.getByRole("button", { name: /^start$/i });
+    expect(startButton).toBeEnabled();
+
+    await user.clear(screen.getByLabelText(/stack name/i));
+    await user.type(screen.getByLabelText(/stack name/i), "characterforge-other");
+    expect(startButton).toBeDisabled();
+    expect(screen.getByText(/rerun readiness check for the current aws profile/i)).toBeInTheDocument();
+
+    await user.clear(screen.getByLabelText(/stack name/i));
+    await user.type(screen.getByLabelText(/stack name/i), "characterforge-demo");
+    await user.click(screen.getByRole("button", { name: /run readiness check/i }));
+    await screen.findByText(/desktop setup readiness check complete/i);
+    expect(startButton).toBeEnabled();
+
+    await user.clear(screen.getByLabelText(/api base url/i));
+    await user.type(screen.getByLabelText(/api base url/i), "https://api-other.example.test/dev");
+    expect(startButton).toBeDisabled();
+    expect(screen.getByText(/test the current api connection/i)).toBeInTheDocument();
+  });
+
+  it("blocks Start when readiness checks return warnings", async () => {
+    const user = userEvent.setup();
+    const invoke = vi.fn().mockImplementation((command: string) => {
+      if (command === "get_app_config") {
+        return Promise.resolve({ firstRunTutorialCompleted: true, firstRunTutorialSkipped: false });
+      }
+      if (command === "check_setup_readiness") {
+        return Promise.resolve({
+          overallStatus: "warning",
+          checks: [
+            { id: "awsProfile", label: "AWS profile", status: "ready", detail: "Profile game-dev is configured" },
+            { id: "awsRegion", label: "AWS region", status: "ready", detail: "Region us-west-2 selected" },
+            { id: "stack", label: "CloudFormation stack", status: "ready", detail: "Stack characterforge-demo is ready" },
+            { id: "model", label: "Bedrock model", status: "ready", detail: "Model appears in Bedrock foundation model list" }
+          ],
+          warnings: ["Confirm Bedrock model access before deployment."]
+        });
+      }
+      return Promise.reject(new Error(`unexpected command ${command}`));
+    });
+    window.__TAURI__ = { core: { invoke } };
+
+    render(<App />);
+    await user.click(screen.getByRole("button", { name: "Deployment" }));
+    await user.clear(screen.getByLabelText(/aws region/i));
+    await user.type(screen.getByLabelText(/aws region/i), "us-west-2");
+    await user.clear(screen.getByLabelText(/aws profile name/i));
+    await user.type(screen.getByLabelText(/aws profile name/i), "game-dev");
+    await user.clear(screen.getByLabelText(/stack name/i));
+    await user.type(screen.getByLabelText(/stack name/i), "characterforge-demo");
+    await user.click(screen.getByRole("button", { name: /run readiness check/i }));
+    await screen.findByText(/desktop setup readiness check complete/i);
+    await user.click(screen.getByRole("checkbox", { name: /i reviewed the readiness results/i }));
+
+    expect(screen.getByRole("button", { name: /^start$/i })).toBeDisabled();
+    expect(screen.getByText(/resolve readiness warnings or errors/i)).toBeInTheDocument();
+  });
+
+  it("invokes Tauri Start and End commands from simple buttons and keeps logs behind details", async () => {
+    const user = userEvent.setup();
+    listCharactersMock.mockResolvedValue({ characters: [] });
+    const invoke = vi.fn().mockImplementation((command: string) => {
+      if (command === "get_app_config") {
+        return Promise.resolve({ firstRunTutorialCompleted: true, firstRunTutorialSkipped: false });
+      }
+      if (command === "check_setup_readiness") {
+        return Promise.resolve({
+          overallStatus: "ready",
+          checks: [
+            { id: "awsProfile", label: "AWS profile", status: "ready", detail: "Profile game-dev is configured" },
+            { id: "awsRegion", label: "AWS region", status: "ready", detail: "Region us-west-2 selected" },
+            { id: "stack", label: "CloudFormation stack", status: "ready", detail: "Stack characterforge-demo is ready" },
+            { id: "model", label: "Bedrock model", status: "ready", detail: "Model appears in Bedrock foundation model list" }
+          ],
+          warnings: []
+        });
+      }
+      if (command === "start_deployment") {
+        return Promise.resolve({
+          status: "succeeded",
+          finalStackStatus: "CREATE_COMPLETE",
+          savedOutputsPath: "C:/Users/Evan/AppData/Local/CharacterForgeAI/characterforge-demo-outputs.json",
+          logs: ["Started stack characterforge-demo", "AWS_SECRET_ACCESS_KEY=<redacted>"]
+        });
+      }
+      if (command === "end_deployment") {
+        return Promise.resolve({
+          status: "succeeded",
+          finalStackStatus: "DELETE_COMPLETE",
+          logs: ["Deleted stack characterforge-demo", "AWS_SESSION_TOKEN=<redacted>"]
+        });
+      }
+      return Promise.reject(new Error(`unexpected command ${command}`));
+    });
+    window.__TAURI__ = { core: { invoke } };
+
+    render(<App />);
+    await user.click(screen.getByRole("button", { name: "Deployment" }));
+    await user.clear(screen.getByLabelText(/aws region/i));
+    await user.type(screen.getByLabelText(/aws region/i), "us-west-2");
+    await user.clear(screen.getByLabelText(/aws profile name/i));
+    await user.type(screen.getByLabelText(/aws profile name/i), "game-dev");
+    await user.clear(screen.getByLabelText(/stack name/i));
+    await user.type(screen.getByLabelText(/stack name/i), "characterforge-demo");
+    await user.type(screen.getByLabelText(/api base url/i), "https://api.example.test/dev");
+    await user.click(screen.getByRole("button", { name: /test connection/i }));
+    await screen.findByText(/connected to characterforge api/i);
+    await user.click(screen.getByRole("button", { name: /run readiness check/i }));
+    await screen.findByText(/desktop setup readiness check complete/i);
+    await user.click(screen.getByRole("checkbox", { name: /i reviewed the readiness results/i }));
+
+    await user.click(screen.getByRole("button", { name: /^start$/i }));
+    await waitFor(() =>
+      expect(invoke).toHaveBeenCalledWith("start_deployment", {
+        request: expect.objectContaining({
+          awsRegion: "us-west-2",
+          bedrockModel: "anthropic.claude-3-haiku-20240307-v1:0",
+          profileName: "game-dev",
+          stackName: "characterforge-demo"
+        }),
+        options: { confirmationText: "START characterforge-demo" }
+      })
+    );
+    expect(await screen.findByText(/deployment start completed with create_complete/i)).toBeInTheDocument();
+    expect(screen.getByText(/real start redacted log/i).closest("details")).not.toHaveAttribute("open");
+    expect(screen.getByText(/started stack characterforge-demo/i)).not.toBeVisible();
+
+    const endButton = screen.getByRole("button", { name: /^end$/i });
+    expect(endButton).toBeDisabled();
+    await user.click(screen.getByRole("checkbox", { name: /i exported the character packs/i }));
+    expect(endButton).toBeDisabled();
+    await user.click(screen.getByRole("checkbox", { name: /i understand end deletes/i }));
+    expect(endButton).toBeEnabled();
+    await user.click(endButton);
+
+    await waitFor(() =>
+      expect(invoke).toHaveBeenCalledWith("end_deployment", {
+        request: expect.objectContaining({
+          awsRegion: "us-west-2",
+          bedrockModel: "anthropic.claude-3-haiku-20240307-v1:0",
+          profileName: "game-dev",
+          stackName: "characterforge-demo"
+        }),
+        options: { confirmationText: "END characterforge-demo", exportConfirmed: true }
+      })
+    );
+    expect(await screen.findByText(/deployment end completed with delete_complete/i)).toBeInTheDocument();
+    expect(screen.getByText(/real end redacted log/i).closest("details")).not.toHaveAttribute("open");
+    expect(screen.getByText(/deleted stack characterforge-demo/i)).not.toBeVisible();
   });
 
   it("redacts temporary AWS credentials from deployment dry-run previews", async () => {

@@ -389,10 +389,79 @@ async function runSetupReadinessCheck(form: SetupCheckForm): Promise<SetupCheckR
   return runMockSetupCheck(form);
 }
 
-const deploymentAdapter = createDeploymentAdapter();
+type DeploymentAdapter = ReturnType<typeof createDeploymentAdapter>;
 
-function isRealDeploymentAdapter(adapter: typeof deploymentAdapter): adapter is RealDeploymentStartAdapter & RealDeploymentEndAdapter {
+function isRealDeploymentAdapter(adapter: DeploymentAdapter): adapter is RealDeploymentStartAdapter & RealDeploymentEndAdapter {
   return "start" in adapter && "end" in adapter;
+}
+
+function setupFormsMatch(checked: SetupCheckForm | null, current: DeploymentStartRequest) {
+  if (!checked) {
+    return false;
+  }
+  return (
+    checked.awsRegion.trim() === current.awsRegion.trim() &&
+    checked.bedrockModel.trim() === current.bedrockModel.trim() &&
+    checked.profileName.trim() === current.profileName.trim() &&
+    checked.stackName.trim() === current.stackName.trim()
+  );
+}
+
+function apiSettingsMatch(tested: ApiSettings | null, current: ApiSettings) {
+  if (!current.apiBaseUrl.trim()) {
+    return true;
+  }
+  return Boolean(
+    tested &&
+      tested.apiBaseUrl.trim() === current.apiBaseUrl.trim() &&
+      tested.apiKey.trim() === current.apiKey.trim()
+  );
+}
+
+function getDeploymentStartDisabledReasons({
+  connectionStatus,
+  form,
+  isDesktopShell,
+  settings,
+  setupCheckRequest,
+  setupResult,
+  startSafetyConfirmed,
+  testedApiSettings
+}: {
+  connectionStatus: ConnectionStatus;
+  form: DeploymentStartRequest;
+  isDesktopShell: boolean;
+  settings: ApiSettings;
+  setupCheckRequest: SetupCheckForm | null;
+  setupResult: SetupCheckResult | null;
+  startSafetyConfirmed: boolean;
+  testedApiSettings: ApiSettings | null;
+}) {
+  const temporaryCredentials = form.temporaryCredentials ?? { accessKeyId: "", secretAccessKey: "", sessionToken: "" };
+  const hasDeploymentFields = Boolean(form.awsRegion.trim() && form.bedrockModel.trim() && form.stackName.trim());
+  const hasCredentials =
+    form.credentialMode === "profile"
+      ? Boolean(form.profileName.trim())
+      : Boolean(temporaryCredentials.accessKeyId.trim() && temporaryCredentials.secretAccessKey.trim() && temporaryCredentials.sessionToken.trim());
+  const readinessChecked = Boolean(setupResult);
+  const readinessMatchesCurrentFields = setupFormsMatch(setupCheckRequest, form);
+  const readinessAllReady = Boolean(setupResult?.checks.every((check) => check.status === "ready") && !setupResult.warnings.length);
+  const apiConnectionReady = !settings.apiBaseUrl.trim() || (connectionStatus.state === "success" && apiSettingsMatch(testedApiSettings, settings));
+
+  return [
+    !isDesktopShell ? "open the packaged desktop app" : "",
+    !hasDeploymentFields ? "complete AWS region, Bedrock model, and stack name" : "",
+    !hasCredentials ? "choose an AWS profile or temporary credential source" : "",
+    !readinessChecked ? "run readiness check" : "",
+    readinessChecked && !readinessMatchesCurrentFields ? "rerun readiness check for the current AWS profile, region, Bedrock model, and stack name" : "",
+    readinessChecked && !readinessAllReady ? "resolve readiness warnings or errors" : "",
+    !apiConnectionReady ? "test the current API connection" : "",
+    !startSafetyConfirmed ? "review and acknowledge readiness, cost, and credential warnings" : ""
+  ].filter(Boolean);
+}
+
+function canStartDeployment(args: Parameters<typeof getDeploymentStartDisabledReasons>[0]) {
+  return getDeploymentStartDisabledReasons(args).length === 0;
 }
 
 const bedrockModelOptions = [
@@ -1374,20 +1443,20 @@ function SetupCheckCard({ label, value }: { label: string; value: string }) {
 }
 
 function DeploymentStartScreen({
-  confirmationText,
   connectionStatus,
-  endConfirmationText,
+  endDeleteConfirmed,
   exportBeforeEndConfirmed,
   form,
   isDesktopShell,
   settings,
   setupResult,
+  setupCheckRequest,
   setupStatus,
+  testedApiSettings,
   wizardResult,
   wizardStatus,
   onApiSettingsChange,
-  onConfirmationChange,
-  onEndConfirmationChange,
+  onEndDeleteConfirmedChange,
   onExportBeforeEndConfirmedChange,
   onFormChange,
   onPreviewStart,
@@ -1397,25 +1466,27 @@ function DeploymentStartScreen({
   onSaveSettings,
   onTestConnection,
   onRealStart,
+  onStartSafetyConfirmedChange,
   preview,
   endResult,
   startResult,
+  startSafetyConfirmed,
   status
 }: {
-  confirmationText: string;
   connectionStatus: ConnectionStatus;
-  endConfirmationText: string;
+  endDeleteConfirmed: boolean;
   exportBeforeEndConfirmed: boolean;
   form: DeploymentStartRequest;
   isDesktopShell: boolean;
   settings: ApiSettings;
   setupResult: SetupCheckResult | null;
+  setupCheckRequest: SetupCheckForm | null;
   setupStatus: ConnectionStatus;
+  testedApiSettings: ApiSettings | null;
   wizardResult: AwsSetupWizardResult | null;
   wizardStatus: ConnectionStatus;
   onApiSettingsChange: (settings: ApiSettings) => void;
-  onConfirmationChange: (value: string) => void;
-  onEndConfirmationChange: (value: string) => void;
+  onEndDeleteConfirmedChange: (value: boolean) => void;
   onExportBeforeEndConfirmedChange: (value: boolean) => void;
   onFormChange: (form: DeploymentStartRequest) => void;
   onPreviewStart: () => void;
@@ -1425,14 +1496,31 @@ function DeploymentStartScreen({
   onSaveSettings: () => void;
   onTestConnection: () => void;
   onRealStart: () => void;
+  onStartSafetyConfirmedChange: (value: boolean) => void;
   preview: DeploymentStartPreview | null;
   endResult: DeploymentEndResult | null;
   startResult: DeploymentStartResult | null;
+  startSafetyConfirmed: boolean;
   status: ConnectionStatus;
 }) {
   const temporaryCredentials = form.temporaryCredentials ?? { accessKeyId: "", secretAccessKey: "", sessionToken: "" };
-  const requiredConfirmation = `START ${form.stackName.trim() || "characterforge-ai-dev"}`;
-  const requiredEndConfirmation = `END ${form.stackName.trim() || "characterforge-ai-dev"}`;
+  const hasDeploymentFields = Boolean(form.awsRegion.trim() && form.bedrockModel.trim() && form.stackName.trim());
+  const hasCredentials =
+    form.credentialMode === "profile"
+      ? Boolean(form.profileName.trim())
+      : Boolean(temporaryCredentials.accessKeyId.trim() && temporaryCredentials.secretAccessKey.trim() && temporaryCredentials.sessionToken.trim());
+  const startDisabledReasons = getDeploymentStartDisabledReasons({
+    connectionStatus,
+    form,
+    isDesktopShell,
+    settings,
+    setupCheckRequest,
+    setupResult,
+    startSafetyConfirmed,
+    testedApiSettings
+  });
+  const canStart = startDisabledReasons.length === 0;
+  const canEnd = isDesktopShell && exportBeforeEndConfirmed && endDeleteConfirmed && hasDeploymentFields && hasCredentials;
 
   function updateTemporaryCredentials(field: keyof NonNullable<DeploymentStartRequest["temporaryCredentials"]>, value: string) {
     onFormChange({
@@ -1645,38 +1733,45 @@ function DeploymentStartScreen({
         <button type="button" onClick={onPreviewStart}>Preview Start dry run</button>
       </div>
 
-      <section className="setup-safety-panel" aria-labelledby="real-start-title">
-        <h2 id="real-start-title">Real desktop Start</h2>
+      <section className="setup-safety-panel" aria-labelledby="desktop-start-end-title">
+        <h2 id="desktop-start-end-title">Desktop Start and End</h2>
         <p>
-          Real Start uses the existing SAM template and CloudFormation stack through the desktop shell. It requires AWS
-          CLI and SAM CLI locally, redacts credentials from logs, polls stack status, and saves only non-secret outputs
-          such as API URL, API key ID, function name, and table names to a local file.
+          Start and End use the existing desktop deployment engine with the configured AWS profile, region, Bedrock
+          model, and stack name. No command text is required from the user; the app passes the required stack
+          confirmation to the Tauri command after the setup checks and safety acknowledgement are complete.
         </p>
         <p className="warning">
           {isDesktopShell
-            ? `Type ${requiredConfirmation} to enable the real deployment Start button.`
-            : "Real deployment Start is disabled in the browser preview and is available only in the packaged Tauri desktop shell."}
+            ? "Start stays disabled until required setup fields, readiness checks, API connection requirements, and safety acknowledgement are ready."
+            : "Start and End are disabled in the browser preview and are available only in the packaged Tauri desktop shell."}
         </p>
-        <label className="field">
-          Real deployment confirmation
-          <input value={confirmationText} onChange={(event) => onConfirmationChange(event.target.value)} />
+        <label className="checkbox-field">
+          <input
+            checked={startSafetyConfirmed}
+            onChange={(event) => onStartSafetyConfirmedChange(event.target.checked)}
+            type="checkbox"
+          />
+          I reviewed the readiness results, AWS cost warning, credential safety warning, and API connection state.
         </label>
+        {!canStart ? (
+          <div className="notice compact" role="status">
+            Start is disabled until you {startDisabledReasons.join(", ")}.
+          </div>
+        ) : null}
         <div className="button-row">
-          <button type="button" onClick={onRealStart}>Start real deployment</button>
+          <button type="button" disabled={!canStart} onClick={onRealStart}>Start</button>
         </div>
       </section>
 
-      <section className="setup-safety-panel" aria-labelledby="real-end-title">
-        <h2 id="real-end-title">Real desktop End</h2>
+      <section className="setup-safety-panel" aria-labelledby="desktop-end-title">
+        <h2 id="desktop-end-title">End deployment</h2>
         <p>
-          End deletes the CloudFormation stack through the desktop shell. Export character packs first, then type the
-          exact stack-name confirmation before deletion. Logs are redacted and stack deletion status is polled until it
-          succeeds or fails.
+          End deletes the configured CloudFormation stack through the desktop shell. Export character packs first, then
+          confirm that you understand deletion before the End button is enabled. Logs are redacted and stack deletion
+          status is polled until it succeeds or fails.
         </p>
         <p className="warning">
-          {isDesktopShell
-            ? `Export character packs, then type ${requiredEndConfirmation} to enable deployment End.`
-            : "Real deployment End is disabled in the browser preview and is available only in the packaged Tauri desktop shell."}
+          Warning: End deletes AWS resources for stack <strong>{form.stackName.trim() || "characterforge-ai-dev"}</strong>. This cannot be undone from the dashboard.
         </p>
         <label className="checkbox-field">
           <input
@@ -1686,12 +1781,16 @@ function DeploymentStartScreen({
           />
           I exported the character packs I need before deleting this stack.
         </label>
-        <label className="field">
-          Deployment End confirmation
-          <input value={endConfirmationText} onChange={(event) => onEndConfirmationChange(event.target.value)} />
+        <label className="checkbox-field">
+          <input
+            checked={endDeleteConfirmed}
+            onChange={(event) => onEndDeleteConfirmedChange(event.target.checked)}
+            type="checkbox"
+          />
+          I understand End deletes the configured CloudFormation stack and local deployment connection.
         </label>
         <div className="button-row">
-          <button type="button" onClick={onRealEnd}>End deployment and delete stack</button>
+          <button type="button" disabled={!canEnd} onClick={onRealEnd}>End</button>
         </div>
       </section>
 
@@ -1728,8 +1827,8 @@ function DeploymentStartScreen({
       ) : null}
 
       {startResult ? (
-        <section className="deployment-preview" aria-labelledby="deployment-start-log-title">
-          <h2 id="deployment-start-log-title">Real Start redacted log</h2>
+        <details className="deployment-preview">
+          <summary>Real Start redacted log</summary>
           <p>
             Final stack status: <strong>{startResult.finalStackStatus}</strong>
             {startResult.savedOutputsPath ? ` · Outputs saved to ${startResult.savedOutputsPath}` : ""}
@@ -1737,19 +1836,19 @@ function DeploymentStartScreen({
           <pre className="json-preview" aria-label="Real Start redacted log">
             {startResult.logs.join("\n")}
           </pre>
-        </section>
+        </details>
       ) : null}
 
       {endResult ? (
-        <section className="deployment-preview" aria-labelledby="deployment-end-log-title">
-          <h2 id="deployment-end-log-title">Real End redacted log</h2>
+        <details className="deployment-preview">
+          <summary>Real End redacted log</summary>
           <p>
             Final stack status: <strong>{endResult.finalStackStatus}</strong>
           </p>
           <pre className="json-preview" aria-label="Real End redacted log">
             {endResult.logs.join("\n")}
           </pre>
-        </section>
+        </details>
       ) : null}
     </section>
   );
@@ -2127,6 +2226,7 @@ export default function App() {
   const [activeScreen, setActiveScreen] = useState<ScreenId>("welcome");
   const [settings, setSettings] = useState<ApiSettings>(() => loadInitialSettings());
   const [draftSettings, setDraftSettings] = useState<ApiSettings>(() => loadInitialSettings());
+  const [testedApiConnectionSettings, setTestedApiConnectionSettings] = useState<ApiSettings | null>(null);
   const [apiCharacters, setApiCharacters] = useState<Character[]>([]);
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>(() => ({
     message: loadInitialSettings().apiBaseUrl
@@ -2154,6 +2254,7 @@ export default function App() {
   const [tutorialStepIndex, setTutorialStepIndex] = useState(0);
   const [showTutorial, setShowTutorial] = useState(true);
   const [setupCheckResult, setSetupCheckResult] = useState<SetupCheckResult | null>(null);
+  const [setupCheckRequest, setSetupCheckRequest] = useState<SetupCheckForm | null>(null);
   const [awsSetupWizardResult, setAwsSetupWizardResult] = useState<AwsSetupWizardResult | null>(null);
   const [awsSetupWizardStatus, setAwsSetupWizardStatus] = useState<ConnectionStatus>({
     message: "AWS setup wizard not loaded yet.",
@@ -2169,9 +2270,9 @@ export default function App() {
     message: "Dry-run preview has not been generated yet.",
     state: "idle"
   });
-  const [deploymentConfirmation, setDeploymentConfirmation] = useState("");
-  const [deploymentEndConfirmation, setDeploymentEndConfirmation] = useState("");
+  const [startSafetyConfirmed, setStartSafetyConfirmed] = useState(false);
   const [exportBeforeEndConfirmed, setExportBeforeEndConfirmed] = useState(false);
+  const [endDeleteConfirmed, setEndDeleteConfirmed] = useState(false);
   const [deploymentStartResult, setDeploymentStartResult] = useState<DeploymentStartResult | null>(null);
   const [deploymentEndResult, setDeploymentEndResult] = useState<DeploymentEndResult | null>(null);
 
@@ -2309,8 +2410,10 @@ export default function App() {
     saveSettings(nextSettings);
     if (!nextSettings.apiBaseUrl) {
       setApiCharacters([]);
+      setTestedApiConnectionSettings(null);
       setConnectionStatus({ message: "Mock mode is active because no API base URL is set.", state: "mock" });
     } else {
+      setTestedApiConnectionSettings(null);
       setConnectionStatus({ message: "API settings saved. Test the connection to load characters.", state: "idle" });
     }
   }
@@ -2325,6 +2428,7 @@ export default function App() {
       setSettings(nextSettings);
       saveSettings(nextSettings);
       setApiCharacters([]);
+      setTestedApiConnectionSettings(null);
       setConnectionStatus({ message: "Mock mode is active because no API base URL is set.", state: "mock" });
       return;
     }
@@ -2338,12 +2442,14 @@ export default function App() {
       const response = await client.listCharacters();
       const characters = response.characters.map(toDashboardCharacter);
       setApiCharacters(characters);
+      setTestedApiConnectionSettings(nextSettings);
       setConnectionStatus({
         message: `Connected to CharacterForge API. Loaded ${characters.length} character${characters.length === 1 ? "" : "s"}.`,
         state: "success"
       });
     } catch (error) {
       setApiCharacters([]);
+      setTestedApiConnectionSettings(null);
       setConnectionStatus({
         message: error instanceof Error ? `Connection failed: ${error.message}` : "Connection failed.",
         state: "error"
@@ -2364,7 +2470,9 @@ export default function App() {
     const desktopMode = hasTauriInvoke();
     setSetupCheckStatus({ message: desktopMode ? "Running desktop setup readiness check..." : "Running mocked setup check...", state: "loading" });
     try {
-      const result = await runSetupReadinessCheck(getDeploymentSetupForm());
+      const request = getDeploymentSetupForm();
+      const result = await runSetupReadinessCheck(request);
+      setSetupCheckRequest(request);
       setSetupCheckResult(result);
       setSetupCheckStatus({
         message: desktopMode ? "Desktop setup readiness check complete." : "Mock setup check complete.",
@@ -2388,26 +2496,37 @@ export default function App() {
 
   async function handlePreviewDeploymentStart() {
     setDeploymentStatus({ message: "Building dry-run deployment preview...", state: "loading" });
-    const preview = await deploymentAdapter.previewStart(deploymentForm);
+    const preview = await createDeploymentAdapter().previewStart(deploymentForm);
     setDeploymentPreview(preview);
     setDeploymentStatus({ message: "Dry-run deployment preview ready.", state: "success" });
   }
 
   async function handleRealDeploymentStart() {
     const requiredConfirmation = `START ${deploymentForm.stackName.trim() || "characterforge-ai-dev"}`;
-    if (deploymentConfirmation.trim() !== requiredConfirmation) {
-      setDeploymentStatus({ message: `Type ${requiredConfirmation} before running real deployment Start.`, state: "error" });
+    const adapter = createDeploymentAdapter();
+    if (!isRealDeploymentAdapter(adapter)) {
+      setDeploymentStatus({ message: "Deployment Start is available only inside the Tauri desktop shell.", state: "error" });
       return;
     }
-    if (!isRealDeploymentAdapter(deploymentAdapter)) {
-      setDeploymentStatus({ message: "Real deployment Start is available only inside the Tauri desktop shell.", state: "error" });
+    const startDisabledReasons = getDeploymentStartDisabledReasons({
+      connectionStatus,
+      form: deploymentForm,
+      isDesktopShell: true,
+      settings: draftSettings,
+      setupCheckRequest,
+      setupResult: setupCheckResult,
+      startSafetyConfirmed,
+      testedApiSettings: testedApiConnectionSettings
+    });
+    if (startDisabledReasons.length > 0) {
+      setDeploymentStatus({ message: `Deployment Start blocked until you ${startDisabledReasons.join(", ")}.`, state: "error" });
       return;
     }
 
     setDeploymentStartResult(null);
-    setDeploymentStatus({ message: "Running real deployment Start through the desktop shell...", state: "loading" });
+    setDeploymentStatus({ message: "Running deployment Start through the desktop shell...", state: "loading" });
     try {
-      const result = await deploymentAdapter.start(deploymentForm, { confirmationText: deploymentConfirmation });
+      const result = await adapter.start(deploymentForm, { confirmationText: requiredConfirmation });
       setDeploymentStartResult(result);
       setDeploymentStatus({
         message:
@@ -2426,24 +2545,21 @@ export default function App() {
 
   async function handleRealDeploymentEnd() {
     const requiredConfirmation = `END ${deploymentForm.stackName.trim() || "characterforge-ai-dev"}`;
-    if (!exportBeforeEndConfirmed) {
-      setDeploymentStatus({ message: "Export character packs before running deployment End.", state: "error" });
+    if (!exportBeforeEndConfirmed || !endDeleteConfirmed) {
+      setDeploymentStatus({ message: "Confirm export and deletion warnings before running deployment End.", state: "error" });
       return;
     }
-    if (deploymentEndConfirmation.trim() !== requiredConfirmation) {
-      setDeploymentStatus({ message: `Type ${requiredConfirmation} before running deployment End.`, state: "error" });
-      return;
-    }
-    if (!isRealDeploymentAdapter(deploymentAdapter)) {
-      setDeploymentStatus({ message: "Real deployment End is available only inside the Tauri desktop shell.", state: "error" });
+    const adapter = createDeploymentAdapter();
+    if (!isRealDeploymentAdapter(adapter)) {
+      setDeploymentStatus({ message: "Deployment End is available only inside the Tauri desktop shell.", state: "error" });
       return;
     }
 
     setDeploymentEndResult(null);
     setDeploymentStatus({ message: "Running deployment End through the desktop shell...", state: "loading" });
     try {
-      const result = await deploymentAdapter.end(deploymentForm, {
-        confirmationText: deploymentEndConfirmation,
+      const result = await adapter.end(deploymentForm, {
+        confirmationText: requiredConfirmation,
         exportConfirmed: exportBeforeEndConfirmed
       });
       setDeploymentEndResult(result);
@@ -2583,20 +2699,20 @@ export default function App() {
       case "deployment":
         return (
           <DeploymentStartScreen
-            confirmationText={deploymentConfirmation}
             connectionStatus={connectionStatus}
-            endConfirmationText={deploymentEndConfirmation}
+            endDeleteConfirmed={endDeleteConfirmed}
             exportBeforeEndConfirmed={exportBeforeEndConfirmed}
             form={deploymentForm}
-            isDesktopShell={isRealDeploymentAdapter(deploymentAdapter)}
+            isDesktopShell={hasTauriInvoke()}
             settings={draftSettings}
             setupResult={setupCheckResult}
+            setupCheckRequest={setupCheckRequest}
             setupStatus={setupCheckStatus}
+            testedApiSettings={testedApiConnectionSettings}
             wizardResult={awsSetupWizardResult}
             wizardStatus={awsSetupWizardStatus}
             onApiSettingsChange={setDraftSettings}
-            onConfirmationChange={setDeploymentConfirmation}
-            onEndConfirmationChange={setDeploymentEndConfirmation}
+            onEndDeleteConfirmedChange={setEndDeleteConfirmed}
             onExportBeforeEndConfirmedChange={setExportBeforeEndConfirmed}
             onFormChange={setDeploymentForm}
             onPreviewStart={handlePreviewDeploymentStart}
@@ -2606,9 +2722,11 @@ export default function App() {
             onSaveSettings={handleSaveSettings}
             onTestConnection={handleTestConnection}
             onRealStart={handleRealDeploymentStart}
+            onStartSafetyConfirmedChange={setStartSafetyConfirmed}
             preview={deploymentPreview}
             endResult={deploymentEndResult}
             startResult={deploymentStartResult}
+            startSafetyConfirmed={startSafetyConfirmed}
             status={deploymentStatus}
           />
         );
