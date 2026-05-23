@@ -70,6 +70,18 @@ def test_start_end_requires_user_typed_confirmation() -> None:
     assert "test_dashboard_commands_are_split_into_explicit_tauri_capabilities" in ipc_tests
 
 
+def test_release_installers_block_normal_downgrades() -> None:
+    """downgrades blocked: release installer config must prevent vulnerable rollback."""
+    packaging_tests = (ROOT / "tests" / "test_dashboard_tauri_packaging.py").read_text(encoding="utf-8")
+    tauri_config = (ROOT / "apps" / "dashboard" / "src-tauri" / "tauri.conf.json").read_text(
+        encoding="utf-8"
+    )
+
+    assert "test_tauri_release_installers_block_normal_downgrades" in packaging_tests
+    assert '"allowDowngrades": false' in tauri_config
+    assert '"allowDowngrades": true' not in tauri_config
+
+
 @pytest.mark.xfail(reason=_pending_gate("OpenAPI auth responses"))
 def test_openapi_documents_auth_error_and_rate_limit_responses() -> None:
     """OpenAPI auth responses: API contract must document 401, 403, 429, and retry metadata."""

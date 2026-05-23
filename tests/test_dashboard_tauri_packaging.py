@@ -46,10 +46,21 @@ def test_tauri_config_packages_existing_dashboard_build() -> None:
     assert resources["../../../pyproject.toml"] == "deployment/pyproject.toml"
     assert resources["../../../schemas"] == "deployment/schemas"
     assert resources["../../../LICENSE"] == "deployment/LICENSE"
-    nsis = config["bundle"]["windows"]["nsis"]
+    windows = config["bundle"]["windows"]
+    nsis = windows["nsis"]
     assert nsis["installMode"] == "perMachine"
     assert nsis["startMenuFolder"] == "CharacterForgeAI"
     assert nsis["installerHooks"] == "installer/characterforgeai.nsh"
+
+
+def test_tauri_release_installers_block_normal_downgrades() -> None:
+    config = read_json(TAURI / "tauri.conf.json")
+    windows = config["bundle"]["windows"]
+    serialized_windows_config = json.dumps(windows).lower()
+
+    assert windows["allowDowngrades"] is False
+    assert "allowdowngrades\": true" not in serialized_windows_config
+    assert "allow-downgrades\": true" not in serialized_windows_config
 
 
 def test_tauri_windows_icon_exists_for_release_builds() -> None:

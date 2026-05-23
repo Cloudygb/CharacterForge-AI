@@ -15,6 +15,7 @@ EXPECTED_AUDIT_GATES = [
     "installer signing required",
     "updater real-or-disabled",
     "typed Start/End confirmation",
+    "downgrades blocked",
     "OpenAPI auth responses",
     "no API key persistence",
     "docs direct-key warning",
@@ -134,7 +135,7 @@ def test_best_practice_audit_regression_index_lists_all_major_audit_gates() -> N
     for gate in EXPECTED_AUDIT_GATES:
         assert gate in content
 
-    implemented_gate_count = 4  # CSP non-null; IPC least privilege; installer signing required; updater real-or-disabled
+    implemented_gate_count = 5  # CSP non-null; IPC least privilege; installer signing required; updater real-or-disabled; downgrades blocked
     pending_or_implemented = content.count("@pytest.mark.xfail") + content.count("@pytest.mark.skip")
     assert pending_or_implemented >= len(EXPECTED_AUDIT_GATES) - implemented_gate_count
     assert "test_installer_release_verification.py" in content
