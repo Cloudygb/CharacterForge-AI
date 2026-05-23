@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-scan-character-folder"
+description = "Enables the scan_character_folder command without any pre-configured scope."
+commands.allow = ["scan_character_folder"]
+
+[[permission]]
+identifier = "deny-scan-character-folder"
+description = "Denies the scan_character_folder command without any pre-configured scope."
+commands.deny = ["scan_character_folder"]

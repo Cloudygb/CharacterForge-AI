@@ -1,0 +1,17 @@
+{
+  "set": [
+    {
+      "identifier": "dashboard-read-only",
+      "description": "Read-only dashboard commands for configuration, local scans, setup checks, update status, and deployment previews.",
+      "permissions": [
+        "allow-get-app-config",
+        "allow-get-character-folder",
+        "allow-scan-character-folder",
+        "allow-check-for-updates",
+        "allow-check-setup-readiness",
+        "allow-check-aws-setup-wizard",
+        "allow-preview-deployment-start"
+      ]
+    }
+  ]
+}

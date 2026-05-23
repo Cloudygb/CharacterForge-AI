@@ -63,10 +63,11 @@ def test_updater_is_real_or_disabled_in_release_ui() -> None:
     assert "keeps updater controls hidden" in app_tests
 
 
-@pytest.mark.xfail(reason=_pending_gate("typed Start/End confirmation"))
 def test_start_end_requires_user_typed_confirmation() -> None:
     """typed Start/End confirmation: destructive deployment actions require user-entered confirmation."""
-    pytest.fail("Replace this placeholder with a Start/End confirmation regression test.")
+    ipc_tests = (ROOT / "tests" / "test_tauri_ipc_permissions.py").read_text(encoding="utf-8")
+    assert "test_dangerous_ipc_options_require_native_session_token" in ipc_tests
+    assert "test_dashboard_commands_are_split_into_explicit_tauri_capabilities" in ipc_tests
 
 
 @pytest.mark.xfail(reason=_pending_gate("OpenAPI auth responses"))

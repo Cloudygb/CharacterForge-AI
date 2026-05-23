@@ -1,0 +1,12 @@
+{
+  "set": [
+    {
+      "identifier": "dashboard-deployment-end",
+      "description": "Deployment End commands. Real End also requires export acknowledgement, typed confirmation, and a one-time native session token.",
+      "permissions": [
+        "allow-create-deployment-end-session",
+        "allow-end-deployment"
+      ]
+    }
+  ]
+}

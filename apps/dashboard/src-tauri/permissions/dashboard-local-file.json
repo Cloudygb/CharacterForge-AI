@@ -1,0 +1,15 @@
+{
+  "set": [
+    {
+      "identifier": "dashboard-local-file",
+      "description": "Local file commands scoped to CharacterForgeAI app data and local character export files.",
+      "permissions": [
+        "allow-save-app-config",
+        "allow-open-character-folder",
+        "allow-save-character-pack-export",
+        "allow-save-character-file",
+        "allow-delete-character-file"
+      ]
+    }
+  ]
+}

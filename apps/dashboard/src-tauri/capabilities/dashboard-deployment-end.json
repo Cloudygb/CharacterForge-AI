@@ -1,0 +1,11 @@
+{
+  "identifier": "dashboard-deployment-end",
+  "description": "Deployment End IPC isolated from Start and guarded by native confirmation/session validation.",
+  "local": true,
+  "windows": [
+    "main"
+  ],
+  "permissions": [
+    "dashboard-deployment-end"
+  ]
+}

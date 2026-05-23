@@ -1,0 +1,13 @@
+{
+  "identifier": "dashboard-read-only",
+  "description": "Read-only CharacterForgeAI dashboard IPC for config reads, local scans, setup checks, update status, and deployment previews.",
+  "local": true,
+  "windows": [
+    "main"
+  ],
+  "permissions": [
+    "core:app:allow-name",
+    "core:app:allow-version",
+    "dashboard-read-only"
+  ]
+}

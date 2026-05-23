@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-check-aws-setup-wizard"
+description = "Enables the check_aws_setup_wizard command without any pre-configured scope."
+commands.allow = ["check_aws_setup_wizard"]
+
+[[permission]]
+identifier = "deny-check-aws-setup-wizard"
+description = "Denies the check_aws_setup_wizard command without any pre-configured scope."
+commands.deny = ["check_aws_setup_wizard"]

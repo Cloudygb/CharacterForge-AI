@@ -9,9 +9,10 @@ use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::sync::Mutex;
 use std::thread;
-use std::time::Duration;
-use tauri::{AppHandle, Manager};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use tauri::{AppHandle, Manager, State};
 
 #[cfg(test)]
 const REQUIRED_DEPLOYMENT_RESOURCE_RELATIVE_PATHS: &[&str] = &[
@@ -105,6 +106,8 @@ pub struct DeploymentStartRequest {
 #[serde(rename_all = "camelCase")]
 pub struct DeploymentStartOptions {
     pub confirmation_text: String,
+    #[serde(default)]
+    pub confirmation_token: String,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -113,6 +116,125 @@ pub struct DeploymentEndOptions {
     pub confirmation_text: String,
     pub export_confirmed: bool,
     pub cancelled: Option<bool>,
+    #[serde(default)]
+    pub confirmation_token: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DeploymentConfirmationSession {
+    pub confirmation_token: String,
+    pub required_confirmation: String,
+    pub operation: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum DeploymentOperation {
+    Start,
+    End,
+}
+
+impl DeploymentOperation {
+    fn as_str(&self) -> &'static str {
+        match self {
+            Self::Start => "start",
+            Self::End => "end",
+        }
+    }
+
+    fn confirmation_prefix(&self) -> &'static str {
+        match self {
+            Self::Start => "START",
+            Self::End => "END",
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+struct DeploymentSessionClaim {
+    operation: DeploymentOperation,
+    stack_name: String,
+}
+
+#[derive(Debug, Default)]
+pub struct DeploymentSessionStore {
+    sessions: Mutex<BTreeMap<String, DeploymentSessionClaim>>,
+}
+
+impl DeploymentSessionStore {
+    fn create_session(
+        &self,
+        operation: DeploymentOperation,
+        request: &DeploymentStartRequest,
+    ) -> Result<DeploymentConfirmationSession, String> {
+        let normalized = NormalizedDeploymentRequest::from(request);
+        let required_confirmation = format!(
+            "{} {}",
+            operation.confirmation_prefix(),
+            normalized.stack_name
+        );
+        let token = deployment_confirmation_token(operation.as_str(), &normalized.stack_name);
+        self.sessions
+            .lock()
+            .map_err(|_| "Deployment session store is unavailable.".to_string())?
+            .insert(
+                token.clone(),
+                DeploymentSessionClaim {
+                    operation: operation.clone(),
+                    stack_name: normalized.stack_name,
+                },
+            );
+        Ok(DeploymentConfirmationSession {
+            confirmation_token: token,
+            required_confirmation,
+            operation: operation.as_str().to_string(),
+        })
+    }
+
+    fn validate_and_consume(
+        &self,
+        operation: DeploymentOperation,
+        request: &DeploymentStartRequest,
+        confirmation_token: &str,
+    ) -> Result<(), String> {
+        let normalized = NormalizedDeploymentRequest::from(request);
+        let token = confirmation_token.trim();
+        if token.is_empty() {
+            return Err(
+                "Deployment command requires a native confirmation session token.".to_string(),
+            );
+        }
+        let claim = self
+            .sessions
+            .lock()
+            .map_err(|_| "Deployment session store is unavailable.".to_string())?
+            .remove(token)
+            .ok_or_else(|| {
+                "Deployment confirmation session is missing, expired, or already used.".to_string()
+            })?;
+        if claim.operation != operation || claim.stack_name != normalized.stack_name {
+            return Err(
+                "Deployment confirmation session does not match this operation and stack."
+                    .to_string(),
+            );
+        }
+        Ok(())
+    }
+}
+
+fn deployment_confirmation_token(operation: &str, stack_name: &str) -> String {
+    let timestamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_nanos())
+        .unwrap_or_default();
+    format!(
+        "cfai-{operation}-{timestamp}-{}",
+        stack_name
+            .chars()
+            .filter(|character| character.is_ascii_alphanumeric() || *character == '-')
+            .take(48)
+            .collect::<String>()
+    )
 }
 
 #[derive(Debug, Serialize)]
@@ -2020,11 +2142,33 @@ fn preview_deployment_start(request: DeploymentStartRequest) -> DeploymentStartP
 }
 
 #[tauri::command]
+fn create_deployment_start_session(
+    state: State<'_, DeploymentSessionStore>,
+    request: DeploymentStartRequest,
+) -> Result<DeploymentConfirmationSession, String> {
+    state.create_session(DeploymentOperation::Start, &request)
+}
+
+#[tauri::command]
+fn create_deployment_end_session(
+    state: State<'_, DeploymentSessionStore>,
+    request: DeploymentStartRequest,
+) -> Result<DeploymentConfirmationSession, String> {
+    state.create_session(DeploymentOperation::End, &request)
+}
+
+#[tauri::command]
 fn start_deployment(
     app: AppHandle,
+    state: State<'_, DeploymentSessionStore>,
     request: DeploymentStartRequest,
     options: DeploymentStartOptions,
 ) -> Result<DeploymentStartResult, String> {
+    state.validate_and_consume(
+        DeploymentOperation::Start,
+        &request,
+        &options.confirmation_token,
+    )?;
     let resource_paths = resolve_deployment_resources(Some(&app))?;
     RealDeploymentCommandAdapter::new(LocalProcessDeploymentShell::new(resource_paths))
         .start(request, options)
@@ -2033,9 +2177,15 @@ fn start_deployment(
 #[tauri::command]
 fn end_deployment(
     app: AppHandle,
+    state: State<'_, DeploymentSessionStore>,
     request: DeploymentStartRequest,
     options: DeploymentEndOptions,
 ) -> Result<DeploymentEndResult, String> {
+    state.validate_and_consume(
+        DeploymentOperation::End,
+        &request,
+        &options.confirmation_token,
+    )?;
     let resource_paths = resolve_deployment_resources(Some(&app))?;
     RealDeploymentCommandAdapter::new(LocalProcessDeploymentShell::new(resource_paths))
         .end(request, options)
@@ -2312,6 +2462,69 @@ mod tests {
     }
 
     #[test]
+    fn deployment_session_tokens_are_operation_specific_and_one_time() {
+        let store = DeploymentSessionStore::default();
+        let request = base_deployment_request();
+        let session = store
+            .create_session(DeploymentOperation::Start, &request)
+            .expect("create start session");
+
+        assert_eq!(session.required_confirmation, "START characterforge-ai-dev");
+        assert_eq!(session.operation, "start");
+        assert!(store
+            .validate_and_consume(
+                DeploymentOperation::End,
+                &request,
+                &session.confirmation_token,
+            )
+            .is_err());
+        assert!(store
+            .validate_and_consume(
+                DeploymentOperation::Start,
+                &request,
+                &session.confirmation_token,
+            )
+            .is_err());
+
+        let session = store
+            .create_session(DeploymentOperation::Start, &request)
+            .expect("create second start session");
+        store
+            .validate_and_consume(
+                DeploymentOperation::Start,
+                &request,
+                &session.confirmation_token,
+            )
+            .expect("valid start token");
+        assert!(store
+            .validate_and_consume(
+                DeploymentOperation::Start,
+                &request,
+                &session.confirmation_token,
+            )
+            .is_err());
+    }
+
+    #[test]
+    fn deployment_session_token_must_match_stack_name() {
+        let store = DeploymentSessionStore::default();
+        let request = base_deployment_request();
+        let session = store
+            .create_session(DeploymentOperation::End, &request)
+            .expect("create end session");
+        let mut other_stack = request.clone();
+        other_stack.stack_name = "characterforge-other".to_string();
+
+        assert!(store
+            .validate_and_consume(
+                DeploymentOperation::End,
+                &other_stack,
+                &session.confirmation_token,
+            )
+            .is_err());
+    }
+
+    #[test]
     fn start_deployment_validates_dependencies_before_sam_commands() {
         let shell = MockDeploymentShell::with_dependency_failure("sam", "SAM CLI missing");
         let commands = Rc::clone(&shell.commands);
@@ -2323,6 +2536,7 @@ mod tests {
                 base_deployment_request(),
                 DeploymentStartOptions {
                     confirmation_text: "START characterforge-ai-dev".to_string(),
+                    confirmation_token: "unit-test-token".to_string(),
                 },
             )
             .expect("start result");
@@ -2374,6 +2588,7 @@ mod tests {
                 request,
                 DeploymentStartOptions {
                     confirmation_text: "START characterforge-ai-dev".to_string(),
+                    confirmation_token: "unit-test-token".to_string(),
                 },
             )
             .expect("start result");
@@ -2417,6 +2632,7 @@ mod tests {
                     confirmation_text: "END characterforge-ai-dev".to_string(),
                     export_confirmed: true,
                     cancelled: None,
+                    confirmation_token: "unit-test-token".to_string(),
                 },
             )
             .expect("end result");
@@ -2446,6 +2662,7 @@ mod tests {
                     confirmation_text: "END characterforge-ai-dev".to_string(),
                     export_confirmed: true,
                     cancelled: None,
+                    confirmation_token: "unit-test-token".to_string(),
                 },
             )
             .expect("end result");
@@ -2839,6 +3056,7 @@ mod tests {
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        .manage(DeploymentSessionStore::default())
         .invoke_handler(tauri::generate_handler![
             get_app_config,
             save_app_config,
@@ -2853,7 +3071,9 @@ pub fn run() {
             check_setup_readiness,
             check_aws_setup_wizard,
             preview_deployment_start,
+            create_deployment_start_session,
             start_deployment,
+            create_deployment_end_session,
             end_deployment
         ])
         .run(tauri::generate_context!())

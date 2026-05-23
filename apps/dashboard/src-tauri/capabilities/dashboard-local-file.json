@@ -1,0 +1,11 @@
+{
+  "identifier": "dashboard-local-file",
+  "description": "Local CharacterForgeAI file IPC scoped by native path and file-name validation.",
+  "local": true,
+  "windows": [
+    "main"
+  ],
+  "permissions": [
+    "dashboard-local-file"
+  ]
+}

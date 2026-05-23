@@ -48,12 +48,20 @@ export type DeploymentStartPreview = {
 
 export type DeploymentStartOptions = {
   confirmationText: string;
+  confirmationToken?: string;
+};
+
+export type DeploymentConfirmationSession = {
+  confirmationToken: string;
+  requiredConfirmation: string;
+  operation: "start" | "end";
 };
 
 export type DeploymentEndOptions = {
   confirmationText: string;
   exportConfirmed: boolean;
   cancelled?: boolean;
+  confirmationToken?: string;
 };
 
 export type DeploymentStartStatus = "succeeded" | "failed";
@@ -574,18 +582,32 @@ export interface DesktopShellDeploymentCommandAdapter extends RealDeploymentStar
 }
 
 export function createDesktopShellDeploymentAdapter(
-  invokeCommand: (command: string, payload: unknown) => Promise<DeploymentStartPreview | DeploymentOperationResult>
+  invokeCommand: (command: string, payload: unknown) => Promise<DeploymentStartPreview | DeploymentOperationResult | DeploymentConfirmationSession>
 ): DesktopShellDeploymentCommandAdapter {
   return {
     shell: "tauri",
     previewStart(request: DeploymentStartRequest) {
       return invokeCommand("preview_deployment_start", { request }) as Promise<DeploymentStartPreview>;
     },
-    start(request: DeploymentStartRequest, options: DeploymentStartOptions) {
-      return invokeCommand("start_deployment", { request, options }) as Promise<DeploymentStartResult>;
+    async start(request: DeploymentStartRequest, options: DeploymentStartOptions) {
+      const session = (await invokeCommand("create_deployment_start_session", { request })) as DeploymentConfirmationSession;
+      return invokeCommand("start_deployment", {
+        request,
+        options: {
+          ...options,
+          confirmationToken: session.confirmationToken
+        }
+      }) as Promise<DeploymentStartResult>;
     },
-    end(request: DeploymentStartRequest, options: DeploymentEndOptions) {
-      return invokeCommand("end_deployment", { request, options }) as Promise<DeploymentEndResult>;
+    async end(request: DeploymentStartRequest, options: DeploymentEndOptions) {
+      const session = (await invokeCommand("create_deployment_end_session", { request })) as DeploymentConfirmationSession;
+      return invokeCommand("end_deployment", {
+        request,
+        options: {
+          ...options,
+          confirmationToken: session.confirmationToken
+        }
+      }) as Promise<DeploymentEndResult>;
     }
   };
 }

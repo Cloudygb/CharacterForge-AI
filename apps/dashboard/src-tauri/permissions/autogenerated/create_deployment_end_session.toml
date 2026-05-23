@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-create-deployment-end-session"
+description = "Enables the create_deployment_end_session command without any pre-configured scope."
+commands.allow = ["create_deployment_end_session"]
+
+[[permission]]
+identifier = "deny-create-deployment-end-session"
+description = "Denies the create_deployment_end_session command without any pre-configured scope."
+commands.deny = ["create_deployment_end_session"]

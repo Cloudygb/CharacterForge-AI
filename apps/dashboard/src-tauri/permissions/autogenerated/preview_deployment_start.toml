@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-preview-deployment-start"
+description = "Enables the preview_deployment_start command without any pre-configured scope."
+commands.allow = ["preview_deployment_start"]
+
+[[permission]]
+identifier = "deny-preview-deployment-start"
+description = "Denies the preview_deployment_start command without any pre-configured scope."
+commands.deny = ["preview_deployment_start"]

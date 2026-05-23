@@ -1,0 +1,12 @@
+{
+  "set": [
+    {
+      "identifier": "dashboard-deployment-start",
+      "description": "Deployment Start commands. Real Start also requires typed confirmation and a one-time native session token.",
+      "permissions": [
+        "allow-create-deployment-start-session",
+        "allow-start-deployment"
+      ]
+    }
+  ]
+}

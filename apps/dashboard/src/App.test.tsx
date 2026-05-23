@@ -65,6 +65,13 @@ describe("CharacterForge dashboard", () => {
           warnings: []
         });
       }
+      if (command === "create_deployment_start_session") {
+        return Promise.resolve({
+          confirmationToken: "test-start-session-token",
+          requiredConfirmation: "START characterforge-demo",
+          operation: "start"
+        });
+      }
       if (command === "start_deployment") {
         return Promise.resolve({ status: "succeeded", finalStackStatus: "CREATE_COMPLETE", logs: ["done"] });
       }
@@ -76,6 +83,13 @@ describe("CharacterForge dashboard", () => {
       }
       if (command === "save_character_pack_export") {
         return Promise.resolve({ path: "C:\\Users\\Evan\\AppData\\Roaming\\CharacterForgeAI\\characters\\characterforge-dashboard-export.json" });
+      }
+      if (command === "create_deployment_end_session") {
+        return Promise.resolve({
+          confirmationToken: "test-end-session-token",
+          requiredConfirmation: "END characterforge-demo",
+          operation: "end"
+        });
       }
       if (command === "end_deployment") {
         return Promise.resolve({ status: "succeeded", finalStackStatus: "DELETE_COMPLETE", logs: ["Deleted stack characterforge-demo"] });
@@ -1325,6 +1339,13 @@ describe("CharacterForge dashboard", () => {
           warnings: []
         });
       }
+      if (command === "create_deployment_start_session") {
+        return Promise.resolve({
+          confirmationToken: "test-start-session-token",
+          requiredConfirmation: "START characterforge-demo",
+          operation: "start"
+        });
+      }
       if (command === "start_deployment") {
         return Promise.resolve({
           status: "succeeded",
@@ -1477,7 +1498,7 @@ describe("CharacterForge dashboard", () => {
 
     await waitFor(() =>
       expect(invoke).toHaveBeenCalledWith("end_deployment", expect.objectContaining({
-        options: { confirmationText: "END characterforge-demo", exportConfirmed: true }
+        options: expect.objectContaining({ confirmationText: "END characterforge-demo", exportConfirmed: true, confirmationToken: "test-end-session-token" })
       }))
     );
   });
@@ -1540,6 +1561,13 @@ describe("CharacterForge dashboard", () => {
           warnings: []
         });
       }
+      if (command === "create_deployment_start_session") {
+        return Promise.resolve({
+          confirmationToken: "test-start-session-token",
+          requiredConfirmation: "START characterforge-demo",
+          operation: "start"
+        });
+      }
       if (command === "start_deployment") {
         return startPromise;
       }
@@ -1597,11 +1625,25 @@ describe("CharacterForge dashboard", () => {
           warnings: []
         });
       }
+      if (command === "create_deployment_start_session") {
+        return Promise.resolve({
+          confirmationToken: "test-start-session-token",
+          requiredConfirmation: "START characterforge-demo",
+          operation: "start"
+        });
+      }
       if (command === "start_deployment") {
         return Promise.resolve({
           status: "failed",
           finalStackStatus: "UPDATE_ROLLBACK_COMPLETE",
           logs: ["Resource handler returned message: Lambda role policy denied. AWS_SESSION_TOKEN=raw-session-token"]
+        });
+      }
+      if (command === "create_deployment_end_session") {
+        return Promise.resolve({
+          confirmationToken: "test-end-session-token",
+          requiredConfirmation: "END characterforge-demo",
+          operation: "end"
         });
       }
       if (command === "end_deployment") {
@@ -1848,6 +1890,13 @@ describe("CharacterForge dashboard", () => {
           warnings: []
         });
       }
+      if (command === "create_deployment_start_session") {
+        return Promise.resolve({
+          confirmationToken: "test-start-session-token",
+          requiredConfirmation: "START characterforge-demo",
+          operation: "start"
+        });
+      }
       if (command === "start_deployment") {
         return Promise.resolve({
           status: "succeeded",
@@ -1861,6 +1910,13 @@ describe("CharacterForge dashboard", () => {
           folderPath: "C:\\Users\\Evan\\AppData\\Roaming\\CharacterForgeAI\\characters",
           characters: [],
           invalidFiles: []
+        });
+      }
+      if (command === "create_deployment_end_session") {
+        return Promise.resolve({
+          confirmationToken: "test-end-session-token",
+          requiredConfirmation: "END characterforge-demo",
+          operation: "end"
         });
       }
       if (command === "end_deployment") {
@@ -1898,7 +1954,7 @@ describe("CharacterForge dashboard", () => {
           profileName: "game-dev",
           stackName: "characterforge-demo"
         }),
-        options: { confirmationText: "START characterforge-demo" }
+        options: expect.objectContaining({ confirmationText: "START characterforge-demo", confirmationToken: "test-start-session-token" })
       })
     );
     expect(await screen.findByText(/deployment start completed with create_complete/i)).toBeInTheDocument();
@@ -1921,7 +1977,7 @@ describe("CharacterForge dashboard", () => {
           profileName: "game-dev",
           stackName: "characterforge-demo"
         }),
-        options: { confirmationText: "END characterforge-demo", exportConfirmed: true }
+        options: expect.objectContaining({ confirmationText: "END characterforge-demo", exportConfirmed: true, confirmationToken: "test-end-session-token" })
       })
     );
     expect(await screen.findByText(/deployment end completed with delete_complete/i)).toBeInTheDocument();

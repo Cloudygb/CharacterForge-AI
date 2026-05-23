@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-delete-character-file"
+description = "Enables the delete_character_file command without any pre-configured scope."
+commands.allow = ["delete_character_file"]
+
+[[permission]]
+identifier = "deny-delete-character-file"
+description = "Denies the delete_character_file command without any pre-configured scope."
+commands.deny = ["delete_character_file"]

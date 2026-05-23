@@ -1,0 +1,11 @@
+{
+  "identifier": "dashboard-deployment-start",
+  "description": "Deployment Start IPC isolated from read-only and local file commands.",
+  "local": true,
+  "windows": [
+    "main"
+  ],
+  "permissions": [
+    "dashboard-deployment-start"
+  ]
+}
