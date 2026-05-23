@@ -171,12 +171,29 @@ impl Default for UpdateSettings {
 
 impl UpdateSettings {
     fn sanitized(mut self) -> Self {
-        if !matches!(self.channel.as_str(), "stable" | "beta" | "nightly") {
-            self.channel = "stable".to_string();
-        }
+        self.channel = "stable".to_string();
+        self.manifest_url.clear();
         self.manual_check_enabled = false;
         self.unsafe_auto_update_enabled = false;
         self
+    }
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateCheckResult {
+    pub available: bool,
+    pub version: Option<String>,
+    pub notes: Option<String>,
+}
+
+impl Default for UpdateCheckResult {
+    fn default() -> Self {
+        Self {
+            available: false,
+            version: None,
+            notes: Some("You are up to date.".to_string()),
+        }
     }
 }
 
@@ -1618,6 +1635,16 @@ fn save_app_config(app: AppHandle, config: AppConfig) -> Result<AppConfig, Strin
 }
 
 #[tauri::command]
+fn check_for_updates() -> UpdateCheckResult {
+    UpdateCheckResult::default()
+}
+
+#[tauri::command]
+fn install_update() -> Result<(), String> {
+    Err("Signed updater plumbing is not configured yet.".to_string())
+}
+
+#[tauri::command]
 fn check_setup_readiness(
     app: AppHandle,
     request: SetupReadinessRequest,
@@ -2112,11 +2139,8 @@ mod tests {
         let persisted = read_app_config_from_path(&config_path).expect("read persisted config");
         assert!(persisted.first_run_tutorial_completed);
         assert!(persisted.first_run_tutorial_skipped);
-        assert_eq!(persisted.update_settings.channel, "beta");
-        assert_eq!(
-            persisted.update_settings.manifest_url,
-            "https://updates.example.test/characterforge/stable.json"
-        );
+        assert_eq!(persisted.update_settings.channel, "stable");
+        assert_eq!(persisted.update_settings.manifest_url, "");
         assert!(!persisted.update_settings.manual_check_enabled);
         assert!(!persisted.update_settings.unsafe_auto_update_enabled);
         let raw = fs::read_to_string(&config_path).expect("read config json");
@@ -2367,6 +2391,8 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             get_app_config,
             save_app_config,
+            check_for_updates,
+            install_update,
             check_setup_readiness,
             check_aws_setup_wizard,
             preview_deployment_start,

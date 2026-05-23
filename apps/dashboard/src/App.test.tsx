@@ -1001,23 +1001,46 @@ describe("CharacterForge dashboard", () => {
     expect(listCharactersMock).not.toHaveBeenCalled();
   });
 
-  it("shows future-ready update settings without enabling unsafe auto-updates", async () => {
+  it("keeps Settings update checks simple and hides advanced updater fields from normal UI", async () => {
     const user = userEvent.setup();
-    const invoke = vi.fn().mockImplementation((command: string, payload: unknown) => {
+    render(<App />);
+
+    await user.click(screen.getByRole("button", { name: "Deployment" }));
+    expect(screen.queryByRole("heading", { name: /check for updates/i })).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/update channel/i)).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/update manifest url/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/nightly/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/unsafe auto-update/i)).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Settings" }));
+
+    expect(screen.getByRole("heading", { name: /settings/i })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: /check for updates/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /check for updates/i })).toBeEnabled();
+    expect(screen.queryByRole("button", { name: /update now/i })).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/update channel/i)).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/update manifest url/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/nightly/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/unsafe auto-update/i)).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: /check for updates/i }));
+
+    expect(await screen.findByText(/you are up to date/i)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /update now/i })).not.toBeInTheDocument();
+    expect(listCharactersMock).not.toHaveBeenCalled();
+  });
+
+  it("shows Update Now only after a mocked desktop update is found", async () => {
+    const user = userEvent.setup();
+    const invoke = vi.fn().mockImplementation((command: string) => {
       if (command === "get_app_config") {
-        return Promise.resolve({
-          firstRunTutorialCompleted: true,
-          firstRunTutorialSkipped: false,
-          updateSettings: {
-            channel: "stable",
-            manifestUrl: "",
-            manualCheckEnabled: false,
-            unsafeAutoUpdateEnabled: false
-          }
-        });
+        return Promise.resolve({ firstRunTutorialCompleted: true, firstRunTutorialSkipped: false, updateSettings: {} });
       }
-      if (command === "save_app_config") {
-        return Promise.resolve(payload && typeof payload === "object" && "config" in payload ? payload.config : {});
+      if (command === "check_for_updates") {
+        return Promise.resolve({ available: true, version: "0.2.0", notes: "Polish release ready." });
+      }
+      if (command === "install_update") {
+        return Promise.resolve({ installed: true });
       }
       return Promise.reject(new Error(`unexpected command ${command}`));
     });
@@ -1025,34 +1048,36 @@ describe("CharacterForge dashboard", () => {
 
     render(<App />);
     await user.click(screen.getByRole("button", { name: "Settings" }));
+    await user.click(screen.getByRole("button", { name: /check for updates/i }));
 
-    expect(screen.getByRole("heading", { name: /check for updates/i })).toBeInTheDocument();
-    expect(screen.getByText(/future-ready placeholder/i)).toBeInTheDocument();
-    expect(screen.getByText(/unsafe auto-updates are disabled/i)).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /check for updates/i })).toBeDisabled();
-    expect(screen.getByLabelText(/update channel/i)).toHaveValue("stable");
-    expect(screen.getByLabelText(/update manifest url/i)).toHaveValue("");
+    expect(await screen.findByText(/update available/i)).toBeInTheDocument();
+    expect(screen.getByText(/version 0\.2\.0/i)).toBeInTheDocument();
+    expect(screen.getByText(/polish release ready/i)).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /update now/i }));
 
-    await user.selectOptions(screen.getByLabelText(/update channel/i), "beta");
-    await user.type(screen.getByLabelText(/update manifest url/i), "https://updates.example.test/characterforge/stable.json");
-    await user.click(screen.getByRole("button", { name: /save update planning settings/i }));
+    await waitFor(() => expect(invoke).toHaveBeenCalledWith("install_update", {}));
+    expect(screen.getByText(/update started/i)).toBeInTheDocument();
+  });
 
-    await waitFor(() =>
-      expect(invoke).toHaveBeenCalledWith("save_app_config", {
-        config: {
-          firstRunTutorialCompleted: true,
-          firstRunTutorialSkipped: false,
-          updateSettings: {
-            channel: "beta",
-            manifestUrl: "https://updates.example.test/characterforge/stable.json",
-            manualCheckEnabled: false,
-            unsafeAutoUpdateEnabled: false
-          }
-        }
-      })
-    );
-    expect(screen.getByText(/update planning settings saved/i)).toBeInTheDocument();
-    expect(listCharactersMock).not.toHaveBeenCalled();
+  it("shows a safe error when mocked update checking fails", async () => {
+    const user = userEvent.setup();
+    const invoke = vi.fn().mockImplementation((command: string) => {
+      if (command === "get_app_config") {
+        return Promise.resolve({ firstRunTutorialCompleted: true, firstRunTutorialSkipped: false, updateSettings: {} });
+      }
+      if (command === "check_for_updates") {
+        return Promise.reject(new Error("offline"));
+      }
+      return Promise.reject(new Error(`unexpected command ${command}`));
+    });
+    window.__TAURI__ = { core: { invoke } };
+
+    render(<App />);
+    await user.click(screen.getByRole("button", { name: "Settings" }));
+    await user.click(screen.getByRole("button", { name: /check for updates/i }));
+
+    expect(await screen.findByText(/could not check for updates/i)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /update now/i })).not.toBeInTheDocument();
   });
 
   it("shows connected Welcome status from mocked API state without exposing API keys", async () => {
