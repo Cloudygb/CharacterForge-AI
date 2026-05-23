@@ -255,11 +255,7 @@ const screens: Array<{ id: ScreenId; label: string }> = [
   { id: "settings", label: "Settings" }
 ];
 
-const developerScreens: Array<{ id: ScreenId; label: string }> = [
-  { id: "editor", label: "Character Editor" },
-  { id: "packs", label: "Character Packs" },
-  { id: "json", label: "Raw JSON Preview" }
-];
+const developerScreens: Array<{ id: ScreenId; label: string }> = [{ id: "json", label: "Raw JSON Preview" }];
 
 const actionTemplateConfigs: ActionTemplateConfig[] = [
   {
@@ -541,9 +537,7 @@ const firstRunTutorialSteps: TutorialStep[] = [
     ],
     nextLabel: "Next: Chat and payloads",
     actions: [
-      { label: "Open Characters", screen: "characters" },
-      { label: "Open Character Editor", screen: "editor" },
-      { label: "Open Character Packs", screen: "packs" }
+      { label: "Open Characters", screen: "characters" }
     ]
   },
   {
@@ -2025,26 +2019,137 @@ function DeploymentStartScreen({
   );
 }
 
-function CharactersScreen({ characters, mode }: { characters: Character[]; mode: "api" | "mock" }) {
+function CharactersScreen({
+  characters,
+  deleteStatus,
+  editingVisible,
+  editor,
+  mode,
+  packTools,
+  pendingDelete,
+  onCancelDelete,
+  onConfirmDelete,
+  onCreateCharacter,
+  onEditCharacter,
+  onRequestDelete,
+  onTogglePackTools
+}: {
+  characters: Character[];
+  deleteStatus: EditorStatus;
+  editingVisible: boolean;
+  editor: {
+    form: CharacterEditorForm;
+    onFormChange: (form: CharacterEditorForm) => void;
+    onSubmit: () => void;
+    previewPayload: CharacterPayload | null;
+    status: EditorStatus;
+    validationErrors: string[];
+  };
+  mode: "api" | "mock";
+  packTools: {
+    exportState: PackExportState | null;
+    loadedPack: LoadedPack | null;
+    onExportSelected: () => void;
+    onFileLoad: (files: FileList | null) => void;
+    onImportSelected: () => void;
+    onSelectionChange: (characterIds: string[]) => void;
+    selectedCharacterIds: string[];
+    status: PackStatus;
+    visible: boolean;
+  };
+  pendingDelete: Character | null;
+  onCancelDelete: () => void;
+  onConfirmDelete: () => void;
+  onCreateCharacter: () => void;
+  onEditCharacter: (character: Character) => void;
+  onRequestDelete: (character: Character) => void;
+  onTogglePackTools: () => void;
+}) {
   return (
     <section className="screen-card" aria-labelledby="characters-title">
       <p className="eyebrow">Roster</p>
       <h1 id="characters-title">Characters</h1>
+      <p>Manage character creation, editing, local folder import/export, and deletion from this single page.</p>
+      <div className="button-row" aria-label="Character management actions">
+        <button onClick={onCreateCharacter} type="button">
+          Create Character
+        </button>
+        <button onClick={onTogglePackTools} type="button">
+          Open Character Folder / Import-Export
+        </button>
+      </div>
       <div className="notice compact">
         {mode === "api" ? "Showing API characters loaded through the TypeScript SDK." : "Showing mock characters because no API URL is set."}
       </div>
-      <div className="character-list">
-        {characters.map((character) => (
-          <article className="character-card" key={character.id}>
-            <div>
-              <h2>{character.name}</h2>
-              <p>{character.archetype}</p>
-            </div>
-            <span className="status-pill">{character.status}</span>
-            <p>{character.description}</p>
-          </article>
-        ))}
+      <div className={`connection-status ${deleteStatus.state}`} role={deleteStatus.state === "error" ? "alert" : "status"}>
+        {deleteStatus.message}
       </div>
+      {characters.length ? (
+        <div className="character-list">
+          {characters.map((character) => (
+            <article aria-label={character.name} className="character-card" key={character.id}>
+              <div>
+                <h2>{character.name}</h2>
+                <p>{character.archetype}</p>
+              </div>
+              <span className="status-pill">{character.status}</span>
+              <p>{character.description}</p>
+              <div className="button-row">
+                <button onClick={() => onEditCharacter(character)} type="button">
+                  Edit {character.name}
+                </button>
+                <button className="danger-button" onClick={() => onRequestDelete(character)} type="button">
+                  Delete {character.name}
+                </button>
+              </div>
+            </article>
+          ))}
+        </div>
+      ) : (
+        <div className="empty-state">
+          <h2>No characters yet</h2>
+          <p>Create a character or import a local character pack to begin.</p>
+        </div>
+      )}
+
+      {pendingDelete ? (
+        <div aria-labelledby="delete-character-title" aria-modal="true" className="modal-panel" role="alertdialog">
+          <h2 id="delete-character-title">Delete {pendingDelete.name}?</h2>
+          <p>This only removes the character from this dashboard view. API deletion will be wired when backend delete support is ready.</p>
+          <div className="button-row">
+            <button onClick={onCancelDelete} type="button">
+              Cancel delete
+            </button>
+            <button className="danger-button" onClick={onConfirmDelete} type="button">
+              Confirm delete
+            </button>
+          </div>
+        </div>
+      ) : null}
+
+      {editingVisible ? (
+        <CharacterEditorScreen
+          form={editor.form}
+          onFormChange={editor.onFormChange}
+          onSubmit={editor.onSubmit}
+          previewPayload={editor.previewPayload}
+          status={editor.status}
+          validationErrors={editor.validationErrors}
+        />
+      ) : null}
+
+      {packTools.visible ? (
+        <CharacterPacksScreen
+          exportState={packTools.exportState}
+          loadedPack={packTools.loadedPack}
+          onExportSelected={packTools.onExportSelected}
+          onFileLoad={packTools.onFileLoad}
+          onImportSelected={packTools.onImportSelected}
+          onSelectionChange={packTools.onSelectionChange}
+          selectedCharacterIds={packTools.selectedCharacterIds}
+          status={packTools.status}
+        />
+      ) : null}
     </section>
   );
 }
@@ -2092,7 +2197,7 @@ function CharacterEditorScreen({
   return (
     <section className="screen-card" aria-labelledby="editor-title">
       <p className="eyebrow">Create or edit profile</p>
-      <h1 id="editor-title">Character Editor</h1>
+      <h1 id="editor-title">Create or Edit Character</h1>
       <p>
         Build a complete CharacterForge profile, preview the exact API payload, then submit it with the TypeScript SDK.
         Leave the character ID blank to create a new profile, or enter an existing ID to update that character.
@@ -2218,7 +2323,7 @@ function CharacterPacksScreen({
   return (
     <section className="screen-card" aria-labelledby="packs-title">
       <p className="eyebrow">Local pack tools</p>
-      <h1 id="packs-title">Character Packs</h1>
+      <h1 id="packs-title">Character Folder Import-Export</h1>
       <p>
         Load a local pack JSON file, extracted pack folder, or zip archive in the browser, validate it, preview contents,
         import selected characters, and export selected characters with payload templates and bindings.
@@ -2410,6 +2515,14 @@ export default function App() {
     message: "Ready to preview and submit a character profile.",
     state: "idle"
   });
+  const [charactersEditorVisible, setCharactersEditorVisible] = useState(false);
+  const [characterPackToolsVisible, setCharacterPackToolsVisible] = useState(false);
+  const [pendingDeleteCharacter, setPendingDeleteCharacter] = useState<Character | null>(null);
+  const [deletedCharacterIds, setDeletedCharacterIds] = useState<string[]>([]);
+  const [characterDeleteStatus, setCharacterDeleteStatus] = useState<EditorStatus>({
+    message: "Choose Edit or Delete on a character card, or create/import from the controls above.",
+    state: "idle"
+  });
   const [loadedPack, setLoadedPack] = useState<LoadedPack | null>(null);
   const [selectedPackCharacterIds, setSelectedPackCharacterIds] = useState<string[]>([]);
   const [packStatus, setPackStatus] = useState<PackStatus>({
@@ -2449,8 +2562,9 @@ export default function App() {
   const [deploymentEndResult, setDeploymentEndResult] = useState<DeploymentEndResult | null>(null);
 
   const apiMode = Boolean(settings.apiBaseUrl.trim());
-  const activeCharacters = apiMode && apiCharacters.length ? apiCharacters : mockCharacters;
-  const sharedStateCharacters = apiMode ? apiCharacters : activeCharacters;
+  const sourceCharacters = apiMode && apiCharacters.length ? apiCharacters : mockCharacters;
+  const activeCharacters = sourceCharacters.filter((character) => !deletedCharacterIds.includes(character.id));
+  const sharedStateCharacters = apiMode ? apiCharacters.filter((character) => !deletedCharacterIds.includes(character.id)) : activeCharacters;
   const deploymentConfig = useMemo(
     () =>
       buildDeploymentConfig({
@@ -2768,6 +2882,32 @@ export default function App() {
     }
   }
 
+  function handleCreateCharacterFromCharactersPage() {
+    setEditorForm(createInitialEditorForm(mockCharacters[0]));
+    setCharactersEditorVisible(true);
+    setEditorStatus({ message: "Ready to create a new character profile.", state: "idle" });
+  }
+
+  function handleEditCharacterFromCharactersPage(character: Character) {
+    setEditorForm({ ...createInitialEditorForm(character), characterId: character.id });
+    setCharactersEditorVisible(true);
+    setEditorStatus({ message: `Editing ${character.name}.`, state: "idle" });
+  }
+
+  function handleRequestDeleteCharacter(character: Character) {
+    setPendingDeleteCharacter(character);
+    setCharacterDeleteStatus({ message: `Confirm before deleting ${character.name}.`, state: "idle" });
+  }
+
+  function handleConfirmDeleteCharacter() {
+    if (!pendingDeleteCharacter) {
+      return;
+    }
+    setDeletedCharacterIds((current) => [...new Set([...current, pendingDeleteCharacter.id])]);
+    setCharacterDeleteStatus({ message: "Character removed from this dashboard view.", state: "success" });
+    setPendingDeleteCharacter(null);
+  }
+
   async function handleSubmitCharacter() {
     if (editorValidationErrors.length || !editorPayload) {
       setEditorStatus({ message: "Fix validation issues before submitting the character profile.", state: "error" });
@@ -2920,7 +3060,40 @@ export default function App() {
           />
         );
       case "characters":
-        return <CharactersScreen characters={activeCharacters} mode={apiMode && apiCharacters.length ? "api" : "mock"} />;
+        return (
+          <CharactersScreen
+            characters={activeCharacters}
+            deleteStatus={characterDeleteStatus}
+            editingVisible={charactersEditorVisible}
+            editor={{
+              form: editorForm,
+              onFormChange: setEditorForm,
+              onSubmit: handleSubmitCharacter,
+              previewPayload: editorPayload,
+              status: editorStatus,
+              validationErrors: editorValidationErrors
+            }}
+            mode={apiMode && apiCharacters.length ? "api" : "mock"}
+            packTools={{
+              exportState: packExportState,
+              loadedPack,
+              onExportSelected: handleExportPackCharacters,
+              onFileLoad: handlePackFileLoad,
+              onImportSelected: handleImportPackCharacters,
+              onSelectionChange: setSelectedPackCharacterIds,
+              selectedCharacterIds: selectedPackCharacterIds,
+              status: packStatus,
+              visible: characterPackToolsVisible
+            }}
+            pendingDelete={pendingDeleteCharacter}
+            onCancelDelete={() => setPendingDeleteCharacter(null)}
+            onConfirmDelete={handleConfirmDeleteCharacter}
+            onCreateCharacter={handleCreateCharacterFromCharactersPage}
+            onEditCharacter={handleEditCharacterFromCharactersPage}
+            onRequestDelete={handleRequestDeleteCharacter}
+            onTogglePackTools={() => setCharacterPackToolsVisible((visible) => !visible)}
+          />
+        );
       case "editor":
         return (
           <CharacterEditorScreen
