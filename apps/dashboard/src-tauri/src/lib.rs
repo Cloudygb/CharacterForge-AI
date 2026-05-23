@@ -39,7 +39,7 @@ pub struct CharacterFolderOpenResult {
     pub browser_mode: bool,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct LocalCharacterSummary {
     pub id: String,
@@ -48,6 +48,10 @@ pub struct LocalCharacterSummary {
     pub status: String,
     pub description: String,
     pub allowed_actions: Vec<String>,
+    pub source: Option<String>,
+    pub sync_status: Option<String>,
+    pub sync_error: Option<String>,
+    pub payload: Option<Value>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -68,6 +72,12 @@ pub struct CharacterFolderScanResult {
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CharacterPackExportResult {
+    pub path: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CharacterFileSaveResult {
     pub path: String,
 }
 
@@ -331,17 +341,23 @@ fn local_character_from_value(
     fallback_id: &str,
 ) -> Result<LocalCharacterSummary, String> {
     let name = json_string(value, &["name"]).ok_or_else(|| "missing name".to_string())?;
+    let sync_status = json_string(value, &["syncStatus", "sync_status"]);
     Ok(LocalCharacterSummary {
         id: json_string(value, &["id", "character_id", "characterId"])
             .unwrap_or_else(|| fallback_id.to_string()),
         name,
         archetype: json_string(value, &["archetype", "titleStatus", "status_title"])
             .unwrap_or_else(|| "Local character file".to_string()),
-        status: "Loaded from local character folder".to_string(),
+        status: json_string(value, &["status"])
+            .unwrap_or_else(|| "Loaded from local character folder".to_string()),
         description: json_string(value, &["description"]).unwrap_or_else(|| {
             "Imported from the configured CharacterForgeAI character folder.".to_string()
         }),
         allowed_actions: json_string_array(value, &["allowedActions", "allowed_actions"]),
+        source: json_string(value, &["source"]).or_else(|| Some("local".to_string())),
+        sync_status: sync_status.or_else(|| Some("api_pending".to_string())),
+        sync_error: json_string(value, &["syncError", "sync_error"]),
+        payload: value.get("payload").cloned(),
     })
 }
 
@@ -366,6 +382,33 @@ fn safe_export_file_name(file_name: &str) -> Result<String, String> {
         return Err("Export file name contains unsupported characters.".to_string());
     }
     Ok(sanitized)
+}
+
+fn safe_character_file_name(file_name: &str) -> Result<String, String> {
+    safe_export_file_name(file_name)
+}
+
+fn safe_character_file_name_from_value(character: &Value) -> Result<String, String> {
+    if let Some(file_name) = json_string(character, &["fileName", "file_name"]) {
+        return safe_character_file_name(&file_name);
+    }
+    let id = json_string(character, &["id", "characterId", "character_id"])
+        .ok_or_else(|| "Character file saves require an id or fileName.".to_string())?;
+    let sanitized: String = id
+        .chars()
+        .map(|character| {
+            if character.is_ascii_alphanumeric() || matches!(character, '-' | '_') {
+                character.to_ascii_lowercase()
+            } else {
+                '-'
+            }
+        })
+        .collect();
+    let trimmed = sanitized.trim_matches('-');
+    if trimmed.is_empty() {
+        return Err("Character file name could not be derived from id.".to_string());
+    }
+    safe_character_file_name(&format!("{trimmed}.json"))
 }
 
 fn scan_character_folder_path(folder: &Path) -> Result<CharacterFolderScanResult, String> {
@@ -460,6 +503,42 @@ fn save_character_pack_export(
     Ok(CharacterPackExportResult {
         path: export_path.display().to_string(),
     })
+}
+
+#[tauri::command]
+fn save_character_file(character: Value) -> Result<CharacterFileSaveResult, String> {
+    let folder = ensure_character_folder()?;
+    let file_name = safe_character_file_name_from_value(&character)?;
+    let file_path = folder.join(file_name);
+    let contents = serde_json::to_string_pretty(&character)
+        .map_err(|error| format!("Could not serialize character file: {error}"))?;
+    fs::write(&file_path, contents)
+        .map_err(|error| format!("Could not write character file: {error}"))?;
+    Ok(CharacterFileSaveResult {
+        path: file_path.display().to_string(),
+    })
+}
+
+#[tauri::command]
+fn delete_character_file(character_id: String, file_name: String) -> Result<(), String> {
+    let folder = ensure_character_folder()?;
+    let file_name = safe_character_file_name(&file_name)?;
+    let file_path = folder.join(file_name);
+    if file_path.exists() {
+        fs::remove_file(&file_path)
+            .map_err(|error| format!("Could not delete local character file: {error}"))?;
+        return Ok(());
+    }
+
+    let derived_file_name = safe_character_file_name_from_value(&serde_json::json!({
+        "id": character_id
+    }))?;
+    let derived_path = folder.join(derived_file_name);
+    if derived_path.exists() {
+        fs::remove_file(&derived_path)
+            .map_err(|error| format!("Could not delete local character file: {error}"))?;
+    }
+    Ok(())
 }
 
 fn app_config_file_from_dir(base_dir: &Path) -> PathBuf {
@@ -2659,7 +2738,7 @@ mod tests {
         fs::create_dir_all(&folder).unwrap();
         fs::write(
             folder.join("sera.json"),
-            r#"{"id":"sera","name":"Sera Folderborn","description":"From disk.","allowed_actions":["wave"]}"#,
+            r#"{"id":"sera","name":"Sera Folderborn","description":"From disk.","allowed_actions":["wave"],"source":"local","syncStatus":"api_pending","syncError":"queued offline"}"#,
         )
         .unwrap();
         fs::write(folder.join("broken.json"), r#"{"description":"No name"}"#).unwrap();
@@ -2673,12 +2752,48 @@ mod tests {
             scan.characters[0].status,
             "Loaded from local character folder"
         );
+        assert_eq!(scan.characters[0].source.as_deref(), Some("local"));
+        assert_eq!(
+            scan.characters[0].sync_status.as_deref(),
+            Some("api_pending")
+        );
+        assert_eq!(
+            scan.characters[0].sync_error.as_deref(),
+            Some("queued offline")
+        );
         assert_eq!(scan.characters[0].allowed_actions, vec!["wave".to_string()]);
         assert_eq!(scan.invalid_files.len(), 1);
         assert_eq!(scan.invalid_files[0].path, "broken.json");
         assert!(scan.invalid_files[0].error.contains("missing name"));
 
         let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn character_file_names_are_safe_for_sync_writes() {
+        let character = serde_json::json!({
+            "id": "Local Pending Sora",
+            "name": "Pending Sora"
+        });
+        assert_eq!(
+            safe_character_file_name_from_value(&character).unwrap(),
+            "local-pending-sora.json"
+        );
+
+        let explicit = serde_json::json!({
+            "id": "safe",
+            "fileName": "safe-character.json"
+        });
+        assert_eq!(
+            safe_character_file_name_from_value(&explicit).unwrap(),
+            "safe-character.json"
+        );
+
+        let traversal = serde_json::json!({
+            "id": "safe",
+            "fileName": "../safe-character.json"
+        });
+        assert!(safe_character_file_name_from_value(&traversal).is_err());
     }
 }
 
@@ -2692,6 +2807,8 @@ pub fn run() {
             open_character_folder,
             scan_character_folder,
             save_character_pack_export,
+            save_character_file,
+            delete_character_file,
             check_for_updates,
             install_update,
             check_setup_readiness,

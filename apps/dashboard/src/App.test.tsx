@@ -509,6 +509,294 @@ describe("CharacterForge dashboard", () => {
     expect(screen.getByRole("article", { name: /lyra quill/i })).toBeInTheDocument();
   });
 
+
+
+  it("pushes connected character saves through the API before updating the local folder copy", async () => {
+    const user = userEvent.setup();
+    const invoke = vi.fn().mockImplementation((command: string, payload: unknown) => {
+      if (command === "get_app_config") {
+        return Promise.resolve({ firstRunTutorialCompleted: true, firstRunTutorialSkipped: false });
+      }
+      if (command === "save_character_file") {
+        return Promise.resolve({ path: "C:\\Users\\Evan\\AppData\\Roaming\\CharacterForgeAI\\characters\\char_api_nova.json" });
+      }
+      return Promise.reject(new Error(`unexpected command ${command}`));
+    });
+    window.__TAURI__ = { core: { invoke } };
+    listCharactersMock.mockResolvedValueOnce({ characters: [] });
+    createCharacterMock.mockResolvedValueOnce({ id: "char_api_nova" });
+
+    render(<App />);
+    await user.click(screen.getByRole("button", { name: "Deployment" }));
+    await user.type(screen.getByLabelText(/api base url/i), "https://api.example.test/dev");
+    await user.click(screen.getByRole("button", { name: /test connection/i }));
+    await screen.findAllByText(/connected to characterforge api/i);
+
+    await user.click(screen.getByRole("button", { name: "Characters" }));
+    await user.click(screen.getByRole("button", { name: /create character/i }));
+    const dialog = screen.getByRole("dialog", { name: /create character/i });
+    await user.type(within(dialog).getByLabelText(/character name/i), "Nova Syncwright");
+    await user.type(within(dialog).getByLabelText(/description/i), "A connected character synced through the API first.");
+    await user.type(within(dialog).getByLabelText(/personality traits/i), "careful, bright");
+    await user.type(within(dialog).getByLabelText(/goals/i), "keep cloud and local copies aligned");
+    await user.type(within(dialog).getByLabelText(/backstory/i), "Built release sync ledgers for local folders.");
+    await user.type(within(dialog).getByLabelText(/speaking style/i), "Concise status updates.");
+    await user.type(within(dialog).getByLabelText(/world context/i), "CharacterForgeAI sync validation lab.");
+    await user.type(within(dialog).getByLabelText(/roleplay rules/i), "Never invent sync success.");
+    await user.click(within(dialog).getByRole("button", { name: /create new action/i }));
+    await user.type(within(dialog).getByLabelText(/action name/i), "sync_audit");
+    await user.type(within(dialog).getByLabelText(/trigger instructions/i), "When a sync status changes.");
+
+    await user.click(within(dialog).getByRole("button", { name: /submit character/i }));
+
+    await waitFor(() => expect(createCharacterMock).toHaveBeenCalledWith({ baseUrl: "https://api.example.test/dev", apiKey: undefined }, expect.objectContaining({ name: "Nova Syncwright" })));
+    await waitFor(() => expect(invoke).toHaveBeenCalledWith("save_character_file", expect.objectContaining({
+      character: expect.objectContaining({ id: "char_api_nova", name: "Nova Syncwright", syncStatus: "api_synced", source: "api" })
+    })));
+    expect(await screen.findByText(/saved: created nova syncwright through the api and updated the local folder copy/i)).toBeInTheDocument();
+    const novaCard = screen.getByRole("article", { name: /nova syncwright/i });
+    expect(within(novaCard).getByText(/source: api/i)).toBeInTheDocument();
+    expect(within(novaCard).getByText(/sync: cloud synced/i)).toBeInTheDocument();
+  });
+
+  it("saves offline character edits to the local folder and marks them not synced yet", async () => {
+    const user = userEvent.setup();
+    const invoke = vi.fn().mockImplementation((command: string, payload: unknown) => {
+      if (command === "get_app_config") {
+        return Promise.resolve({ firstRunTutorialCompleted: true, firstRunTutorialSkipped: false });
+      }
+      if (command === "save_character_file") {
+        return Promise.resolve({ path: "C:\\Users\\Evan\\AppData\\Roaming\\CharacterForgeAI\\characters\\local-offline-mina.json" });
+      }
+      return Promise.reject(new Error(`unexpected command ${command}`));
+    });
+    window.__TAURI__ = { core: { invoke } };
+
+    render(<App />);
+    await user.click(screen.getByRole("button", { name: "Characters" }));
+    await user.click(screen.getByRole("button", { name: /create character/i }));
+    const dialog = screen.getByRole("dialog", { name: /create character/i });
+    await user.type(within(dialog).getByLabelText(/character name/i), "Offline Mina");
+    await user.type(within(dialog).getByLabelText(/description/i), "Created while disconnected.");
+    await user.type(within(dialog).getByLabelText(/personality traits/i), "patient, practical");
+    await user.type(within(dialog).getByLabelText(/goals/i), "sync later");
+    await user.type(within(dialog).getByLabelText(/backstory/i), "Wrote local-first records.");
+    await user.type(within(dialog).getByLabelText(/speaking style/i), "Calm and direct.");
+    await user.type(within(dialog).getByLabelText(/world context/i), "Offline test harness.");
+    await user.type(within(dialog).getByLabelText(/roleplay rules/i), "Show pending status.");
+    await user.click(within(dialog).getByRole("button", { name: /create new action/i }));
+    await user.type(within(dialog).getByLabelText(/action name/i), "queue_sync");
+    await user.type(within(dialog).getByLabelText(/trigger instructions/i), "When the API is unavailable.");
+
+    await user.click(within(dialog).getByRole("button", { name: /submit character/i }));
+
+    expect(createCharacterMock).not.toHaveBeenCalled();
+    await waitFor(() => expect(invoke).toHaveBeenCalledWith("save_character_file", expect.objectContaining({
+      character: expect.objectContaining({ name: "Offline Mina", syncStatus: "api_pending", source: "local" })
+    })));
+    expect(await screen.findByText(/not synced yet: saved offline mina to the local character folder/i)).toBeInTheDocument();
+    const minaCard = screen.getByRole("article", { name: /offline mina/i });
+    expect(within(minaCard).getByText(/source: local folder/i)).toBeInTheDocument();
+    expect(within(minaCard).getByText(/sync: not synced yet/i)).toBeInTheDocument();
+  });
+
+
+
+  it("treats a configured but failed API connection as offline and saves local pending changes", async () => {
+    const user = userEvent.setup();
+    const invoke = vi.fn().mockImplementation((command: string) => {
+      if (command === "get_app_config") {
+        return Promise.resolve({ firstRunTutorialCompleted: true, firstRunTutorialSkipped: false });
+      }
+      if (command === "save_character_file") {
+        return Promise.resolve({ path: "C:\\Users\\Evan\\AppData\\Roaming\\CharacterForgeAI\\characters\\local-disconnected-dara.json" });
+      }
+      return Promise.reject(new Error(`unexpected command ${command}`));
+    });
+    window.__TAURI__ = { core: { invoke } };
+    listCharactersMock.mockRejectedValueOnce(new Error("Network offline"));
+
+    render(<App />);
+    await user.click(screen.getByRole("button", { name: "Deployment" }));
+    await user.type(screen.getByLabelText(/api base url/i), "https://api.example.test/dev");
+    await user.click(screen.getByRole("button", { name: /test connection/i }));
+    expect((await screen.findAllByText(/connection failed: network offline/i)).length).toBeGreaterThan(0);
+
+    await user.click(screen.getByRole("button", { name: "Characters" }));
+    await user.click(screen.getByRole("button", { name: /create character/i }));
+    const dialog = screen.getByRole("dialog", { name: /create character/i });
+    await user.type(within(dialog).getByLabelText(/character name/i), "Disconnected Dara");
+    await user.type(within(dialog).getByLabelText(/description/i), "Saved while the configured API is offline.");
+    await user.type(within(dialog).getByLabelText(/personality traits/i), "careful");
+    await user.type(within(dialog).getByLabelText(/goals/i), "queue safely");
+    await user.type(within(dialog).getByLabelText(/backstory/i), "Waited for connectivity.");
+    await user.type(within(dialog).getByLabelText(/speaking style/i), "Brief status updates.");
+    await user.type(within(dialog).getByLabelText(/world context/i), "Disconnected sync lane.");
+    await user.type(within(dialog).getByLabelText(/roleplay rules/i), "Do not call offline APIs.");
+    await user.click(within(dialog).getByRole("button", { name: /create new action/i }));
+    await user.type(within(dialog).getByLabelText(/action name/i), "queue_disconnected_sync");
+    await user.type(within(dialog).getByLabelText(/trigger instructions/i), "When connection checks fail.");
+    await user.click(within(dialog).getByRole("button", { name: /submit character/i }));
+
+    expect(createCharacterMock).not.toHaveBeenCalled();
+    await waitFor(() => expect(invoke).toHaveBeenCalledWith("save_character_file", expect.objectContaining({
+      character: expect.objectContaining({ name: "Disconnected Dara", source: "local", syncStatus: "api_pending" })
+    })));
+    expect(await screen.findByText(/not synced yet: saved disconnected dara to the local character folder/i)).toBeInTheDocument();
+  });
+
+  it("creates API records for pending local characters after reconnect instead of updating a local-only id", async () => {
+    const user = userEvent.setup();
+    const invoke = vi.fn().mockImplementation((command: string) => {
+      if (command === "get_app_config") {
+        return Promise.resolve({ firstRunTutorialCompleted: true, firstRunTutorialSkipped: false });
+      }
+      if (command === "get_character_folder") {
+        return Promise.resolve({ path: "C:\\Users\\Evan\\AppData\\Roaming\\CharacterForgeAI\\characters", browserMode: false });
+      }
+      if (command === "open_character_folder") {
+        return Promise.resolve({ path: "C:\\Users\\Evan\\AppData\\Roaming\\CharacterForgeAI\\characters", opened: true, browserMode: false });
+      }
+      if (command === "scan_character_folder") {
+        return Promise.resolve({
+          folderPath: "C:\\Users\\Evan\\AppData\\Roaming\\CharacterForgeAI\\characters",
+          characters: [{ id: "local-pending-sora", name: "Pending Sora", archetype: "Local scout", description: "Queued before reconnect.", status: "Draft", allowedActions: ["sync_now"], source: "local", syncStatus: "api_pending" }],
+          invalidFiles: []
+        });
+      }
+      if (command === "save_character_file") {
+        return Promise.resolve({ path: "C:\\Users\\Evan\\AppData\\Roaming\\CharacterForgeAI\\characters\\char_api_sora.json" });
+      }
+      if (command === "delete_character_file") {
+        return Promise.resolve();
+      }
+      return Promise.reject(new Error(`unexpected command ${command}`));
+    });
+    window.__TAURI__ = { core: { invoke } };
+    listCharactersMock.mockResolvedValueOnce({ characters: [] });
+    createCharacterMock.mockResolvedValueOnce({ id: "char_api_sora" });
+
+    render(<App />);
+    await user.click(screen.getByRole("button", { name: "Deployment" }));
+    await user.type(screen.getByLabelText(/api base url/i), "https://api.example.test/dev");
+    await user.click(screen.getByRole("button", { name: /test connection/i }));
+    await screen.findAllByText(/connected to characterforge api/i);
+
+    await user.click(screen.getByRole("button", { name: "Characters" }));
+    await user.click(screen.getByRole("button", { name: /^open character folder$/i }));
+    const soraCard = await screen.findByRole("article", { name: /pending sora/i });
+    expect(within(soraCard).getByText(/sync: not synced yet/i)).toBeInTheDocument();
+    await user.click(within(soraCard).getByRole("button", { name: /edit pending sora/i }));
+    const dialog = screen.getByRole("dialog", { name: /edit pending sora/i });
+    await user.click(within(dialog).getByRole("button", { name: /create new action/i }));
+    await user.type(within(dialog).getAllByLabelText(/action name/i).at(-1)!, "sync_confirmed");
+    await user.type(within(dialog).getAllByLabelText(/trigger instructions/i).at(-1)!, "After reconnect sync succeeds.");
+    await user.click(within(dialog).getByRole("button", { name: /submit character/i }));
+
+    await waitFor(() => expect(createCharacterMock).toHaveBeenCalledWith({ baseUrl: "https://api.example.test/dev", apiKey: undefined }, expect.objectContaining({ name: "Pending Sora" })));
+    expect(updateCharacterMock).not.toHaveBeenCalled();
+    await waitFor(() => expect(invoke).toHaveBeenCalledWith("delete_character_file", expect.objectContaining({ characterId: "local-pending-sora" })));
+    expect(await screen.findByText(/saved: created pending sora through the api and updated the local folder copy/i)).toBeInTheDocument();
+  });
+
+
+  it("keeps failed connected saves as pending local changes with a sync error", async () => {
+    const user = userEvent.setup();
+    const invoke = vi.fn().mockImplementation((command: string, payload: unknown) => {
+      if (command === "get_app_config") {
+        return Promise.resolve({ firstRunTutorialCompleted: true, firstRunTutorialSkipped: false });
+      }
+      if (command === "save_character_file") {
+        return Promise.resolve({ path: "C:\\Users\\Evan\\AppData\\Roaming\\CharacterForgeAI\\characters\\local-retry-rune.json" });
+      }
+      return Promise.reject(new Error(`unexpected command ${command}`));
+    });
+    window.__TAURI__ = { core: { invoke } };
+    listCharactersMock.mockResolvedValueOnce({ characters: [] });
+    createCharacterMock.mockRejectedValueOnce(new Error("DynamoDB conditional check failed"));
+
+    render(<App />);
+    await user.click(screen.getByRole("button", { name: "Deployment" }));
+    await user.type(screen.getByLabelText(/api base url/i), "https://api.example.test/dev");
+    await user.click(screen.getByRole("button", { name: /test connection/i }));
+    await screen.findAllByText(/connected to characterforge api/i);
+
+    await user.click(screen.getByRole("button", { name: "Characters" }));
+    await user.click(screen.getByRole("button", { name: /create character/i }));
+    const dialog = screen.getByRole("dialog", { name: /create character/i });
+    await user.type(within(dialog).getByLabelText(/character name/i), "Retry Rune");
+    await user.type(within(dialog).getByLabelText(/description/i), "Needs retry after a backend conflict.");
+    await user.type(within(dialog).getByLabelText(/personality traits/i), "persistent, wary");
+    await user.type(within(dialog).getByLabelText(/goals/i), "retry safely");
+    await user.type(within(dialog).getByLabelText(/backstory/i), "Survived a failed conditional write.");
+    await user.type(within(dialog).getByLabelText(/speaking style/i), "Warns about conflicts.");
+    await user.type(within(dialog).getByLabelText(/world context/i), "DynamoDB sync lane.");
+    await user.type(within(dialog).getByLabelText(/roleplay rules/i), "Never hide failed syncs.");
+    await user.click(within(dialog).getByRole("button", { name: /create new action/i }));
+    await user.type(within(dialog).getByLabelText(/action name/i), "retry_sync");
+    await user.type(within(dialog).getByLabelText(/trigger instructions/i), "When sync failed.");
+
+    await user.click(within(dialog).getByRole("button", { name: /submit character/i }));
+
+    await waitFor(() => expect(createCharacterMock).toHaveBeenCalled());
+    await waitFor(() => expect(invoke).toHaveBeenCalledWith("save_character_file", expect.objectContaining({
+      character: expect.objectContaining({ name: "Retry Rune", syncStatus: "conflict", source: "local" })
+    })));
+    expect(await screen.findByText(/failed sync: dynamodb conditional check failed. retry rune was kept as a pending local change/i)).toBeInTheDocument();
+    const retryCard = screen.getByRole("article", { name: /retry rune/i });
+    expect(within(retryCard).getByText(/source: local folder/i)).toBeInTheDocument();
+    expect(within(retryCard).getByText(/sync: conflict or sync error/i)).toBeInTheDocument();
+  });
+
+  it("shows pending local changes and API/local conflicts from the character folder scan", async () => {
+    const user = userEvent.setup();
+    const invoke = vi.fn().mockImplementation((command: string) => {
+      if (command === "get_app_config") {
+        return Promise.resolve({ firstRunTutorialCompleted: true, firstRunTutorialSkipped: false });
+      }
+      if (command === "get_character_folder") {
+        return Promise.resolve({ path: "C:\\Users\\Evan\\AppData\\Roaming\\CharacterForgeAI\\characters", browserMode: false });
+      }
+      if (command === "open_character_folder") {
+        return Promise.resolve({ path: "C:\\Users\\Evan\\AppData\\Roaming\\CharacterForgeAI\\characters", opened: true, browserMode: false });
+      }
+      if (command === "scan_character_folder") {
+        return Promise.resolve({
+          folderPath: "C:\\Users\\Evan\\AppData\\Roaming\\CharacterForgeAI\\characters",
+          characters: [
+            { id: "char_api_warden", name: "Warden Cloud", archetype: "Local duplicate", description: "Local pending duplicate.", status: "Draft", syncStatus: "api_pending", source: "local" },
+            { id: "char_local_pending", name: "Pending Piper", archetype: "Local bard", description: "Waiting for API sync.", status: "Draft", syncStatus: "api_pending", source: "local" }
+          ],
+          invalidFiles: []
+        });
+      }
+      return Promise.reject(new Error(`unexpected command ${command}`));
+    });
+    window.__TAURI__ = { core: { invoke } };
+    listCharactersMock.mockResolvedValueOnce({
+      characters: [{ id: "char_api_warden", name: "Warden Cloud", archetype: "API sentinel", description: "Cloud copy." }]
+    });
+
+    render(<App />);
+    await user.click(screen.getByRole("button", { name: "Deployment" }));
+    await user.type(screen.getByLabelText(/api base url/i), "https://api.example.test/dev");
+    await user.click(screen.getByRole("button", { name: /test connection/i }));
+    await screen.findAllByText(/connected to characterforge api/i);
+
+    await user.click(screen.getByRole("button", { name: "Characters" }));
+    await user.click(screen.getByRole("button", { name: /^open character folder$/i }));
+
+    const wardenCard = await screen.findByRole("article", { name: /warden cloud/i });
+    expect(within(wardenCard).getByText(/source: api \+ local/i)).toBeInTheDocument();
+    expect(within(wardenCard).getByText(/sync: conflict or sync error/i)).toBeInTheDocument();
+    expect(screen.getByText(/conflict: warden cloud exists in both api and local folder with pending local changes/i)).toBeInTheDocument();
+    const pendingCard = screen.getByRole("article", { name: /pending piper/i });
+    expect(within(pendingCard).getByText(/source: local folder/i)).toBeInTheDocument();
+    expect(within(pendingCard).getByText(/sync: not synced yet/i)).toBeInTheDocument();
+    expect(screen.getByText(/pending local changes: 2 character files are not synced yet/i)).toBeInTheDocument();
+  });
+
+
   it("runs mocked setup checks for AWS readiness without calling AWS", async () => {
     const user = userEvent.setup();
     render(<App />);
@@ -1370,6 +1658,7 @@ describe("CharacterForge dashboard", () => {
 
   it("builds an exact create-character payload from editor fields and submits it through the SDK", async () => {
     const user = userEvent.setup();
+    listCharactersMock.mockResolvedValueOnce({ characters: [] });
     createCharacterMock.mockResolvedValueOnce({ character_id: "char_new_mira" });
 
     render(<App />);
@@ -1378,6 +1667,8 @@ describe("CharacterForge dashboard", () => {
     await user.type(screen.getByLabelText(/api base url/i), "https://api.example.test/dev");
     await user.type(screen.getByLabelText(/^api key$/i), "test-api-key");
     await user.click(screen.getByRole("button", { name: /save settings/i }));
+    await user.click(screen.getByRole("button", { name: /test connection/i }));
+    await screen.findAllByText(/connected to characterforge api/i);
 
     await user.click(screen.getByRole("button", { name: "Characters" }));
     await user.click(screen.getByRole("button", { name: /create character/i }));
@@ -1485,11 +1776,14 @@ describe("CharacterForge dashboard", () => {
       expectedPayload
     );
     expect(updateCharacterMock).not.toHaveBeenCalled();
-    expect(await screen.findByText(/saved: created character profile/i)).toBeInTheDocument();
+    expect(await screen.findByText(/saved: created captain mira voss through the api and updated the local folder copy/i)).toBeInTheDocument();
   });
 
   it("validates create/edit character dialogs and closes without saving on cancel", async () => {
     const user = userEvent.setup();
+    listCharactersMock.mockResolvedValueOnce({
+      characters: [{ id: "char_mock_mira", name: "Captain Mira Voss", archetype: "Rogue airship captain", status: "Ready for chat testing", description: "A protective smuggler with clipped nautical metaphors and a dangerous reputation.", allowed_actions: ["give_item"] }]
+    });
     updateCharacterMock.mockResolvedValueOnce({ character_id: "char_mira_voss" });
 
     render(<App />);
@@ -1512,6 +1806,8 @@ describe("CharacterForge dashboard", () => {
     await user.click(screen.getByRole("button", { name: "Deployment" }));
     await user.type(screen.getByLabelText(/api base url/i), "https://api.example.test/dev");
     await user.click(screen.getByRole("button", { name: /save settings/i }));
+    await user.click(screen.getByRole("button", { name: /test connection/i }));
+    await screen.findAllByText(/connected to characterforge api/i);
 
     await user.click(screen.getByRole("button", { name: "Characters" }));
     const miraCard = screen.getByRole("article", { name: /captain mira voss/i });
@@ -1537,12 +1833,13 @@ describe("CharacterForge dashboard", () => {
       })
     );
     expect(createCharacterMock).not.toHaveBeenCalled();
-    expect(await screen.findByText(/saved: updated character profile/i)).toBeInTheDocument();
+    expect(await screen.findByText(/saved: updated captain mira voss through the api and updated the local folder copy/i)).toBeInTheDocument();
   });
 
 
   it("maps multiple custom actions, validates payload templates, and deletes actions before submit", async () => {
     const user = userEvent.setup();
+    listCharactersMock.mockResolvedValueOnce({ characters: [] });
     createCharacterMock.mockResolvedValueOnce({ character_id: "char_custom_actions" });
 
     render(<App />);
@@ -1550,6 +1847,8 @@ describe("CharacterForge dashboard", () => {
     await user.click(screen.getByRole("button", { name: "Deployment" }));
     await user.type(screen.getByLabelText(/api base url/i), "https://api.example.test/dev");
     await user.click(screen.getByRole("button", { name: /save settings/i }));
+    await user.click(screen.getByRole("button", { name: /test connection/i }));
+    await screen.findAllByText(/connected to characterforge api/i);
 
     await user.click(screen.getByRole("button", { name: "Characters" }));
     await user.click(screen.getByRole("button", { name: /create character/i }));
