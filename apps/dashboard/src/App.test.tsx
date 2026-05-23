@@ -40,10 +40,16 @@ describe("CharacterForge dashboard", () => {
     window.localStorage.clear();
   });
 
-  async function startDeploymentWithLocalScan(scanResult: { folderPath: string; characters: unknown[]; invalidFiles: unknown[] }) {
+  async function startDeploymentWithLocalScan(
+    scanResult: { folderPath: string; characters: unknown[]; invalidFiles: unknown[] },
+    overrides: Partial<Record<string, (args?: unknown) => Promise<unknown>>> = {}
+  ) {
     const user = userEvent.setup();
     listCharactersMock.mockResolvedValue({ characters: [] });
-    const invoke = vi.fn().mockImplementation((command: string) => {
+    const invoke = vi.fn().mockImplementation((command: string, args?: unknown) => {
+      if (overrides[command]) {
+        return overrides[command]?.(args);
+      }
       if (command === "get_app_config") {
         return Promise.resolve({ firstRunTutorialCompleted: true, firstRunTutorialSkipped: false });
       }
@@ -64,6 +70,15 @@ describe("CharacterForge dashboard", () => {
       }
       if (command === "scan_character_folder") {
         return Promise.resolve(scanResult);
+      }
+      if (command === "open_character_folder") {
+        return Promise.resolve({ path: "C:\\Users\\Evan\\AppData\\Roaming\\CharacterForgeAI\\characters", opened: true, browserMode: false });
+      }
+      if (command === "save_character_pack_export") {
+        return Promise.resolve({ path: "C:\\Users\\Evan\\AppData\\Roaming\\CharacterForgeAI\\characters\\characterforge-dashboard-export.json" });
+      }
+      if (command === "end_deployment") {
+        return Promise.resolve({ status: "succeeded", finalStackStatus: "DELETE_COMPLETE", logs: ["Deleted stack characterforge-demo"] });
       }
       return Promise.reject(new Error(`unexpected command ${command}`));
     });
@@ -1067,7 +1082,7 @@ describe("CharacterForge dashboard", () => {
 
     expect(await screen.findByText(/browser preview setup check complete/i)).toBeInTheDocument();
     expect(screen.getAllByText(/aws region/i).length).toBeGreaterThan(0);
-    expect(screen.getByText("us-east-1")).toBeInTheDocument();
+    expect(screen.getAllByText("us-east-1").length).toBeGreaterThan(0);
     expect(screen.getByText(/selected bedrock model/i)).toBeInTheDocument();
     expect(screen.getByText("anthropic.claude-3-haiku-20240307-v1:0")).toBeInTheDocument();
     expect(screen.getAllByText(/credential status/i).length).toBeGreaterThan(0);
@@ -1094,7 +1109,7 @@ describe("CharacterForge dashboard", () => {
     await user.click(screen.getByRole("button", { name: /run readiness check/i }));
 
     expect(await screen.findByText(/browser preview setup check complete/i)).toBeInTheDocument();
-    expect(screen.getByText("eu-west-1")).toBeInTheDocument();
+    expect(screen.getAllByText("eu-west-1").length).toBeGreaterThan(0);
     expect(screen.getAllByText(/verify that characterforge deployment templates target eu-west-1/i).length).toBeGreaterThan(0);
     expect(screen.getAllByText(/higher-capability models may cost more per request/i).length).toBeGreaterThan(0);
   });
@@ -1369,6 +1384,92 @@ describe("CharacterForge dashboard", () => {
     expect(updateCharacterMock).not.toHaveBeenCalled();
   });
 
+  it("keeps End cancelled until export/save choice and delete confirmation are checked", async () => {
+    const { invoke } = await startDeploymentWithLocalScan({
+      folderPath: "C:\\Users\\Evan\\AppData\\Roaming\\CharacterForgeAI\\characters",
+      characters: [],
+      invalidFiles: []
+    });
+
+    expect(screen.getAllByText(/stack characterforge-demo/i).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/region us-west-2/i).length).toBeGreaterThan(0);
+    expect(screen.getByRole("button", { name: /open character folder/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /export characters/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^end$/i })).toBeDisabled();
+    expect(invoke).not.toHaveBeenCalledWith("end_deployment", expect.anything());
+  });
+
+  it("exports characters before End and then deletes the stack after explicit confirmation", async () => {
+    const createObjectUrlMock = vi.fn(() => "blob:characterforge-dashboard-export");
+    vi.stubGlobal("URL", { ...URL, createObjectURL: createObjectUrlMock, revokeObjectURL: vi.fn() });
+    const { invoke, user } = await startDeploymentWithLocalScan({
+      folderPath: "C:\\Users\\Evan\\AppData\\Roaming\\CharacterForgeAI\\characters",
+      characters: [
+        {
+          id: "local-rin",
+          name: "Rin",
+          archetype: "Guide",
+          status: "Draft",
+          description: "Local guide",
+          allowedActions: ["guide"],
+          source: "local",
+          syncStatus: "api_pending",
+          payload: { name: "Rin", description: "Local guide", allowed_actions: ["guide"], action_rules: [], payload_templates: [] }
+        }
+      ],
+      invalidFiles: []
+    });
+
+    await user.click(screen.getByRole("button", { name: /export characters/i }));
+    expect(await screen.findByText(/exported 1 character before end/i)).toBeInTheDocument();
+    expect(invoke).toHaveBeenCalledWith("save_character_pack_export", expect.objectContaining({ fileName: "characterforge-dashboard-export.json" }));
+    expect(createObjectUrlMock).toHaveBeenCalledTimes(1);
+
+    await user.click(screen.getByRole("checkbox", { name: /i understand end deletes stack characterforge-demo in region us-west-2/i }));
+    await user.click(screen.getByRole("button", { name: /^end$/i }));
+
+    await waitFor(() =>
+      expect(invoke).toHaveBeenCalledWith("end_deployment", expect.objectContaining({
+        options: { confirmationText: "END characterforge-demo", exportConfirmed: true }
+      }))
+    );
+  });
+
+  it("blocks End when requested export fails", async () => {
+    vi.stubGlobal("URL", { ...URL, createObjectURL: vi.fn(() => "blob:failed-export"), revokeObjectURL: vi.fn() });
+    const { invoke, user } = await startDeploymentWithLocalScan(
+      {
+        folderPath: "C:\\Users\\Evan\\AppData\\Roaming\\CharacterForgeAI\\characters",
+        characters: [],
+        invalidFiles: []
+      },
+      {
+        save_character_pack_export: () => Promise.reject(new Error("disk full"))
+      }
+    );
+
+    await user.click(screen.getByRole("button", { name: /export characters/i }));
+    expect(await screen.findByText(/export before end failed: disk full/i)).toBeInTheDocument();
+    await user.click(screen.getByRole("checkbox", { name: /i understand end deletes stack characterforge-demo in region us-west-2/i }));
+    expect(screen.getByRole("button", { name: /^end$/i })).toBeDisabled();
+    expect(invoke).not.toHaveBeenCalledWith("end_deployment", expect.anything());
+  });
+
+  it("allows delete-without-export only after explicit save/export choice confirmation", async () => {
+    const { invoke, user } = await startDeploymentWithLocalScan({
+      folderPath: "C:\\Users\\Evan\\AppData\\Roaming\\CharacterForgeAI\\characters",
+      characters: [],
+      invalidFiles: []
+    });
+
+    await user.click(screen.getByRole("checkbox", { name: /i saved\/exported the characters i need, or i deliberately choose to delete without exporting/i }));
+    await user.click(screen.getByRole("checkbox", { name: /i understand end deletes stack characterforge-demo in region us-west-2/i }));
+    await user.click(screen.getByRole("button", { name: /^end$/i }));
+
+    expect(invoke).not.toHaveBeenCalledWith("save_character_pack_export", expect.anything());
+    await waitFor(() => expect(invoke).toHaveBeenCalledWith("end_deployment", expect.anything()));
+  });
+
   it("shows deploying status while a mocked Start operation is pending", async () => {
     const user = userEvent.setup();
     listCharactersMock.mockResolvedValue({ characters: [] });
@@ -1490,8 +1591,8 @@ describe("CharacterForge dashboard", () => {
     expect(within(panels).getAllByText(/lambda role policy denied/i).length).toBeGreaterThan(0);
     expect(within(panels).queryByText(/raw-session-token/i)).not.toBeInTheDocument();
 
-    await user.click(screen.getByRole("checkbox", { name: /i exported the character packs/i }));
-    await user.click(screen.getByRole("checkbox", { name: /i understand end deletes/i }));
+    await user.click(screen.getByRole("checkbox", { name: /i saved\/exported the characters i need/i }));
+    await user.click(screen.getByRole("checkbox", { name: /i understand end deletes stack characterforge-demo in region us-west-2/i }));
     await user.click(screen.getByRole("button", { name: /^end$/i }));
     await screen.findByText(/deployment end ended with delete_failed/i);
 
@@ -1759,9 +1860,9 @@ describe("CharacterForge dashboard", () => {
 
     const endButton = screen.getByRole("button", { name: /^end$/i });
     expect(endButton).toBeDisabled();
-    await user.click(screen.getByRole("checkbox", { name: /i exported the character packs/i }));
+    await user.click(screen.getByRole("checkbox", { name: /i saved\/exported the characters i need/i }));
     expect(endButton).toBeDisabled();
-    await user.click(screen.getByRole("checkbox", { name: /i understand end deletes/i }));
+    await user.click(screen.getByRole("checkbox", { name: /i understand end deletes stack characterforge-demo in region us-west-2/i }));
     expect(endButton).toBeEnabled();
     await user.click(endButton);
 
