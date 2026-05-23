@@ -345,8 +345,8 @@ describe("CharacterForge dashboard", () => {
     expect(screen.getByText(/existing stack status/i)).toBeInTheDocument();
     expect(screen.getByText(/no existing stack found/i)).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: /warnings/i })).toBeInTheDocument();
-    expect(screen.getByText(/mock results only/i)).toBeInTheDocument();
-    expect(screen.getByText(/confirm bedrock model access in the aws console/i)).toBeInTheDocument();
+    expect(screen.getAllByText(/mock results only/i).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/confirm bedrock model access in the aws console/i).length).toBeGreaterThan(0);
     expect(listCharactersMock).not.toHaveBeenCalled();
     expect(createCharacterMock).not.toHaveBeenCalled();
   });
@@ -363,8 +363,8 @@ describe("CharacterForge dashboard", () => {
 
     expect(await screen.findByText(/mock setup check complete/i)).toBeInTheDocument();
     expect(screen.getByText("eu-west-1")).toBeInTheDocument();
-    expect(screen.getByText(/verify that characterforge deployment templates target eu-west-1/i)).toBeInTheDocument();
-    expect(screen.getByText(/higher-capability models may cost more per request/i)).toBeInTheDocument();
+    expect(screen.getAllByText(/verify that characterforge deployment templates target eu-west-1/i).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/higher-capability models may cost more per request/i).length).toBeGreaterThan(0);
   });
 
   it("runs app-side Tauri setup readiness checks without exposing credentials", async () => {
@@ -490,6 +490,211 @@ describe("CharacterForge dashboard", () => {
     expect(screen.queryByText(/real-session-token/i)).not.toBeInTheDocument();
   });
 
+  it("shows not-configured Deployment status panels before setup", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+
+    await user.click(screen.getByRole("button", { name: "Deployment" }));
+
+    const panels = screen.getByLabelText(/deployment status and alerts/i);
+    expect(within(panels).getByRole("heading", { name: /deployment status and alerts/i })).toBeInTheDocument();
+    expect(within(panels).getByText(/stack status/i)).toBeInTheDocument();
+    expect(within(panels).getByText(/not configured/i)).toBeInTheDocument();
+    expect(within(panels).getByText(/last operation/i)).toBeInTheDocument();
+    expect(within(panels).getByText(/no deployment operation has run yet/i)).toBeInTheDocument();
+    expect(within(panels).getByText(/api connection/i)).toBeInTheDocument();
+    expect(within(panels).getByText(/api endpoint not configured/i)).toBeInTheDocument();
+    expect(within(panels).getByText(/character sync readiness/i)).toBeInTheDocument();
+    expect(within(panels).getByText(/character sync waits for a connected api/i)).toBeInTheDocument();
+    expect(within(panels).getByText(/sanitized alerts/i)).toBeInTheDocument();
+    expect(within(panels).getByText(/run readiness check before using this for deployment decisions/i)).toBeInTheDocument();
+  });
+
+  it("shows ready Deployment status panels after mocked readiness, API, and Start success", async () => {
+    const user = userEvent.setup();
+    listCharactersMock.mockResolvedValue({
+      characters: [{ id: "char_api_arden", name: "Arden Vale", archetype: "API ranger", description: "Fetched from API." }]
+    });
+    const invoke = vi.fn().mockImplementation((command: string) => {
+      if (command === "get_app_config") {
+        return Promise.resolve({ firstRunTutorialCompleted: true, firstRunTutorialSkipped: false });
+      }
+      if (command === "check_setup_readiness") {
+        return Promise.resolve({
+          overallStatus: "ready",
+          checks: [
+            { id: "awsProfile", label: "AWS profile", status: "ready", detail: "Profile game-dev is configured" },
+            { id: "awsRegion", label: "AWS region", status: "ready", detail: "Region us-west-2 selected" },
+            { id: "stack", label: "CloudFormation stack", status: "ready", detail: "Stack characterforge-demo is ready" },
+            { id: "model", label: "Bedrock model", status: "ready", detail: "Model appears in Bedrock foundation model list" }
+          ],
+          warnings: []
+        });
+      }
+      if (command === "start_deployment") {
+        return Promise.resolve({
+          status: "succeeded",
+          finalStackStatus: "CREATE_COMPLETE",
+          savedOutputsPath: "C:/Users/Evan/AppData/Local/CharacterForgeAI/characterforge-demo-outputs.json",
+          logs: ["Created API endpoint", "AWS_SECRET_ACCESS_KEY=<redacted>"]
+        });
+      }
+      return Promise.reject(new Error(`unexpected command ${command}`));
+    });
+    window.__TAURI__ = { core: { invoke } };
+
+    render(<App />);
+    await user.click(screen.getByRole("button", { name: "Deployment" }));
+    await user.clear(screen.getByLabelText(/aws region/i));
+    await user.type(screen.getByLabelText(/aws region/i), "us-west-2");
+    await user.clear(screen.getByLabelText(/aws profile name/i));
+    await user.type(screen.getByLabelText(/aws profile name/i), "game-dev");
+    await user.clear(screen.getByLabelText(/stack name/i));
+    await user.type(screen.getByLabelText(/stack name/i), "characterforge-demo");
+    await user.type(screen.getByLabelText(/api base url/i), "https://api.example.test/dev");
+    await user.click(screen.getByRole("button", { name: /test connection/i }));
+    await screen.findAllByText(/connected to characterforge api/i);
+    await user.click(screen.getByRole("button", { name: /run readiness check/i }));
+    await screen.findByText(/desktop setup readiness check complete/i);
+    await user.click(screen.getByRole("checkbox", { name: /i reviewed the readiness results/i }));
+    await user.click(screen.getByRole("button", { name: /^start$/i }));
+    await screen.findByText(/deployment start completed with create_complete/i);
+
+    const panels = screen.getByLabelText(/deployment status and alerts/i);
+    expect(within(panels).getByText(/create_complete/i)).toBeInTheDocument();
+    expect(within(panels).getByText(/start succeeded/i)).toBeInTheDocument();
+    expect(within(panels).getByText(/api connected/i)).toBeInTheDocument();
+    expect(within(panels).getByText(/1 api character ready for sync/i)).toBeInTheDocument();
+    expect(within(panels).getByText(/no active deployment alerts/i)).toBeInTheDocument();
+    expect(within(panels).queryByText(/AWS_SECRET_ACCESS_KEY/i)).not.toBeInTheDocument();
+  });
+
+  it("shows deploying status while a mocked Start operation is pending", async () => {
+    const user = userEvent.setup();
+    listCharactersMock.mockResolvedValue({ characters: [] });
+    let resolveStart: (value: unknown) => void = () => undefined;
+    const startPromise = new Promise((resolve) => {
+      resolveStart = resolve;
+    });
+    const invoke = vi.fn().mockImplementation((command: string) => {
+      if (command === "get_app_config") {
+        return Promise.resolve({ firstRunTutorialCompleted: true, firstRunTutorialSkipped: false });
+      }
+      if (command === "check_setup_readiness") {
+        return Promise.resolve({
+          overallStatus: "ready",
+          checks: [
+            { id: "awsProfile", label: "AWS profile", status: "ready", detail: "Profile game-dev is configured" },
+            { id: "awsRegion", label: "AWS region", status: "ready", detail: "Region us-west-2 selected" },
+            { id: "stack", label: "CloudFormation stack", status: "ready", detail: "Stack characterforge-demo is ready" },
+            { id: "model", label: "Bedrock model", status: "ready", detail: "Model appears in Bedrock foundation model list" }
+          ],
+          warnings: []
+        });
+      }
+      if (command === "start_deployment") {
+        return startPromise;
+      }
+      return Promise.reject(new Error(`unexpected command ${command}`));
+    });
+    window.__TAURI__ = { core: { invoke } };
+
+    render(<App />);
+    await user.click(screen.getByRole("button", { name: "Deployment" }));
+    await user.clear(screen.getByLabelText(/aws region/i));
+    await user.type(screen.getByLabelText(/aws region/i), "us-west-2");
+    await user.clear(screen.getByLabelText(/aws profile name/i));
+    await user.type(screen.getByLabelText(/aws profile name/i), "game-dev");
+    await user.clear(screen.getByLabelText(/stack name/i));
+    await user.type(screen.getByLabelText(/stack name/i), "characterforge-demo");
+    await user.type(screen.getByLabelText(/api base url/i), "https://api.example.test/dev");
+    await user.click(screen.getByRole("button", { name: /test connection/i }));
+    await screen.findAllByText(/connected to characterforge api/i);
+    await user.click(screen.getByRole("button", { name: /run readiness check/i }));
+    await screen.findByText(/desktop setup readiness check complete/i);
+    await user.click(screen.getByRole("checkbox", { name: /i reviewed the readiness results/i }));
+    await user.click(screen.getByRole("button", { name: /^start$/i }));
+
+    const panels = screen.getByLabelText(/deployment status and alerts/i);
+    expect(await within(panels).findByText(/deployment operation in progress/i)).toBeInTheDocument();
+    expect(within(panels).getByText(/starting/i)).toBeInTheDocument();
+
+    resolveStart({ status: "succeeded", finalStackStatus: "CREATE_COMPLETE", logs: ["done"] });
+    await screen.findByText(/deployment start completed with create_complete/i);
+  });
+
+  it("shows rollback and failed Deployment status panels with sanitized failure reasons", async () => {
+    const user = userEvent.setup();
+    listCharactersMock.mockResolvedValue({ characters: [] });
+    const invoke = vi.fn().mockImplementation((command: string) => {
+      if (command === "get_app_config") {
+        return Promise.resolve({ firstRunTutorialCompleted: true, firstRunTutorialSkipped: false });
+      }
+      if (command === "check_setup_readiness") {
+        return Promise.resolve({
+          overallStatus: "ready",
+          checks: [
+            { id: "awsProfile", label: "AWS profile", status: "ready", detail: "Profile game-dev is configured" },
+            { id: "awsRegion", label: "AWS region", status: "ready", detail: "Region us-west-2 selected" },
+            { id: "stack", label: "CloudFormation stack", status: "ready", detail: "Stack characterforge-demo is ready" },
+            { id: "model", label: "Bedrock model", status: "ready", detail: "Model appears in Bedrock foundation model list" }
+          ],
+          warnings: []
+        });
+      }
+      if (command === "start_deployment") {
+        return Promise.resolve({
+          status: "failed",
+          finalStackStatus: "UPDATE_ROLLBACK_COMPLETE",
+          logs: ["Resource handler returned message: Lambda role policy denied. AWS_SESSION_TOKEN=raw-session-token"]
+        });
+      }
+      if (command === "end_deployment") {
+        return Promise.resolve({
+          status: "failed",
+          finalStackStatus: "DELETE_FAILED",
+          logs: ["Delete failed because table export is still running. secret access key raw-secret-value"]
+        });
+      }
+      return Promise.reject(new Error(`unexpected command ${command}`));
+    });
+    window.__TAURI__ = { core: { invoke } };
+
+    render(<App />);
+    await user.click(screen.getByRole("button", { name: "Deployment" }));
+    await user.clear(screen.getByLabelText(/aws region/i));
+    await user.type(screen.getByLabelText(/aws region/i), "us-west-2");
+    await user.clear(screen.getByLabelText(/aws profile name/i));
+    await user.type(screen.getByLabelText(/aws profile name/i), "game-dev");
+    await user.clear(screen.getByLabelText(/stack name/i));
+    await user.type(screen.getByLabelText(/stack name/i), "characterforge-demo");
+    await user.type(screen.getByLabelText(/api base url/i), "https://api.example.test/dev");
+    await user.click(screen.getByRole("button", { name: /test connection/i }));
+    await screen.findAllByText(/connected to characterforge api/i);
+    await user.click(screen.getByRole("button", { name: /run readiness check/i }));
+    await screen.findByText(/desktop setup readiness check complete/i);
+    await user.click(screen.getByRole("checkbox", { name: /i reviewed the readiness results/i }));
+    await user.click(screen.getByRole("button", { name: /^start$/i }));
+    await screen.findByText(/deployment start ended with update_rollback_complete/i);
+
+    let panels = screen.getByLabelText(/deployment status and alerts/i);
+    expect(within(panels).getByText(/update_rollback_complete/i)).toBeInTheDocument();
+    expect(within(panels).getByText(/rollback detected/i)).toBeInTheDocument();
+    expect(within(panels).getAllByText(/lambda role policy denied/i).length).toBeGreaterThan(0);
+    expect(within(panels).queryByText(/raw-session-token/i)).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("checkbox", { name: /i exported the character packs/i }));
+    await user.click(screen.getByRole("checkbox", { name: /i understand end deletes/i }));
+    await user.click(screen.getByRole("button", { name: /^end$/i }));
+    await screen.findByText(/deployment end ended with delete_failed/i);
+
+    panels = screen.getByLabelText(/deployment status and alerts/i);
+    expect(within(panels).getByText(/delete_failed/i)).toBeInTheDocument();
+    expect(within(panels).getByText(/failure detected/i)).toBeInTheDocument();
+    expect(within(panels).getAllByText(/table export is still running/i).length).toBeGreaterThan(0);
+    expect(within(panels).queryByText(/raw-secret-value/i)).not.toBeInTheDocument();
+  });
+
   it("previews the deployment Start flow in dry-run mode without calling AWS or the SDK", async () => {
     const user = userEvent.setup();
     render(<App />);
@@ -561,7 +766,7 @@ describe("CharacterForge dashboard", () => {
     await user.type(screen.getByLabelText(/stack name/i), "characterforge-demo");
     await user.type(screen.getByLabelText(/api base url/i), "https://api.example.test/dev");
     await user.click(screen.getByRole("button", { name: /test connection/i }));
-    expect(await screen.findByText(/connected to characterforge api/i)).toBeInTheDocument();
+    expect((await screen.findAllByText(/connected to characterforge api/i)).length).toBeGreaterThan(0);
     expect(startButton).toBeDisabled();
 
     await user.click(screen.getByRole("button", { name: /run readiness check/i }));
@@ -606,7 +811,7 @@ describe("CharacterForge dashboard", () => {
     await user.type(screen.getByLabelText(/stack name/i), "characterforge-demo");
     await user.type(screen.getByLabelText(/api base url/i), "https://api.example.test/dev");
     await user.click(screen.getByRole("button", { name: /test connection/i }));
-    await screen.findByText(/connected to characterforge api/i);
+    await screen.findAllByText(/connected to characterforge api/i);
     await user.click(screen.getByRole("button", { name: /run readiness check/i }));
     await screen.findByText(/desktop setup readiness check complete/i);
     await user.click(screen.getByRole("checkbox", { name: /i reviewed the readiness results/i }));
@@ -717,7 +922,7 @@ describe("CharacterForge dashboard", () => {
     await user.type(screen.getByLabelText(/stack name/i), "characterforge-demo");
     await user.type(screen.getByLabelText(/api base url/i), "https://api.example.test/dev");
     await user.click(screen.getByRole("button", { name: /test connection/i }));
-    await screen.findByText(/connected to characterforge api/i);
+    await screen.findAllByText(/connected to characterforge api/i);
     await user.click(screen.getByRole("button", { name: /run readiness check/i }));
     await screen.findByText(/desktop setup readiness check complete/i);
     await user.click(screen.getByRole("checkbox", { name: /i reviewed the readiness results/i }));
@@ -758,6 +963,9 @@ describe("CharacterForge dashboard", () => {
       })
     );
     expect(await screen.findByText(/deployment end completed with delete_complete/i)).toBeInTheDocument();
+    const panels = screen.getByLabelText(/deployment status and alerts/i);
+    expect(within(panels).getByText(/delete_complete/i)).toBeInTheDocument();
+    expect(within(panels).getByText(/end succeeded/i)).toBeInTheDocument();
     expect(screen.getByText(/real end redacted log/i).closest("details")).not.toHaveAttribute("open");
     expect(screen.getByText(/deleted stack characterforge-demo/i)).not.toBeVisible();
   });
@@ -789,7 +997,7 @@ describe("CharacterForge dashboard", () => {
     await user.click(screen.getByRole("button", { name: "Deployment" }));
     await user.click(screen.getByRole("button", { name: /test connection/i }));
 
-    expect(await screen.findByText(/mock mode is active/i)).toBeInTheDocument();
+    expect((await screen.findAllByText(/mock mode is active/i)).length).toBeGreaterThan(0);
     expect(listCharactersMock).not.toHaveBeenCalled();
   });
 
@@ -863,7 +1071,7 @@ describe("CharacterForge dashboard", () => {
     await user.type(screen.getByLabelText(/^api key$/i), "test-api-key");
     await user.click(screen.getByRole("button", { name: /save settings/i }));
     await user.click(screen.getByRole("button", { name: /test connection/i }));
-    expect(await screen.findByText(/connected to characterforge api/i)).toBeInTheDocument();
+    expect((await screen.findAllByText(/connected to characterforge api/i)).length).toBeGreaterThan(0);
 
     await user.click(screen.getByRole("button", { name: "Welcome" }));
     expect(screen.getByText(/api-connected dashboard/i)).toBeInTheDocument();
@@ -890,7 +1098,7 @@ describe("CharacterForge dashboard", () => {
     await user.type(screen.getByLabelText(/api base url/i), "https://api.example.test/dev");
     await user.click(screen.getByRole("button", { name: /save settings/i }));
     await user.click(screen.getByRole("button", { name: /test connection/i }));
-    expect(await screen.findByText(/connected to characterforge api\. loaded 0 characters/i)).toBeInTheDocument();
+    expect((await screen.findAllByText(/connected to characterforge api\. loaded 0 characters/i)).length).toBeGreaterThan(0);
 
     await user.click(screen.getByRole("button", { name: "Welcome" }));
     const connectedSummary = within(screen.getByLabelText(/welcome status summary/i));
@@ -937,7 +1145,7 @@ describe("CharacterForge dashboard", () => {
     expect(window.localStorage.getItem("characterforge.dashboard.settings")).not.toContain("test-api-key");
     await user.click(screen.getByRole("button", { name: /test connection/i }));
 
-    expect(await screen.findByText(/connected to characterforge api/i)).toBeInTheDocument();
+    expect((await screen.findAllByText(/connected to characterforge api/i)).length).toBeGreaterThan(0);
     expect(listCharactersMock).toHaveBeenCalledWith({ baseUrl: "https://api.example.test/dev", apiKey: "test-api-key" });
 
     await user.click(screen.getByRole("button", { name: "Characters" }));

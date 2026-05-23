@@ -23,7 +23,8 @@ import {
   toCharacterRecord,
   toDeploymentStatus,
   type DashboardReadiness,
-  type SharedDashboardState
+  type SharedDashboardState,
+  type DeploymentPhase
 } from "./appState";
 import "./styles.css";
 
@@ -1442,6 +1443,154 @@ function SetupCheckCard({ label, value }: { label: string; value: string }) {
   );
 }
 
+type DeploymentStatusPanelData = {
+  apiMessage: string;
+  apiStatus: string;
+  characterSyncMessage: string;
+  failureReason: string | null;
+  lastOperation: string;
+  phase: DeploymentPhase;
+  sanitizedAlerts: string[];
+  stackStatus: string;
+};
+
+function sanitizeDeploymentAlert(message: string): string {
+  return message
+    .replace(/AWS_ACCESS_KEY_ID\s*[:=]\s*[^\s,;]+/gi, "AWS_ACCESS_KEY_ID=<redacted>")
+    .replace(/AWS_SECRET_ACCESS_KEY\s*[:=]\s*[^\s,;]+/gi, "AWS_SECRET_ACCESS_KEY=<redacted>")
+    .replace(/AWS_SESSION_TOKEN\s*[:=]\s*[^\s,;]+/gi, "AWS_SESSION_TOKEN=<redacted>")
+    .replace(/(api[_-]?key|password|token)\s*[:=]\s*[^\s,;]+/gi, "$1=<redacted>")
+    .replace(/(secret access key|session token)\s+[^.\s,;]+/gi, "$1 <redacted>")
+    .trim();
+}
+
+function getDeploymentResultFailureReason(result: DeploymentStartResult | DeploymentEndResult | null): string | null {
+  if (!result || result.status === "succeeded" || result.status === "cancelled") {
+    return null;
+  }
+  const logLine = result.logs.find((line) => /fail|rollback|denied|error|resource handler/i.test(line)) ?? result.logs.at(-1);
+  return logLine ? sanitizeDeploymentAlert(logLine) : `CloudFormation reported ${result.finalStackStatus}.`;
+}
+
+function getDeploymentStatusPanelData({
+  connectionStatus,
+  endResult,
+  setupResult,
+  sharedState,
+  startResult,
+  status
+}: {
+  connectionStatus: ConnectionStatus;
+  endResult: DeploymentEndResult | null;
+  setupResult: SetupCheckResult | null;
+  sharedState: SharedDashboardState;
+  startResult: DeploymentStartResult | null;
+  status: ConnectionStatus;
+}): DeploymentStatusPanelData {
+  const latestResult = endResult ?? startResult;
+  const latestFailureReason = getDeploymentResultFailureReason(latestResult);
+  const stackStatus = latestResult?.finalStackStatus ?? sharedState.deployment.stackStatus ?? sharedState.deployment.phase.replaceAll("_", " ");
+  const phase = /ROLLBACK/.test(stackStatus)
+    ? "rollback"
+    : /FAILED/.test(stackStatus)
+      ? "failed"
+      : sharedState.deployment.phase;
+  const lastOperation = status.state === "loading"
+    ? "Deployment operation in progress."
+    : endResult
+      ? endResult.status === "succeeded"
+        ? "End succeeded."
+        : endResult.status === "cancelled"
+          ? "End cancelled."
+          : /ROLLBACK/.test(endResult.finalStackStatus)
+            ? "Rollback detected."
+            : "Failure detected."
+      : startResult
+        ? startResult.status === "succeeded"
+          ? "Start succeeded."
+          : /ROLLBACK/.test(startResult.finalStackStatus)
+            ? "Rollback detected."
+            : "Failure detected."
+        : "No deployment operation has run yet.";
+  const apiStatus = sharedState.apiConnection.state === "connected"
+    ? "API connected."
+    : sharedState.apiConnection.state === "not_configured"
+      ? "API endpoint not configured."
+      : sharedState.apiConnection.state === "error"
+        ? "API connection failed."
+        : "API endpoint configured but not connected.";
+  const apiMessage = sharedState.apiConnection.message;
+  const characterCount = sharedState.characters.length;
+  const characterSyncMessage = sharedState.apiConnection.state === "connected"
+    ? `${characterCount} API character${characterCount === 1 ? "" : "s"} ready for sync.`
+    : sharedState.characterFolder.state === "ready"
+      ? "Local character folder is ready; API sync waits for a connected API."
+      : "Character sync waits for a connected API.";
+  const readinessAlerts = setupResult
+    ? setupResult.warnings.map(sanitizeDeploymentAlert)
+    : ["Run readiness check before using this for deployment decisions."];
+  const sanitizedAlerts = [
+    ...readinessAlerts,
+    ...(latestFailureReason ? [latestFailureReason] : []),
+    ...(connectionStatus.state === "error" ? [sanitizeDeploymentAlert(connectionStatus.message)] : [])
+  ].filter(Boolean);
+
+  return {
+    apiMessage,
+    apiStatus,
+    characterSyncMessage,
+    failureReason: latestFailureReason,
+    lastOperation,
+    phase,
+    sanitizedAlerts: sanitizedAlerts.length ? sanitizedAlerts : ["No active deployment alerts."],
+    stackStatus,
+  };
+}
+
+function DeploymentStatusPanels({
+  connectionStatus,
+  endResult,
+  setupResult,
+  sharedState,
+  startResult,
+  status
+}: {
+  connectionStatus: ConnectionStatus;
+  endResult: DeploymentEndResult | null;
+  setupResult: SetupCheckResult | null;
+  sharedState: SharedDashboardState;
+  startResult: DeploymentStartResult | null;
+  status: ConnectionStatus;
+}) {
+  const panelData = getDeploymentStatusPanelData({ connectionStatus, endResult, setupResult, sharedState, startResult, status });
+  return (
+    <section className="setup-safety-panel" aria-labelledby="deployment-status-alerts-title">
+      <h2 id="deployment-status-alerts-title">Deployment status and alerts</h2>
+      <div className="setup-check-grid">
+        <SetupCheckCard label="Stack status" value={panelData.stackStatus} />
+        <SetupCheckCard label="Last operation" value={panelData.lastOperation} />
+        <SetupCheckCard label="API connection" value={panelData.apiStatus} />
+        <SetupCheckCard label="Character sync readiness" value={panelData.characterSyncMessage} />
+      </div>
+      <p className="notice compact">{sanitizeDeploymentAlert(panelData.apiMessage)}</p>
+      {panelData.failureReason ? (
+        <section className={`connection-status ${panelData.phase === "rollback" || panelData.phase === "failed" ? "error" : "idle"}`} aria-labelledby="rollback-failure-title">
+          <h3 id="rollback-failure-title">Rollback / failure reason</h3>
+          <p>{panelData.failureReason}</p>
+        </section>
+      ) : null}
+      <section className="warning setup-warning-list" aria-labelledby="sanitized-alerts-title">
+        <h3 id="sanitized-alerts-title">Sanitized alerts</h3>
+        <ul>
+          {panelData.sanitizedAlerts.map((alert) => (
+            <li key={alert}>{alert}</li>
+          ))}
+        </ul>
+      </section>
+    </section>
+  );
+}
+
 function DeploymentStartScreen({
   connectionStatus,
   endDeleteConfirmed,
@@ -1451,6 +1600,7 @@ function DeploymentStartScreen({
   settings,
   setupResult,
   setupCheckRequest,
+  sharedState,
   setupStatus,
   testedApiSettings,
   wizardResult,
@@ -1481,6 +1631,7 @@ function DeploymentStartScreen({
   settings: ApiSettings;
   setupResult: SetupCheckResult | null;
   setupCheckRequest: SetupCheckForm | null;
+  sharedState: SharedDashboardState;
   setupStatus: ConnectionStatus;
   testedApiSettings: ApiSettings | null;
   wizardResult: AwsSetupWizardResult | null;
@@ -1540,6 +1691,14 @@ function DeploymentStartScreen({
         Configure the deployed CharacterForgeAI API, verify AWS readiness, and preview the local desktop Start/End flow from
         one place.
       </p>
+      <DeploymentStatusPanels
+        connectionStatus={connectionStatus}
+        endResult={endResult}
+        setupResult={setupResult}
+        sharedState={sharedState}
+        startResult={startResult}
+        status={status}
+      />
       <section className="setup-safety-panel" aria-labelledby="api-connection-title">
         <h2 id="api-connection-title">API connection</h2>
         <p>
@@ -2707,6 +2866,7 @@ export default function App() {
             settings={draftSettings}
             setupResult={setupCheckResult}
             setupCheckRequest={setupCheckRequest}
+            sharedState={sharedDashboardState}
             setupStatus={setupCheckStatus}
             testedApiSettings={testedApiConnectionSettings}
             wizardResult={awsSetupWizardResult}
