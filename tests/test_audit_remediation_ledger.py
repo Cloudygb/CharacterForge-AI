@@ -86,6 +86,30 @@ def test_audit_remediation_ledger_tracks_every_p0_p1_p2_finding() -> None:
     assert missing == []
 
 
+def test_audit_remediation_ledger_records_step_2_verification_baseline() -> None:
+    assert LEDGER_PATH.exists(), f"Missing audit remediation ledger at {LEDGER_PATH.relative_to(REPO_ROOT)}"
+    content = LEDGER_PATH.read_text(encoding="utf-8")
+
+    assert "## Step 2 Baseline Verification Snapshot" in content
+    required_commands = [
+        "pytest -q",
+        "npm run typecheck",
+        "npm test -- --run",
+        "npm run build",
+        "cargo fmt --check",
+        "cargo test",
+        "cargo check",
+        "npm test",
+    ]
+    for command in required_commands:
+        assert command in content
+
+    assert "Duration" in content
+    assert "Result" in content
+    assert "Failure Summary" in content
+    assert "Installer verification" in content
+
+
 def test_audit_remediation_ledger_does_not_commit_source_audit_or_secrets() -> None:
     assert LEDGER_PATH.exists(), f"Missing audit remediation ledger at {LEDGER_PATH.relative_to(REPO_ROOT)}"
     content = LEDGER_PATH.read_text(encoding="utf-8")
