@@ -31,10 +31,13 @@ def test_no_wildcard_production_cors() -> None:
     pytest.fail("Replace this placeholder with a production CORS regression test.")
 
 
-@pytest.mark.xfail(reason=_pending_gate("CSP non-null"))
 def test_desktop_csp_non_null() -> None:
     """CSP non-null: desktop/Tauri configuration must enforce a real Content Security Policy."""
-    pytest.fail("Replace this placeholder with a CSP regression test.")
+    security_tests = (ROOT / "tests" / "test_tauri_security_config.py").read_text(encoding="utf-8")
+
+    assert "test_production_tauri_csp_is_strict_and_not_null" in security_tests
+    assert "test_production_tauri_csp_does_not_allow_broad_remote_origins" in security_tests
+    assert "test_production_tauri_csp_does_not_embed_live_endpoints_or_credentials" in security_tests
 
 
 def test_installer_signing_required_for_release_builds() -> None:
