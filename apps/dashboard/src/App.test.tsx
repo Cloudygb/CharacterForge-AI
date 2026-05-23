@@ -40,6 +40,54 @@ describe("CharacterForge dashboard", () => {
     window.localStorage.clear();
   });
 
+  async function startDeploymentWithLocalScan(scanResult: { folderPath: string; characters: unknown[]; invalidFiles: unknown[] }) {
+    const user = userEvent.setup();
+    listCharactersMock.mockResolvedValue({ characters: [] });
+    const invoke = vi.fn().mockImplementation((command: string) => {
+      if (command === "get_app_config") {
+        return Promise.resolve({ firstRunTutorialCompleted: true, firstRunTutorialSkipped: false });
+      }
+      if (command === "check_setup_readiness") {
+        return Promise.resolve({
+          overallStatus: "ready",
+          checks: [
+            { id: "awsProfile", label: "AWS profile", status: "ready", detail: "Profile game-dev is configured" },
+            { id: "awsRegion", label: "AWS region", status: "ready", detail: "Region us-west-2 selected" },
+            { id: "stack", label: "CloudFormation stack", status: "ready", detail: "Stack characterforge-demo is ready" },
+            { id: "model", label: "Bedrock model", status: "ready", detail: "Model appears in Bedrock foundation model list" }
+          ],
+          warnings: []
+        });
+      }
+      if (command === "start_deployment") {
+        return Promise.resolve({ status: "succeeded", finalStackStatus: "CREATE_COMPLETE", logs: ["done"] });
+      }
+      if (command === "scan_character_folder") {
+        return Promise.resolve(scanResult);
+      }
+      return Promise.reject(new Error(`unexpected command ${command}`));
+    });
+    window.__TAURI__ = { core: { invoke } };
+
+    render(<App />);
+    await user.click(screen.getByRole("button", { name: "Deployment" }));
+    await user.clear(screen.getByLabelText(/aws region/i));
+    await user.type(screen.getByLabelText(/aws region/i), "us-west-2");
+    await user.clear(screen.getByLabelText(/aws profile name/i));
+    await user.type(screen.getByLabelText(/aws profile name/i), "game-dev");
+    await user.clear(screen.getByLabelText(/stack name/i));
+    await user.type(screen.getByLabelText(/stack name/i), "characterforge-demo");
+    await user.type(screen.getByLabelText(/api base url/i), "https://api.example.test/dev");
+    await user.click(screen.getByRole("button", { name: /test connection/i }));
+    await screen.findAllByText(/connected to characterforge api/i);
+    await user.click(screen.getByRole("button", { name: /run readiness check/i }));
+    await screen.findByText(/desktop setup readiness check complete/i);
+    await user.click(screen.getByRole("checkbox", { name: /i reviewed the readiness results/i }));
+    await user.click(screen.getByRole("button", { name: /^start$/i }));
+    await screen.findByText(/deployment start completed with create_complete/i);
+    return { invoke, user };
+  }
+
   it("renders only the simplified next-release dashboard sections in the sidebar", () => {
     render(<App />);
 
@@ -1223,6 +1271,13 @@ describe("CharacterForge dashboard", () => {
           logs: ["Created API endpoint", "AWS_SECRET_ACCESS_KEY=<redacted>"]
         });
       }
+      if (command === "scan_character_folder") {
+        return Promise.resolve({
+          folderPath: "C:\\Users\\Evan\\AppData\\Roaming\\CharacterForgeAI\\characters",
+          characters: [],
+          invalidFiles: []
+        });
+      }
       return Promise.reject(new Error(`unexpected command ${command}`));
     });
     window.__TAURI__ = { core: { invoke } };
@@ -1253,6 +1308,67 @@ describe("CharacterForge dashboard", () => {
     expect(within(panels).queryByText(/AWS_SECRET_ACCESS_KEY/i)).not.toBeInTheDocument();
   });
 
+  it("scans the default local character folder after Start and reports no local characters", async () => {
+    const { invoke } = await startDeploymentWithLocalScan({
+      folderPath: "C:\\Users\\Evan\\AppData\\Roaming\\CharacterForgeAI\\characters",
+      characters: [],
+      invalidFiles: []
+    });
+
+    await waitFor(() => expect(invoke).toHaveBeenCalledWith("scan_character_folder", {}));
+    expect(screen.getByText(/local character folder scan found no local characters ready to sync/i)).toBeInTheDocument();
+    expect(screen.getByText(/start only scans and validates local character files/i)).toBeInTheDocument();
+    expect(createCharacterMock).not.toHaveBeenCalled();
+    expect(updateCharacterMock).not.toHaveBeenCalled();
+  });
+
+  it("surfaces valid local characters after Start without syncing or overwriting cloud records", async () => {
+    await startDeploymentWithLocalScan({
+      folderPath: "C:\\Users\\Evan\\AppData\\Roaming\\CharacterForgeAI\\characters",
+      characters: [
+        { id: "local-mira", name: "Local Mira", archetype: "Folder mage", description: "Ready for review.", status: "Draft", source: "local", syncStatus: "api_pending" },
+        { id: "local-toma", name: "Local Toma", archetype: "Folder scout", description: "Ready for review.", status: "Draft", source: "local", syncStatus: "api_pending" }
+      ],
+      invalidFiles: []
+    });
+
+    expect(screen.getAllByText(/found 2 local characters ready to sync/i).length).toBeGreaterThan(0);
+    expect(screen.getByText(/does not silently overwrite cloud records or sync local changes automatically/i)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /review or sync in characters/i })).toBeInTheDocument();
+    expect(createCharacterMock).not.toHaveBeenCalled();
+    expect(updateCharacterMock).not.toHaveBeenCalled();
+  });
+
+  it("reports invalid local character files found by the post-Start folder scan", async () => {
+    await startDeploymentWithLocalScan({
+      folderPath: "C:\\Users\\Evan\\AppData\\Roaming\\CharacterForgeAI\\characters",
+      characters: [{ id: "local-safe", name: "Safe Local", archetype: "Folder bard", description: "Valid file.", status: "Draft", source: "local", syncStatus: "api_pending" }],
+      invalidFiles: [{ path: "broken-character.json", error: "Missing required name" }]
+    });
+
+    expect(screen.getAllByText(/found 1 local character ready to sync/i).length).toBeGreaterThan(0);
+    expect(screen.getByText(/1 invalid local file needs review before syncing/i)).toBeInTheDocument();
+    await userEvent.setup().click(screen.getByRole("button", { name: /review or sync in characters/i }));
+    expect(screen.getByRole("heading", { name: /^characters$/i })).toBeInTheDocument();
+    expect(screen.getByText(/broken-character\.json: missing required name/i)).toBeInTheDocument();
+  });
+
+  it("offers a post-Start Characters review prompt before local sync", async () => {
+    const { user } = await startDeploymentWithLocalScan({
+      folderPath: "C:\\Users\\Evan\\AppData\\Roaming\\CharacterForgeAI\\characters",
+      characters: [{ id: "local-review-rin", name: "Review Rin", archetype: "Folder guide", description: "Needs manual sync review.", status: "Draft", source: "local", syncStatus: "api_pending" }],
+      invalidFiles: []
+    });
+
+    expect(screen.getByText(/review them in characters before syncing/i)).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /review or sync in characters/i }));
+    expect(screen.getByRole("heading", { name: /^characters$/i })).toBeInTheDocument();
+    const rinCard = screen.getByRole("article", { name: /review rin/i });
+    expect(within(rinCard).getByText(/sync: not synced yet/i)).toBeInTheDocument();
+    expect(createCharacterMock).not.toHaveBeenCalled();
+    expect(updateCharacterMock).not.toHaveBeenCalled();
+  });
+
   it("shows deploying status while a mocked Start operation is pending", async () => {
     const user = userEvent.setup();
     listCharactersMock.mockResolvedValue({ characters: [] });
@@ -1278,6 +1394,13 @@ describe("CharacterForge dashboard", () => {
       }
       if (command === "start_deployment") {
         return startPromise;
+      }
+      if (command === "scan_character_folder") {
+        return Promise.resolve({
+          folderPath: "C:\\Users\\Evan\\AppData\\Roaming\\CharacterForgeAI\\characters",
+          characters: [],
+          invalidFiles: []
+        });
       }
       return Promise.reject(new Error(`unexpected command ${command}`));
     });
@@ -1583,6 +1706,13 @@ describe("CharacterForge dashboard", () => {
           finalStackStatus: "CREATE_COMPLETE",
           savedOutputsPath: "C:/Users/Evan/AppData/Local/CharacterForgeAI/characterforge-demo-outputs.json",
           logs: ["Started stack characterforge-demo", "AWS_SECRET_ACCESS_KEY=<redacted>"]
+        });
+      }
+      if (command === "scan_character_folder") {
+        return Promise.resolve({
+          folderPath: "C:\\Users\\Evan\\AppData\\Roaming\\CharacterForgeAI\\characters",
+          characters: [],
+          invalidFiles: []
         });
       }
       if (command === "end_deployment") {
