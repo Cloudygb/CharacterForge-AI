@@ -141,6 +141,41 @@ nav button.active,
   background: rgba(63, 110, 211, 0.4);
 }
 
+.button-row button.secondary,
+button.secondary {
+  border-color: rgba(156, 180, 255, 0.28);
+  background: rgba(255, 255, 255, 0.07);
+  color: #dbe8ff;
+}
+
+.button-row button.danger-button,
+button.danger-button {
+  border-color: rgba(255, 115, 115, 0.52);
+  background: rgba(160, 45, 45, 0.24);
+  color: #ffd7d7;
+}
+
+.button-row button:disabled,
+button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible,
+summary:focus-visible {
+  outline: 3px solid rgba(114, 225, 255, 0.75);
+  outline-offset: 2px;
+}
+
+summary {
+  cursor: pointer;
+  color: #edf5ff;
+  font-weight: 800;
+}
+
 main {
   padding: 2rem;
 }

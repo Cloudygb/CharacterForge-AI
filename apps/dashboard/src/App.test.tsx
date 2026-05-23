@@ -115,6 +115,33 @@ describe("CharacterForge dashboard", () => {
     }
   });
 
+  it("uses polished labels, button hierarchy, and disclosure controls on normal pages", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+
+    expect(screen.getByText(/characterforgeai workspace/i)).toBeInTheDocument();
+    expect(screen.queryByText(/dashboard mockup/i)).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /set up deployment/i })).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Deployment" }));
+    expect(screen.getByRole("heading", { name: /^deployment$/i })).toBeInTheDocument();
+    expect(screen.getByText(/advanced local preview/i)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /preview start dry run/i })).toHaveClass("secondary");
+    expect(screen.getByRole("button", { name: /^end$/i })).toBeDisabled();
+    expect(screen.getByRole("checkbox", { name: /i understand end deletes stack/i })).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Characters" }));
+    expect(screen.getByText(/showing starter characters/i)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /delete captain mira voss/i })).toHaveClass("danger-button");
+
+    await user.click(screen.getByRole("button", { name: "Chat" }));
+    expect(screen.getByRole("button", { name: /open deployment/i })).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Settings" }));
+    expect(screen.getByRole("button", { name: /check for updates/i })).toBeInTheDocument();
+    expect(screen.queryByText(/api key/i)).not.toBeInTheDocument();
+  });
+
   it("merges API setup, AWS readiness, and deployment controls into Deployment", async () => {
     const user = userEvent.setup();
     render(<App />);
@@ -181,7 +208,7 @@ describe("CharacterForge dashboard", () => {
     expect(screen.getByRole("button", { name: /start guided setup/i })).toBeInTheDocument();
     expect(screen.queryByLabelText(/api base url/i)).not.toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: /open deployment setup/i }));
+    await user.click(screen.getByRole("button", { name: /set up deployment/i }));
     expect(screen.getByRole("heading", { name: /^deployment$/i })).toBeInTheDocument();
   });
 
@@ -390,7 +417,7 @@ describe("CharacterForge dashboard", () => {
     expect(screen.getByRole("button", { name: /^open character folder$/i })).toBeInTheDocument();
     expect(screen.getByText("Captain Mira Voss")).toBeInTheDocument();
     expect(screen.getByText("Ember Archivist Thalen")).toBeInTheDocument();
-    expect(screen.getByText(/showing sample characters/i)).toBeInTheDocument();
+    expect(screen.getByText(/showing starter characters/i)).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "Chat" }));
     expect(screen.getByRole("heading", { name: /^chat$/i })).toBeInTheDocument();
@@ -406,7 +433,7 @@ describe("CharacterForge dashboard", () => {
 
     await user.click(screen.getByRole("button", { name: "Raw JSON Preview" }));
     expect(screen.getByRole("heading", { name: /raw json preview/i })).toBeInTheDocument();
-    expect(screen.getByText(/sampleCharacters/i)).toBeInTheDocument();
+    expect(screen.getByText(/starterCharacters/i)).toBeInTheDocument();
     expect(screen.getByText(/connectionStatus/i)).toBeInTheDocument();
   });
 
@@ -444,8 +471,8 @@ describe("CharacterForge dashboard", () => {
     expect(screen.queryByText(/mock resources available/i)).not.toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "Characters" }));
-    expect(screen.getByText(/showing sample characters/i)).toBeInTheDocument();
-    expect(screen.getAllByText(/sample character/i).length).toBeGreaterThan(0);
+    expect(screen.getByText(/showing starter characters/i)).toBeInTheDocument();
+    expect(screen.getAllByText(/starter character/i).length).toBeGreaterThan(0);
     expect(screen.getAllByText(/delete captain mira voss/i).length).toBeGreaterThan(0);
     expect(screen.queryByText(/showing mock characters/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/source: mock/i)).not.toBeInTheDocument();
@@ -465,7 +492,7 @@ describe("CharacterForge dashboard", () => {
     await user.click(screen.getByRole("button", { name: "Deployment" }));
     await user.click(screen.getByRole("button", { name: /load aws setup wizard/i }));
 
-    expect((await screen.findAllByText(/browser preview only — no aws profiles, stacks, or bedrock model access were checked/i)).length).toBeGreaterThan(0);
+    expect((await screen.findAllByText(/local preview only — no aws profiles, stacks, or bedrock model access were checked/i)).length).toBeGreaterThan(0);
     expect(screen.getByText(/no profiles checked/i)).toBeInTheDocument();
     expect(screen.getByText(/no models checked/i)).toBeInTheDocument();
     expect(screen.getByText(/stack was not queried/i)).toBeInTheDocument();
@@ -536,7 +563,7 @@ describe("CharacterForge dashboard", () => {
     ));
     expect(await screen.findByText(/open the old gate/i)).toBeInTheDocument();
     expect(screen.getAllByText(/the warded gate opens/i).length).toBeGreaterThan(0);
-    expect(screen.getByText(/returned payloads and actions/i)).toBeInTheDocument();
+    expect(screen.getByText(/show response details/i)).toBeInTheDocument();
     expect(screen.getAllByText(/give_quest/i).length).toBeGreaterThan(0);
     expect(screen.getByText(/harbor-001/i)).toBeInTheDocument();
     expect(screen.getByText(/gate_open/i)).toBeInTheDocument();
@@ -561,7 +588,7 @@ describe("CharacterForge dashboard", () => {
     await user.click(within(miraCard).getByRole("button", { name: /edit captain mira voss/i }));
     const editDialog = screen.getByRole("dialog", { name: /edit captain mira voss/i });
     expect(within(editDialog).getByLabelText(/character name/i)).toHaveValue("Captain Mira Voss");
-    expect(within(editDialog).getByLabelText(/title\/status/i)).toHaveValue("Sample character");
+    expect(within(editDialog).getByLabelText(/title\/status/i)).toHaveValue("Starter character");
     expect(within(editDialog).queryByLabelText(/existing character id/i)).not.toBeInTheDocument();
     expect(within(editDialog).getByText(/custom actions/i)).toBeInTheDocument();
     await user.click(within(editDialog).getByRole("button", { name: /cancel/i }));
@@ -573,7 +600,7 @@ describe("CharacterForge dashboard", () => {
 
     await user.click(within(miraCard).getByRole("button", { name: /delete captain mira voss/i }));
     expect(screen.getByRole("alertdialog", { name: /delete captain mira voss/i })).toBeInTheDocument();
-    expect(screen.getByText(/delete this local character record/i)).toBeInTheDocument();
+    expect(screen.getByText(/delete this local character from this device/i)).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: /cancel delete/i }));
     expect(screen.getByText("Captain Mira Voss")).toBeInTheDocument();
 
@@ -697,7 +724,7 @@ describe("CharacterForge dashboard", () => {
     const ardenCard = screen.getByRole("article", { name: /arden vale/i });
     await user.click(within(ardenCard).getByRole("button", { name: /delete arden vale/i }));
     expect(screen.getByRole("alertdialog", { name: /delete arden vale/i })).toBeInTheDocument();
-    expect(screen.getByText(/delete arden vale through the connected characterforge api/i)).toBeInTheDocument();
+    expect(screen.getByText(/delete arden vale from the connected service/i)).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: /confirm delete/i }));
     expect(await screen.findByText(/saving: deleting arden vale through the characterforge api/i)).toBeInTheDocument();
@@ -1072,7 +1099,7 @@ describe("CharacterForge dashboard", () => {
 
     await user.click(screen.getByRole("button", { name: "Deployment" }));
 
-    expect(screen.getByText(/browser preview mode it shows an honest setup checklist/i)).toBeInTheDocument();
+    expect(screen.getByText(/desktop app performs local checks without displaying credential values/i)).toBeInTheDocument();
     expect(screen.getByLabelText(/aws region/i)).toHaveValue("us-east-1");
     expect(screen.getByLabelText(/bedrock model/i)).toHaveValue("anthropic.claude-3-haiku-20240307-v1:0");
     expect(screen.getByText(/credential status/i)).toBeInTheDocument();
@@ -1080,19 +1107,19 @@ describe("CharacterForge dashboard", () => {
 
     await user.click(screen.getByRole("button", { name: /run readiness check/i }));
 
-    expect(await screen.findByText(/browser preview setup check complete/i)).toBeInTheDocument();
+    expect(await screen.findByText(/local preview setup check complete/i)).toBeInTheDocument();
     expect(screen.getAllByText(/aws region/i).length).toBeGreaterThan(0);
     expect(screen.getAllByText("us-east-1").length).toBeGreaterThan(0);
     expect(screen.getByText(/selected bedrock model/i)).toBeInTheDocument();
     expect(screen.getByText("anthropic.claude-3-haiku-20240307-v1:0")).toBeInTheDocument();
     expect(screen.getAllByText(/credential status/i).length).toBeGreaterThan(0);
-    expect(screen.getByText(/browser preview only — credentials not checked/i)).toBeInTheDocument();
+    expect(screen.getByText(/local preview only — credentials not checked/i)).toBeInTheDocument();
     expect(screen.getByText(/bedrock access status/i)).toBeInTheDocument();
     expect(screen.getAllByText(/bedrock access not checked/i).length).toBeGreaterThan(0);
     expect(screen.getByText(/existing stack status/i)).toBeInTheDocument();
     expect(screen.getByText(/no existing stack found/i)).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: /warnings/i })).toBeInTheDocument();
-    expect(screen.getAllByText(/browser preview only/i).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/local preview only/i).length).toBeGreaterThan(0);
     expect(screen.getAllByText(/confirm bedrock model access in the aws console/i).length).toBeGreaterThan(0);
     expect(listCharactersMock).not.toHaveBeenCalled();
     expect(createCharacterMock).not.toHaveBeenCalled();
@@ -1108,7 +1135,7 @@ describe("CharacterForge dashboard", () => {
     await user.selectOptions(screen.getByLabelText(/bedrock model/i), "anthropic.claude-3-5-sonnet-20240620-v1:0");
     await user.click(screen.getByRole("button", { name: /run readiness check/i }));
 
-    expect(await screen.findByText(/browser preview setup check complete/i)).toBeInTheDocument();
+    expect(await screen.findByText(/local preview setup check complete/i)).toBeInTheDocument();
     expect(screen.getAllByText("eu-west-1").length).toBeGreaterThan(0);
     expect(screen.getAllByText(/verify that characterforge deployment templates target eu-west-1/i).length).toBeGreaterThan(0);
     expect(screen.getAllByText(/higher-capability models may cost more per request/i).length).toBeGreaterThan(0);
@@ -1206,7 +1233,7 @@ describe("CharacterForge dashboard", () => {
     await user.click(screen.getByRole("button", { name: "Deployment" }));
 
     expect(screen.getByRole("heading", { name: /credential-safe aws setup wizard/i })).toBeInTheDocument();
-    expect(screen.getByText(/uses named aws cli profiles/i)).toBeInTheDocument();
+    expect(screen.getByText(/use a named aws cli profile/i)).toBeInTheDocument();
     expect(screen.getByText(/no access keys, secret keys, session tokens, passwords, or auth headers are stored/i)).toBeInTheDocument();
     expect(screen.getByText(/bedrock and deployed aws resources can create charges/i)).toBeInTheDocument();
 
@@ -1609,7 +1636,7 @@ describe("CharacterForge dashboard", () => {
 
     await user.click(screen.getByRole("button", { name: "Deployment" }));
     expect(screen.getByRole("heading", { name: /^deployment$/i })).toBeInTheDocument();
-    expect(screen.getAllByText(/dry-run mode only/i).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/advanced local preview/i).length).toBeGreaterThan(0);
 
     await user.clear(screen.getByLabelText(/aws region/i));
     await user.type(screen.getByLabelText(/aws region/i), "us-west-2");
@@ -1622,8 +1649,8 @@ describe("CharacterForge dashboard", () => {
     await user.click(screen.getByRole("button", { name: /preview start dry run/i }));
 
     expect(await screen.findByText(/dry-run deployment preview ready/i)).toBeInTheDocument();
-    expect(screen.getByText(/no aws, sam, cloudformation, bedrock, or credential provider calls were made/i)).toBeInTheDocument();
-    expect(screen.getByText(/sam deploy command preview/i)).toBeInTheDocument();
+    expect(screen.getByText(/preview did not make aws, bedrock, cloudformation, or credential-provider calls/i)).toBeInTheDocument();
+    expect(screen.getByText(/deployment command preview/i)).toBeInTheDocument();
     expect(screen.getByText(/--stack-name characterforge-demo/i)).toBeInTheDocument();
     expect(screen.getByText(/--region us-west-2/i)).toBeInTheDocument();
     expect(screen.getByText(/--profile game-dev/i)).toBeInTheDocument();
@@ -1855,7 +1882,7 @@ describe("CharacterForge dashboard", () => {
       })
     );
     expect(await screen.findByText(/deployment start completed with create_complete/i)).toBeInTheDocument();
-    expect(screen.getByText(/real start redacted log/i).closest("details")).not.toHaveAttribute("open");
+    expect(screen.getByText(/show advanced start log/i).closest("details")).not.toHaveAttribute("open");
     expect(screen.getByText(/started stack characterforge-demo/i)).not.toBeVisible();
 
     const endButton = screen.getByRole("button", { name: /^end$/i });
@@ -1881,7 +1908,7 @@ describe("CharacterForge dashboard", () => {
     const panels = screen.getByLabelText(/deployment status and alerts/i);
     expect(within(panels).getByText(/delete_complete/i)).toBeInTheDocument();
     expect(within(panels).getByText(/end succeeded/i)).toBeInTheDocument();
-    expect(screen.getByText(/real end redacted log/i).closest("details")).not.toHaveAttribute("open");
+    expect(screen.getByText(/show advanced end log/i).closest("details")).not.toHaveAttribute("open");
     expect(screen.getByText(/deleted stack characterforge-demo/i)).not.toBeVisible();
   });
 
@@ -1932,7 +1959,7 @@ describe("CharacterForge dashboard", () => {
     expect(screen.getByRole("heading", { name: /settings/i })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: /check for updates/i })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /check for updates/i })).toBeEnabled();
-    expect(screen.queryByRole("button", { name: /update now/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /install update/i })).not.toBeInTheDocument();
     expect(screen.queryByLabelText(/update channel/i)).not.toBeInTheDocument();
     expect(screen.queryByLabelText(/update manifest url/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/nightly/i)).not.toBeInTheDocument();
@@ -1941,7 +1968,7 @@ describe("CharacterForge dashboard", () => {
     await user.click(screen.getByRole("button", { name: /check for updates/i }));
 
     expect(await screen.findByText(/you are up to date/i)).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /update now/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /install update/i })).not.toBeInTheDocument();
     expect(listCharactersMock).not.toHaveBeenCalled();
   });
 
@@ -1968,7 +1995,7 @@ describe("CharacterForge dashboard", () => {
     expect(await screen.findByText(/update available/i)).toBeInTheDocument();
     expect(screen.getByText(/version 0\.2\.0/i)).toBeInTheDocument();
     expect(screen.getByText(/polish release ready/i)).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: /update now/i }));
+    await user.click(screen.getByRole("button", { name: /install update/i }));
 
     await waitFor(() => expect(invoke).toHaveBeenCalledWith("install_update", {}));
     expect(screen.getByText(/update started/i)).toBeInTheDocument();
@@ -1992,7 +2019,7 @@ describe("CharacterForge dashboard", () => {
     await user.click(screen.getByRole("button", { name: /check for updates/i }));
 
     expect(await screen.findByText(/could not check for updates/i)).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /update now/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /install update/i })).not.toBeInTheDocument();
   });
 
   it("shows connected Welcome status from mocked API state without exposing API keys", async () => {
@@ -2014,7 +2041,7 @@ describe("CharacterForge dashboard", () => {
     expect((await screen.findAllByText(/connected to characterforge api/i)).length).toBeGreaterThan(0);
 
     await user.click(screen.getByRole("button", { name: "Welcome" }));
-    expect(screen.getByText(/api-connected dashboard/i)).toBeInTheDocument();
+    expect(screen.getByText(/connected workspace/i)).toBeInTheDocument();
     const connectedSummary = within(screen.getByLabelText(/welcome status summary/i));
     expect(connectedSummary.getByText(/connection/i)).toBeInTheDocument();
     expect(connectedSummary.getByText(/connected/i)).toBeInTheDocument();
@@ -2057,7 +2084,7 @@ describe("CharacterForge dashboard", () => {
     await user.click(screen.getByRole("button", { name: /save settings/i }));
     await user.click(screen.getByRole("button", { name: "Welcome" }));
 
-    expect(screen.queryByText(/api-connected dashboard/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/^connected workspace$/i)).not.toBeInTheDocument();
     const disconnectedSummary = within(screen.getByLabelText(/welcome status summary/i));
     expect(disconnectedSummary.getAllByText(/not connected/i).length).toBeGreaterThan(0);
     expect(disconnectedSummary.getByText("https://api.example.test/dev")).toBeInTheDocument();
@@ -2090,7 +2117,7 @@ describe("CharacterForge dashboard", () => {
 
     await user.click(screen.getByRole("button", { name: "Characters" }));
     expect(await screen.findByText("Arden Vale")).toBeInTheDocument();
-    expect(screen.getByText(/showing api characters/i)).toBeInTheDocument();
+    expect(screen.getByText(/showing characters loaded from your connected service/i)).toBeInTheDocument();
   });
 
   it("builds an exact create-character payload from editor fields and submits it through the SDK", async () => {
