@@ -77,6 +77,28 @@ describe("CharacterForge dashboard", () => {
     expect(screen.queryByRole("heading", { name: /check for updates/i })).not.toBeInTheDocument();
   });
 
+  it("explains safe API Base URL and API Key discovery on Deployment without embedded secrets", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+
+    await user.click(screen.getByRole("button", { name: "Deployment" }));
+
+    expect(screen.getByRole("heading", { name: /where do i find these/i })).toBeInTheDocument();
+    expect(screen.getByText(/when this app starts the stack/i)).toBeInTheDocument();
+    expect(screen.getByText(/reads cloudformation outputs/i)).toBeInTheDocument();
+    expect(screen.getByText(/aws console > cloudformation/i)).toBeInTheDocument();
+    expect(screen.getByText(/aws console > api gateway/i)).toBeInTheDocument();
+    expect(screen.getByText(/api keys stay redacted/i)).toBeInTheDocument();
+
+    const renderedDeploymentCopy = [
+      document.body.textContent ?? "",
+      ...Array.from(document.querySelectorAll("input")).map((input) => input.getAttribute("placeholder") ?? "")
+    ].join("\n");
+    expect(renderedDeploymentCopy).not.toMatch(/https:\/\/[a-z0-9]{10}\.execute-api\.[a-z0-9-]+\.amazonaws\.com\/[a-z0-9-]+/i);
+    expect(renderedDeploymentCopy).not.toMatch(/\b(?:AKIA|ASIA)[A-Z0-9]{16}\b/);
+    expect(renderedDeploymentCopy).not.toMatch(/x-api-key\s*[:=]\s*[-A-Za-z0-9_]{20,}/i);
+  });
+
   it("shows useful not-connected Welcome empty states with a Deployment link", async () => {
     const user = userEvent.setup();
     render(<App />);

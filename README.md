@@ -175,12 +175,42 @@ After deployment:
 
 1. Copy the CloudFormation `ApiUrl` output.
 2. Retrieve the API Gateway API key value from AWS.
-3. In CharacterForgeAI, open API settings.
-4. Paste the API base URL and API key into the local app.
+3. In CharacterForgeAI, open Deployment.
+4. Paste the API base URL and API key into the local app's API connection fields.
 5. Test the connection.
 6. Create or import characters, then use the chat screen to test live responses.
 
 Keep the API key local. Do not paste real key values into Git commits, screenshots, bug reports, or shared logs.
+
+## Curl API Examples
+
+The `examples/curl/` folder contains shell examples for testing the HTTP API from a terminal without embedding live hosts or credentials.
+
+For local SAM testing, start the API with mock LLM responses enabled:
+
+```bash
+sam local start-api --env-vars examples/curl/local-env.json
+# local-env.json sets USE_MOCK_LLM=true for safe local responses.
+```
+
+Then run the local examples:
+
+- `examples/curl/create-character-local.sh` posts a sample character to `http://127.0.0.1:3000`.
+- `examples/curl/chat-local.sh` sends a chat request to the local API.
+
+For a deployed stack, set placeholders from your own deployment outputs and keep the API key local to your shell session:
+
+```bash
+export API_BASE_URL="https://<api-id>.execute-api.<region>.amazonaws.com/<stage>"
+export CHARACTERFORGE_API_KEY="<redacted-api-key>"
+```
+
+Then run:
+
+- `examples/curl/create-character-deployed.sh`
+- `examples/curl/chat-deployed.sh`
+
+Do not commit real `API_BASE_URL` values for private stacks or real `CHARACTERFORGE_API_KEY` values. The deployed examples send the API key as an `x-api-key` header from the environment variable only.
 
 ### 7. Shut down the backend when finished
 

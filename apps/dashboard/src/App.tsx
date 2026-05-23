@@ -1958,6 +1958,27 @@ function DeploymentStartScreen({
           from the deployment outputs that create the API Gateway usage-plan key, or from API Gateway if your stack
           rotation process issued a new one.
         </p>
+        <section className="notice compact" aria-labelledby="api-discovery-help-title">
+          <h3 id="api-discovery-help-title">Where do I find these?</h3>
+          <ol>
+            <li>
+              When this app starts the stack, it reads CloudFormation Outputs after deployment completes and offers to
+              fill the API Base URL from the stack output automatically.
+            </li>
+            <li>
+              API keys stay redacted: the app never prints the raw key in logs or status panels, and the password field
+              should be cleared before screen sharing.
+            </li>
+            <li>
+              If you deployed separately, open AWS Console &gt; CloudFormation &gt; Stacks, select your CharacterForgeAI
+              stack, then open Outputs and copy the API endpoint and API key output values if present.
+            </li>
+            <li>
+              If the outputs are missing, open AWS Console &gt; API Gateway: use Stages to find the Invoke URL, and use API
+              Keys or Usage Plans only long enough to copy the key value into this local session.
+            </li>
+          </ol>
+        </section>
         <p className="warning">
           <strong>Credential safety warning:</strong> API keys should be treated as secrets: do not commit them, paste production secrets into demos, screenshots, or issue reports,
           and remove them from this field before sharing your screen.
