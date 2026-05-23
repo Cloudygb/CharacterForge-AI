@@ -25,6 +25,9 @@ Var CFAI_DependencyInstallCheckbox
 Var CFAI_DesktopShortcutCheckbox
 Var CFAI_StartMenuShortcutCheckbox
 Var CFAI_LaunchNowCheckbox
+Var CFAI_PrerequisiteHelperExitCode
+Var CFAI_PrerequisiteRequiredFailures
+Var CFAI_PrerequisiteWarnings
 
 ; The requested wizard order is declared here instead of relying on modal
 ; MessageBox prompts:
@@ -58,12 +61,42 @@ Page custom CFAI_CreateFinishPage CFAI_LeaveFinishPage
   File /oname=$PLUGINSDIR\show-docker-guidance.ps1 "${__FILEDIR__}\show-docker-guidance.ps1"
 !macroend
 
+!macro CFAI_ResetPrerequisiteHelperSummary
+  StrCpy $CFAI_PrerequisiteRequiredFailures ""
+  StrCpy $CFAI_PrerequisiteWarnings ""
+!macroend
+
+!macro CFAI_RecordPrerequisiteHelperResult NAME EXIT_CODE REQUIRED
+  ${If} ${EXIT_CODE} != "0"
+    ${If} "${REQUIRED}" == "1"
+      DetailPrint "Required prerequisite helper failed: ${NAME} (exit code ${EXIT_CODE}). Check ${CFAI_LOG_DIR} for details."
+      StrCpy $CFAI_PrerequisiteRequiredFailures "$CFAI_PrerequisiteRequiredFailures$\r$\n- ${NAME}: exit code ${EXIT_CODE}; check ${CFAI_LOG_DIR}."
+    ${Else}
+      DetailPrint "Optional prerequisite helper warning: ${NAME} returned exit code ${EXIT_CODE}. Check ${CFAI_LOG_DIR} for details."
+      StrCpy $CFAI_PrerequisiteWarnings "$CFAI_PrerequisiteWarnings$\r$\n- ${NAME}: exit code ${EXIT_CODE}; check ${CFAI_LOG_DIR}."
+    ${EndIf}
+  ${EndIf}
+!macroend
+
+!macro CFAI_ShowPrerequisiteHelperSummary
+  ${If} $CFAI_PrerequisiteRequiredFailures != ""
+    MessageBox MB_ICONSTOP|MB_OK "A required prerequisite helper failed, so setup cannot continue safely.$\r$\n$CFAI_PrerequisiteRequiredFailures$\r$\n$\r$\nReview the log files in ${CFAI_LOG_DIR}, then retry setup or install the listed prerequisite manually."
+    Abort
+  ${ElseIf} $CFAI_PrerequisiteWarnings != ""
+    MessageBox MB_ICONEXCLAMATION|MB_OK "An optional prerequisite helper warning was reported.$\r$\n$CFAI_PrerequisiteWarnings$\r$\n$\r$\nSetup can continue, but review ${CFAI_LOG_DIR} before using deployment features."
+  ${EndIf}
+!macroend
+
 !macro CFAI_RunDependencyValidation
   CreateDirectory "${CFAI_LOG_DIR}"
   !insertmacro CFAI_ExtractInstallerHelpers
+  !insertmacro CFAI_ResetPrerequisiteHelperSummary
   ${If} $CFAI_RunDependencyValidation == "1"
     DetailPrint "Checking your computer for required tools..."
     nsExec::ExecToLog 'powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$PLUGINSDIR\detect-dependencies.ps1" -LogPath "${CFAI_LOG_DIR}\dependency-validation.log"'
+    Pop $CFAI_PrerequisiteHelperExitCode
+    !insertmacro CFAI_RecordPrerequisiteHelperResult "Dependency validation" $CFAI_PrerequisiteHelperExitCode "0"
+    !insertmacro CFAI_ShowPrerequisiteHelperSummary
   ${Else}
     DetailPrint "Dependency validation skipped by the user."
   ${EndIf}
@@ -71,19 +104,29 @@ Page custom CFAI_CreateFinishPage CFAI_LeaveFinishPage
 
 !macro CFAI_RunDependencyInstallers
   ${If} $CFAI_RunDependencyInstallers == "1"
+    !insertmacro CFAI_ResetPrerequisiteHelperSummary
     DetailPrint "Installing only missing prerequisites. Existing tools are detected and skipped by each helper."
 
     DetailPrint "Checking WebView2 Runtime before download/install..."
     nsExec::ExecToLog 'powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$PLUGINSDIR\install-webview2-runtime.ps1" -LogPath "${CFAI_LOG_DIR}\install-webview2-runtime.log"'
+    Pop $CFAI_PrerequisiteHelperExitCode
+    !insertmacro CFAI_RecordPrerequisiteHelperResult "WebView2 Runtime" $CFAI_PrerequisiteHelperExitCode "1"
 
     DetailPrint "Checking AWS CLI v2 before download/install..."
     nsExec::ExecToLog 'powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$PLUGINSDIR\install-aws-cli-v2.ps1" -LogPath "${CFAI_LOG_DIR}\install-aws-cli-v2.log"'
+    Pop $CFAI_PrerequisiteHelperExitCode
+    !insertmacro CFAI_RecordPrerequisiteHelperResult "AWS CLI v2" $CFAI_PrerequisiteHelperExitCode "1"
 
     DetailPrint "Checking AWS SAM CLI before download/install..."
     nsExec::ExecToLog 'powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$PLUGINSDIR\install-aws-sam-cli.ps1" -LogPath "${CFAI_LOG_DIR}\install-aws-sam-cli.log"'
+    Pop $CFAI_PrerequisiteHelperExitCode
+    !insertmacro CFAI_RecordPrerequisiteHelperResult "AWS SAM CLI" $CFAI_PrerequisiteHelperExitCode "1"
 
     DetailPrint "Showing Docker Desktop guided-install status..."
     nsExec::ExecToLog 'powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$PLUGINSDIR\show-docker-guidance.ps1" -LogPath "${CFAI_LOG_DIR}\docker-guidance.log"'
+    Pop $CFAI_PrerequisiteHelperExitCode
+    !insertmacro CFAI_RecordPrerequisiteHelperResult "Docker Desktop guidance" $CFAI_PrerequisiteHelperExitCode "0"
+    !insertmacro CFAI_ShowPrerequisiteHelperSummary
   ${Else}
     DetailPrint "Dependency installation skipped. CharacterForgeAI can guide setup later."
   ${EndIf}

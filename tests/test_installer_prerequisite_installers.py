@@ -139,6 +139,33 @@ def test_prerequisite_installers_check_existing_tools_before_download_or_install
         assert precheck_position < download_position < install_position, name
 
 
+def test_nsis_prerequisite_helpers_check_return_codes_and_fail_only_required_helpers() -> None:
+    nsis = (INSTALLER / "characterforgeai.nsh").read_text(encoding="utf-8")
+
+    helper_scripts = [
+        "detect-dependencies.ps1",
+        "install-webview2-runtime.ps1",
+        "install-aws-cli-v2.ps1",
+        "install-aws-sam-cli.ps1",
+        "show-docker-guidance.ps1",
+    ]
+    for helper_script in helper_scripts:
+        exec_position = nsis.index(f'nsExec::ExecToLog \'powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$PLUGINSDIR\\{helper_script}"')
+        following_hook = nsis[exec_position : exec_position + 700]
+        assert "Pop $CFAI_PrerequisiteHelperExitCode" in following_hook, helper_script
+        assert "CFAI_RecordPrerequisiteHelperResult" in following_hook, helper_script
+
+    assert 'CFAI_RecordPrerequisiteHelperResult "WebView2 Runtime" $CFAI_PrerequisiteHelperExitCode "1"' in nsis
+    assert 'CFAI_RecordPrerequisiteHelperResult "AWS CLI v2" $CFAI_PrerequisiteHelperExitCode "1"' in nsis
+    assert 'CFAI_RecordPrerequisiteHelperResult "AWS SAM CLI" $CFAI_PrerequisiteHelperExitCode "1"' in nsis
+    assert 'CFAI_RecordPrerequisiteHelperResult "Docker Desktop guidance" $CFAI_PrerequisiteHelperExitCode "0"' in nsis
+    assert "MessageBox MB_ICONSTOP" in nsis
+    assert "Abort" in nsis
+    assert "MessageBox MB_ICONEXCLAMATION" in nsis
+    assert "required prerequisite helper failed" in nsis
+    assert "optional prerequisite helper warning" in nsis
+
+
 def test_docker_guidance_script_detects_and_guides_without_installing_docker() -> None:
     script = DOCKER_GUIDANCE.read_text(encoding="utf-8")
     normalized = script.lower()

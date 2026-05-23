@@ -16,6 +16,7 @@ EXPECTED_AUDIT_GATES = [
     "updater real-or-disabled",
     "typed Start/End confirmation",
     "downgrades blocked",
+    "prerequisite helper exit-code handling",
     "OpenAPI auth responses",
     "no API key persistence",
     "docs direct-key warning",
@@ -135,12 +136,24 @@ def test_best_practice_audit_regression_index_lists_all_major_audit_gates() -> N
     for gate in EXPECTED_AUDIT_GATES:
         assert gate in content
 
-    implemented_gate_count = 5  # CSP non-null; IPC least privilege; installer signing required; updater real-or-disabled; downgrades blocked
+    implemented_gate_count = 6  # CSP non-null; IPC least privilege; installer signing required; updater real-or-disabled; downgrades blocked; prerequisite helper exit-code handling
     pending_or_implemented = content.count("@pytest.mark.xfail") + content.count("@pytest.mark.skip")
     assert pending_or_implemented >= len(EXPECTED_AUDIT_GATES) - implemented_gate_count
     assert "test_installer_release_verification.py" in content
     assert "keeps updater controls hidden" in content
     assert "Audit gate pending remediation" in content
+
+
+def test_step_10_evidence_records_prerequisite_helper_exit_code_handling() -> None:
+    assert LEDGER_PATH.exists(), f"Missing audit remediation ledger at {LEDGER_PATH.relative_to(REPO_ROOT)}"
+    content = LEDGER_PATH.read_text(encoding="utf-8")
+
+    assert "## Step 10 Prerequisite Helper Exit-Code Handling" in content
+    assert "CF-AUDIT-4.3" in content
+    assert "required prerequisite helper failed" in content
+    assert "optional prerequisite helper warning" in content
+    assert "pytest tests/test_installer_prerequisite_installers.py -q" in content
+    assert "No secrets" in content
 
 
 def test_audit_remediation_ledger_does_not_commit_source_audit_or_secrets() -> None:

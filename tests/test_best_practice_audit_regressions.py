@@ -82,6 +82,16 @@ def test_release_installers_block_normal_downgrades() -> None:
     assert '"allowDowngrades": true' not in tauri_config
 
 
+def test_prerequisite_helpers_check_exit_codes() -> None:
+    """prerequisite helper exit-code handling: NSIS must inspect helper return codes."""
+    prerequisite_tests = (ROOT / "tests" / "test_installer_prerequisite_installers.py").read_text(encoding="utf-8")
+
+    assert "test_nsis_prerequisite_helpers_check_return_codes_and_fail_only_required_helpers" in prerequisite_tests
+    assert "Pop $CFAI_PrerequisiteHelperExitCode" in prerequisite_tests
+    assert "required prerequisite helper failed" in prerequisite_tests
+    assert "optional prerequisite helper warning" in prerequisite_tests
+
+
 @pytest.mark.xfail(reason=_pending_gate("OpenAPI auth responses"))
 def test_openapi_documents_auth_error_and_rate_limit_responses() -> None:
     """OpenAPI auth responses: API contract must document 401, 403, 429, and retry metadata."""
