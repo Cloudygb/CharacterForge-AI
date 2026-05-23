@@ -1851,6 +1851,10 @@ function DeploymentStartScreen({
   isDesktopShell,
   settings,
   setupResult,
+  characterFolder,
+  folderScanIssues,
+  folderStatus,
+  localCharacters,
   setupCheckRequest,
   sharedState,
   setupStatus,
@@ -1862,6 +1866,7 @@ function DeploymentStartScreen({
   onExportBeforeEndConfirmedChange,
   onFormChange,
   onPreviewStart,
+  onOpenCharacters,
   onRealEnd,
   onRunAwsSetupWizard,
   onRunCheck,
@@ -1882,6 +1887,10 @@ function DeploymentStartScreen({
   isDesktopShell: boolean;
   settings: ApiSettings;
   setupResult: SetupCheckResult | null;
+  characterFolder: CharacterFolderInfo;
+  folderScanIssues: CharacterFolderScanIssue[];
+  folderStatus: CharacterFolderStatus;
+  localCharacters: Character[];
   setupCheckRequest: SetupCheckForm | null;
   sharedState: SharedDashboardState;
   setupStatus: ConnectionStatus;
@@ -1893,6 +1902,7 @@ function DeploymentStartScreen({
   onExportBeforeEndConfirmedChange: (value: boolean) => void;
   onFormChange: (form: DeploymentStartRequest) => void;
   onPreviewStart: () => void;
+  onOpenCharacters: () => void;
   onRealEnd: () => void;
   onRunAwsSetupWizard: () => void;
   onRunCheck: () => void;
@@ -1924,6 +1934,14 @@ function DeploymentStartScreen({
   });
   const canStart = startDisabledReasons.length === 0;
   const canEnd = isDesktopShell && exportBeforeEndConfirmed && endDeleteConfirmed && hasDeploymentFields && hasCredentials;
+  const invalidFileCount = folderScanIssues.length;
+  const localReadyCount = localCharacters.filter((character) => character.syncStatus === "api_pending" || character.syncStatus === "conflict" || character.source === "local").length;
+  const localFolderMessage =
+    folderStatus.state === "success"
+      ? localReadyCount
+        ? `Found ${localReadyCount} local character${localReadyCount === 1 ? "" : "s"} ready to sync.`
+        : "Local character folder scan found no local characters ready to sync."
+      : "Start will scan the default CharacterForgeAI character folder after the stack starts.";
 
   function updateTemporaryCredentials(field: keyof NonNullable<DeploymentStartRequest["temporaryCredentials"]>, value: string) {
     onFormChange({
@@ -2193,6 +2211,25 @@ function DeploymentStartScreen({
         <div className="button-row">
           <button type="button" disabled={!canStart} onClick={onRealStart}>Start</button>
         </div>
+        <section className="notice compact" aria-labelledby="local-character-start-title">
+          <h3 id="local-character-start-title">Local character folder after Start</h3>
+          <p>{localFolderMessage}</p>
+          <p>
+            Start only scans and validates local character files. It does not silently overwrite cloud records or sync local
+            changes automatically.
+          </p>
+          <p className="helper-text">Default folder: {characterFolder.path}</p>
+          {invalidFileCount ? (
+            <p className="warning">
+              {invalidFileCount} invalid local file{invalidFileCount === 1 ? "" : "s"} {invalidFileCount === 1 ? "needs" : "need"} review before syncing.
+            </p>
+          ) : null}
+          {folderStatus.state === "success" ? (
+            <div className="button-row">
+              <button type="button" onClick={onOpenCharacters}>Review or sync in Characters</button>
+            </div>
+          ) : null}
+        </section>
       </section>
 
       <section className="setup-safety-panel" aria-labelledby="desktop-end-title">
@@ -3333,6 +3370,29 @@ export default function App() {
     setDeploymentStatus({ message: "Dry-run deployment preview ready.", state: "success" });
   }
 
+  async function scanLocalCharactersAfterStart(): Promise<{ readyCount: number; invalidCount: number }> {
+    const scan = await scanCharacterFolder();
+    if (!isSafeCharacterFolderPath(scan.folderPath)) {
+      setCharacterFolder({ path: scan.folderPath, browserMode: false });
+      setFolderCharacters([]);
+      setFolderScanIssues([]);
+      setCharacterFolderStatus({ message: "Failed: character folder path must stay under CharacterForgeAI app data.", state: "error" });
+      throw new Error("character folder path must stay under CharacterForgeAI app data");
+    }
+
+    const readyCount = scan.characters.filter((character) => character.syncStatus === "api_pending" || character.syncStatus === "conflict" || character.source === "local").length;
+    setCharacterFolder({ path: scan.folderPath, browserMode: false });
+    setFolderCharacters(scan.characters);
+    setFolderScanIssues(scan.invalidFiles);
+    setCharacterFolderStatus({
+      message: readyCount
+        ? `Found ${readyCount} local character${readyCount === 1 ? "" : "s"} ready to sync after Start. Review or sync them from Characters before overwriting cloud records.`
+        : "Start scanned the local CharacterForgeAI character folder. No local characters are ready to sync.",
+      state: "success"
+    });
+    return { readyCount, invalidCount: scan.invalidFiles.length };
+  }
+
   async function handleRealDeploymentStart() {
     const requiredConfirmation = `START ${deploymentForm.stackName.trim() || "characterforge-ai-dev"}`;
     const adapter = createDeploymentAdapter();
@@ -3360,10 +3420,30 @@ export default function App() {
     try {
       const result = await adapter.start(deploymentForm, { confirmationText: requiredConfirmation });
       setDeploymentStartResult(result);
+      let localScanSummary = "";
+      if (result.status === "succeeded") {
+        try {
+          const scanSummary = await scanLocalCharactersAfterStart();
+          localScanSummary = scanSummary.readyCount
+            ? ` Found ${scanSummary.readyCount} local character${scanSummary.readyCount === 1 ? "" : "s"} ready to sync; review them in Characters before syncing.`
+            : " No local characters are ready to sync.";
+          if (scanSummary.invalidCount) {
+            localScanSummary += ` ${scanSummary.invalidCount} invalid local file${scanSummary.invalidCount === 1 ? "" : "s"} ${scanSummary.invalidCount === 1 ? "needs" : "need"} review.`;
+          }
+        } catch (scanError) {
+          setFolderCharacters([]);
+          setFolderScanIssues([]);
+          setCharacterFolderStatus({
+            message: scanError instanceof Error ? `Failed: could not scan local character folder after Start: ${scanError.message}` : "Failed: could not scan local character folder after Start.",
+            state: "error"
+          });
+          localScanSummary = " Local character folder scan failed; open Characters to review the folder before syncing.";
+        }
+      }
       setDeploymentStatus({
         message:
           result.status === "succeeded"
-            ? `Deployment Start completed with ${result.finalStackStatus}. Non-secret outputs were saved locally.`
+            ? `Deployment Start completed with ${result.finalStackStatus}. Non-secret outputs were saved locally.${localScanSummary}`
             : `Deployment Start ended with ${result.finalStackStatus}. Review the redacted log below.`,
         state: result.status === "succeeded" ? "success" : "error"
       });
@@ -3734,6 +3814,10 @@ export default function App() {
             isDesktopShell={hasTauriInvoke()}
             settings={draftSettings}
             setupResult={setupCheckResult}
+            characterFolder={characterFolder}
+            folderScanIssues={folderScanIssues}
+            folderStatus={characterFolderStatus}
+            localCharacters={folderCharacters}
             setupCheckRequest={setupCheckRequest}
             sharedState={sharedDashboardState}
             setupStatus={setupCheckStatus}
@@ -3745,6 +3829,7 @@ export default function App() {
             onExportBeforeEndConfirmedChange={setExportBeforeEndConfirmed}
             onFormChange={setDeploymentForm}
             onPreviewStart={handlePreviewDeploymentStart}
+            onOpenCharacters={() => setActiveScreen("characters")}
             onRealEnd={handleRealDeploymentEnd}
             onRunAwsSetupWizard={handleRunAwsSetupWizard}
             onRunCheck={handleRunSetupCheck}
