@@ -1,61 +1,47 @@
-# CharacterForgeAI Desktop App
+# CharacterForgeAI Desktop Dashboard
 
-React/Vite/TypeScript desktop dashboard for CharacterForgeAI.
+React/Vite/TypeScript dashboard packaged by Tauri for the CharacterForgeAI desktop app.
 
-The dashboard starts in mock mode when no API base URL is set. When a local base URL and API key are entered in the API Settings screen, the app uses the CharacterForge TypeScript SDK client to test the connection, list characters, and submit character profile create/update payloads to the API.
+The polished app is organized around five normal user screens:
 
-## Screens
+- **Welcome** — status, quick orientation, and the first-run guided setup.
+- **Deployment** — AWS profile/region/model setup, readiness checks, guarded Start/End controls, and API Base URL/API Key connection help.
+- **Characters** — create/edit/delete characters, open the safe local character folder, import/export character packs, and configure custom actions.
+- **Chat** — chat only with synced API characters and inspect returned structured actions when connected.
+- **Settings** — simple update checking and app-level preferences.
 
-- Welcome
-- API Settings
-- Setup Check
-- Characters
-- Character Editor
-- Character Packs
-- Chat Test
-- Raw JSON Preview
+Developer/raw diagnostic views are hidden behind the in-app advanced disclosure and are not part of the normal navigation.
 
-## Setup Check
+## Deployment and API connection
 
-The Setup Check screen uses a mocked setup-check adapter first so dashboard tests and local demos never call AWS directly. It shows:
+Deployment owns both cloud setup and API connection details. The app can discover the API Base URL and non-secret stack outputs after it launches the stack, then helps users test the connection with an API key from their own deployment.
 
-- AWS region.
-- Selected Bedrock model.
-- Credential status.
-- Bedrock access status.
-- Existing stack status.
-- Warnings about mock-only results, Bedrock access confirmation, non-default regions, and higher-cost model choices.
+Use placeholders in examples and docs:
 
-This readiness panel is intentionally browser-local for now. Treat its results as guidance only until a future server-side setup-check endpoint performs real AWS, Bedrock, and CloudFormation checks with credentials stored outside the browser.
+```text
+CHARACTERFORGE_API_BASE_URL=https://<api-id>.execute-api.<region>.amazonaws.com/<stage>
+CHARACTERFORGE_API_KEY=<your-api-key-value>
+```
 
-## Character Editor
+Do not paste production API keys into source files, browser bundles, committed config, screenshots, or frontend tests. The dashboard keeps the typed API key in component state for the current browser session and does not persist it to localStorage.
 
-The Character Editor builds the exact JSON body that the API receives for character create and update requests. Use it to:
+## Characters and local files
 
-- Write the core profile fields: name, description, personality, backstory, speaking style, goals, world context, and roleplay rules.
-- Select allowed action groups for quests, fights, items, dialogue, and flags.
-- Add trigger instructions for each selected action type.
-- Edit payload template JSON for each selected action group.
-- Preview the final `allowed_actions`, `action_rules`, and `payload_templates` payload before submitting.
-- Leave the existing character ID blank to create a new profile, or enter a character ID to update that profile.
+The Characters page is the single home for character authoring and local file workflows:
 
-The editor validates required fields, list fields, selected actions, trigger instructions, and template JSON before making an SDK call.
+- Create and edit character profiles in dialogs; internal character IDs stay hidden from normal users.
+- Add any number of designer-authored custom actions with trigger instructions and JSON object payload templates.
+- Open the app-managed CharacterForgeAI character folder instead of asking users to browse arbitrary filesystem paths.
+- Import/export character packs locally and sync with the API only when a connection has been tested successfully.
+- Confirm destructive deletes before local/API records are removed.
 
-## Character Packs
+## Chat
 
-The Character Packs screen keeps pack file handling local in the browser wherever possible. Use it to:
-
-- Load a `character-pack.json` bundle, extracted pack folder, or `.zip` archive from your computer.
-- Validate pack metadata, referenced character payloads, optional binding files, and payload template structure before import.
-- Preview pack metadata, characters, payload templates, and bindings as JSON before sending anything to the API.
-- Select which characters to import, then create those characters through the configured TypeScript SDK client.
-- Export selected characters as a browser-generated JSON bundle that includes `character_documents`, `payload_templates`, and `binding_documents`.
-
-Only the explicit import action calls the CharacterForge API. Loading, validating, previewing, and export preparation happen in the browser using local file APIs.
+Chat does not show fake live conversations when disconnected. Users must connect to a deployed or local API and select a synced character before live requests are sent. Returned action payloads remain inspectable for game integration work.
 
 ## Desktop app
 
-CharacterForgeAI runs as a local Tauri desktop app. The Tauri shell packages the existing React/Vite build and does not deploy AWS resources or create cloud infrastructure during installation.
+CharacterForgeAI runs as a local Tauri desktop app. Installing the app does not deploy AWS resources, run SAM, create CloudFormation stacks, or request Bedrock access. Cloud-changing actions happen only from explicit Deployment Start/End controls after the required warnings and confirmations.
 
 Local desktop commands:
 
@@ -88,7 +74,7 @@ Tauri writes Windows installer artifacts under:
 apps/dashboard/src-tauri/target/release/bundle/
 ```
 
-The Tauri config enables both `msi` and `nsis` bundle targets. The NSIS installer is the release path for `characterforgeai-installer.exe`; staging it does not deploy AWS resources, run SAM, create CloudFormation stacks, or request Bedrock access.
+The Tauri config enables both `msi` and `nsis` bundle targets. The NSIS installer is the release path for `characterforgeai-installer.exe`; staging it does not deploy AWS resources or create cloud infrastructure.
 
 ## Local commands
 
@@ -99,15 +85,6 @@ npm test
 npm run typecheck
 npm run build
 ```
-
-Use placeholder API settings in examples and docs:
-
-```text
-CHARACTERFORGE_API_BASE_URL=https://<api-id>.execute-api.<region>.amazonaws.com/<stage>
-CHARACTERFORGE_API_KEY=<your-api-key-value>
-```
-
-Do not paste production API keys into source files, browser bundles, committed config, screenshots, or frontend tests. The dashboard keeps the typed API key in component state for the current browser session and does not persist it to localStorage. Public deployments should use a trusted backend/proxy for secret storage instead of exposing keys to browser clients.
 
 ### Release artifact staging
 

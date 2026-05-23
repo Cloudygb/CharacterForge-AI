@@ -812,7 +812,7 @@ impl DeploymentShellAdapter for LocalProcessDeploymentShell {
             .join("deployments");
         fs::create_dir_all(&base_dir)
             .map_err(|error| format!("failed to create output directory: {error}"))?;
-        let path = base_dir.join(format!("{stack_name}-{region}-outputs.json"));
+        let path = base_dir.join(deployment_output_file_name(stack_name, region)?);
         let document = serde_json::json!({
             "stackName": stack_name,
             "region": region,
@@ -831,7 +831,7 @@ impl DeploymentShellAdapter for LocalProcessDeploymentShell {
             .unwrap_or_else(std::env::temp_dir)
             .join(".characterforge")
             .join("deployments")
-            .join(format!("{stack_name}-{region}-outputs.json"));
+            .join(deployment_output_file_name(stack_name, region)?);
         if path.exists() {
             fs::remove_file(&path)
                 .map_err(|error| format!("failed to clear local deployment config: {error}"))?;
@@ -860,6 +860,33 @@ impl DeploymentCommandAdapter for DryRunDeploymentCommandAdapter {
     ) -> Result<DeploymentEndResult, String> {
         Err("deployment End is not available from the dry-run adapter".to_string())
     }
+}
+
+fn deployment_output_file_name(stack_name: &str, region: &str) -> Result<String, String> {
+    fn safe_segment(value: &str, label: &str) -> Result<String, String> {
+        let trimmed = value.trim();
+        if trimmed.is_empty()
+            || trimmed == "."
+            || trimmed == ".."
+            || trimmed.contains("..")
+            || trimmed.contains('/')
+            || trimmed.contains('\\')
+            || !trimmed.chars().all(|character| {
+                character.is_ascii_alphanumeric() || matches!(character, '-' | '_' | '.')
+            })
+        {
+            return Err(format!(
+                "Deployment {label} must be a safe file-name segment."
+            ));
+        }
+        Ok(trimmed.to_string())
+    }
+
+    Ok(format!(
+        "{}-{}-outputs.json",
+        safe_segment(stack_name, "stack name")?,
+        safe_segment(region, "region")?
+    ))
 }
 
 impl<S: DeploymentShellAdapter> DeploymentCommandAdapter for RealDeploymentCommandAdapter<S> {
@@ -2433,6 +2460,18 @@ mod tests {
             *cleared_configs.borrow(),
             vec![("characterforge-ai-dev".to_string(), "us-east-1".to_string())]
         );
+    }
+
+    #[test]
+    fn deployment_output_filename_rejects_path_traversal() {
+        assert_eq!(
+            deployment_output_file_name("characterforge-ai-dev", "us-east-1")
+                .expect("safe file name"),
+            "characterforge-ai-dev-us-east-1-outputs.json"
+        );
+        assert!(deployment_output_file_name("../outside", "us-east-1").is_err());
+        assert!(deployment_output_file_name("characterforge-ai-dev", "us/east/1").is_err());
+        assert!(deployment_output_file_name("characterforge-ai-dev", "..\\evil").is_err());
     }
 
     #[test]

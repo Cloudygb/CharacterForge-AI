@@ -1968,7 +1968,7 @@ describe("CharacterForge dashboard", () => {
     await user.click(screen.getByRole("button", { name: /check for updates/i }));
 
     expect(await screen.findByText(/you are up to date/i)).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /install update/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /update now/i })).not.toBeInTheDocument();
     expect(listCharactersMock).not.toHaveBeenCalled();
   });
 
@@ -1995,7 +1995,7 @@ describe("CharacterForge dashboard", () => {
     expect(await screen.findByText(/update available/i)).toBeInTheDocument();
     expect(screen.getByText(/version 0\.2\.0/i)).toBeInTheDocument();
     expect(screen.getByText(/polish release ready/i)).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: /install update/i }));
+    await user.click(screen.getByRole("button", { name: /update now/i }));
 
     await waitFor(() => expect(invoke).toHaveBeenCalledWith("install_update", {}));
     expect(screen.getByText(/update started/i)).toBeInTheDocument();
@@ -2019,7 +2019,7 @@ describe("CharacterForge dashboard", () => {
     await user.click(screen.getByRole("button", { name: /check for updates/i }));
 
     expect(await screen.findByText(/could not check for updates/i)).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /install update/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /update now/i })).not.toBeInTheDocument();
   });
 
   it("shows connected Welcome status from mocked API state without exposing API keys", async () => {

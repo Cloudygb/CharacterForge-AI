@@ -1541,7 +1541,7 @@ function SettingsScreen({
           </button>
           {updateCheckResult?.available ? (
             <button type="button" onClick={onInstallUpdate}>
-              Install update
+              Update Now
             </button>
           ) : null}
         </div>

@@ -22,6 +22,7 @@ def test_web_playground_has_static_files_and_no_build_step() -> None:
     assert '<script src="app.js" defer></script>' in html
     assert '<link rel="stylesheet" href="styles.css" />' in html
     assert "API URL" in html
+    assert "API Key" in html
     assert "Create Sample Character" in html
     assert "Send Chat Message" in html
 
@@ -34,6 +35,8 @@ def test_web_playground_javascript_covers_required_api_flow() -> None:
         "/characters",
         "/characters/${state.characterId}/chat",
         "fetch(",
+        "x-api-key",
+        "characterforgeApiKey",
         "createCharacter",
         "sendChatMessage",
         "renderActions",
@@ -49,6 +52,7 @@ def test_web_playground_docs_explain_local_static_server_and_api_url() -> None:
 
     assert "python3 -m http.server" in docs
     assert "API URL" in docs
+    assert "API Key" in docs
     assert "sam local start-api" in docs
     assert "API_BASE_URL" in docs
     assert "mock response" in docs.lower()
