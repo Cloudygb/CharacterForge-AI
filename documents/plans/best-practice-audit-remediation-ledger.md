@@ -87,3 +87,13 @@ Captured on branch `best-practice-audit-remediation` before feature remediation 
 | Known failing baseline checks | Dashboard tests and dashboard build fail on missing Rollup optional dependency package `@rollup/rollup-linux-x64-gnu`; initial RED `pytest -q` failed only because this Step 2 ledger snapshot had not been recorded yet. |
 | Passing baseline checks | Dashboard typecheck, Rust fmt, Rust tests, Rust check, TypeScript SDK tests, installer verification subset. |
 | Secret safety | No secrets, live endpoints, credential values, or internal planning source artifacts were added to this ledger. |
+
+## Step 3 Audit Regression Test Index
+
+| Evidence Item | Result |
+| --- | --- |
+| Regression index file | `tests/test_best_practice_audit_regressions.py` |
+| Audit gates indexed | auth required; object auth; no wildcard production CORS; CSP non-null; installer signing required; updater real-or-disabled; typed Start/End confirmation; OpenAPI auth responses; no API key persistence; docs direct-key warning; context naming consistency. |
+| Placeholder behavior | Each gate is marked `xfail` with an `Audit gate pending remediation` reason so incomplete remediation cannot be mistaken for a passing audit gate. |
+| Step verification | `pytest tests/test_best_practice_audit_regressions.py -q` reports 11 xfailed placeholders. |
+| Safety scope | The regression index contains no secrets, live endpoints, credential values, or internal planning source artifacts. |

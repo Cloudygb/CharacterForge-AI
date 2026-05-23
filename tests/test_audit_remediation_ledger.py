@@ -5,6 +5,21 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 LEDGER_PATH = REPO_ROOT / "documents" / "plans" / "best-practice-audit-remediation-ledger.md"
+REGRESSION_INDEX_PATH = REPO_ROOT / "tests" / "test_best_practice_audit_regressions.py"
+
+EXPECTED_AUDIT_GATES = [
+    "auth required",
+    "object auth",
+    "no wildcard production CORS",
+    "CSP non-null",
+    "installer signing required",
+    "updater real-or-disabled",
+    "typed Start/End confirmation",
+    "OpenAPI auth responses",
+    "no API key persistence",
+    "docs direct-key warning",
+    "context naming consistency",
+]
 
 EXPECTED_FINDINGS = [
     ("1.1", "P0", "API key only is not sufficient authentication"),
@@ -108,6 +123,19 @@ def test_audit_remediation_ledger_records_step_2_verification_baseline() -> None
     assert "Result" in content
     assert "Failure Summary" in content
     assert "Installer verification" in content
+
+
+def test_best_practice_audit_regression_index_lists_all_major_audit_gates() -> None:
+    assert REGRESSION_INDEX_PATH.exists(), (
+        f"Missing audit regression index at {REGRESSION_INDEX_PATH.relative_to(REPO_ROOT)}"
+    )
+    content = REGRESSION_INDEX_PATH.read_text(encoding="utf-8")
+
+    for gate in EXPECTED_AUDIT_GATES:
+        assert gate in content
+
+    assert content.count("@pytest.mark.xfail") + content.count("@pytest.mark.skip") >= len(EXPECTED_AUDIT_GATES)
+    assert "Audit gate pending remediation" in content
 
 
 def test_audit_remediation_ledger_does_not_commit_source_audit_or_secrets() -> None:
