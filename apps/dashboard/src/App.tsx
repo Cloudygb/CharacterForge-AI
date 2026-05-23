@@ -1266,6 +1266,50 @@ function buildExportPack(source: LoadedPack, selectedCharacterIds: string[]): Ch
   };
 }
 
+function payloadFromCharacter(character: Character): CharacterPayload {
+  return character.payload ?? {
+    name: character.name,
+    description: character.description,
+    personality: [character.archetype],
+    backstory: character.status,
+    speaking_style: "Use the character description and saved local notes.",
+    goals: [],
+    world_context: "",
+    rules: [],
+    allowed_actions: character.allowedActions,
+    action_rules: [],
+    payload_templates: []
+  };
+}
+
+function buildDashboardCharacterExportPack(characters: Character[]): CharacterPackManifest {
+  const exportableCharacters = characters.filter((character) => character.syncStatus !== "deleted");
+  const manifestCharacters = exportableCharacters.map((character) => ({
+    id: character.id,
+    path: `characters/${character.id.replace(/[^a-zA-Z0-9_-]+/g, "-") || "character"}.json`,
+    name: character.name
+  }));
+  return {
+    schema_version: "1.0",
+    slug: "characterforge-dashboard-export",
+    name: "CharacterForge Dashboard Export",
+    description: "Local character export prepared before deleting the AWS stack.",
+    version: "1.0.0",
+    authors: [],
+    license: "unspecified",
+    tags: [],
+    content_warnings: [],
+    minimum_characterforge_version: "0.1.0",
+    characters: manifestCharacters,
+    bindings: [],
+    assets: [],
+    character_documents: Object.fromEntries(
+      manifestCharacters.map((manifestCharacter, index) => [manifestCharacter.path, payloadFromCharacter(exportableCharacters[index])])
+    ),
+    binding_documents: {}
+  };
+}
+
 function downloadJsonFile(payload: unknown): string {
   const json = formatJson(payload);
   const blob = new Blob([json], { type: "application/json" }) as Blob & { text?: () => Promise<string> };
@@ -1847,6 +1891,7 @@ function DeploymentStartScreen({
   connectionStatus,
   endDeleteConfirmed,
   exportBeforeEndConfirmed,
+  exportBeforeEndStatus,
   form,
   isDesktopShell,
   settings,
@@ -1866,6 +1911,8 @@ function DeploymentStartScreen({
   onExportBeforeEndConfirmedChange,
   onFormChange,
   onPreviewStart,
+  onOpenCharacterFolder,
+  onExportCharactersBeforeEnd,
   onOpenCharacters,
   onRealEnd,
   onRunAwsSetupWizard,
@@ -1883,6 +1930,7 @@ function DeploymentStartScreen({
   connectionStatus: ConnectionStatus;
   endDeleteConfirmed: boolean;
   exportBeforeEndConfirmed: boolean;
+  exportBeforeEndStatus: ConnectionStatus;
   form: DeploymentStartRequest;
   isDesktopShell: boolean;
   settings: ApiSettings;
@@ -1902,6 +1950,8 @@ function DeploymentStartScreen({
   onExportBeforeEndConfirmedChange: (value: boolean) => void;
   onFormChange: (form: DeploymentStartRequest) => void;
   onPreviewStart: () => void;
+  onOpenCharacterFolder: () => void;
+  onExportCharactersBeforeEnd: () => void;
   onOpenCharacters: () => void;
   onRealEnd: () => void;
   onRunAwsSetupWizard: () => void;
@@ -1933,7 +1983,8 @@ function DeploymentStartScreen({
     testedApiSettings
   });
   const canStart = startDisabledReasons.length === 0;
-  const canEnd = isDesktopShell && exportBeforeEndConfirmed && endDeleteConfirmed && hasDeploymentFields && hasCredentials;
+  const exportBeforeEndFailed = exportBeforeEndStatus.state === "error";
+  const canEnd = isDesktopShell && exportBeforeEndConfirmed && endDeleteConfirmed && hasDeploymentFields && hasCredentials && !exportBeforeEndFailed;
   const invalidFileCount = folderScanIssues.length;
   const localReadyCount = localCharacters.filter((character) => character.syncStatus === "api_pending" || character.syncStatus === "conflict" || character.source === "local").length;
   const localFolderMessage =
@@ -2235,20 +2286,32 @@ function DeploymentStartScreen({
       <section className="setup-safety-panel" aria-labelledby="desktop-end-title">
         <h2 id="desktop-end-title">End deployment</h2>
         <p>
-          End deletes the configured CloudFormation stack through the desktop shell. Export character packs first, then
-          confirm that you understand deletion before the End button is enabled. Logs are redacted and stack deletion
-          status is polled until it succeeds or fails.
+          End deletes the configured CloudFormation stack through the desktop shell. Save or export character data before
+          deletion, then explicitly confirm the stack and region before the End button is enabled. Logs are redacted and
+          stack deletion status is polled until it succeeds or fails.
         </p>
         <p className="warning">
-          Warning: End deletes AWS resources for stack <strong>{form.stackName.trim() || "characterforge-ai-dev"}</strong>. This cannot be undone from the dashboard.
+          Warning: End deletes AWS backend resources for stack <strong>{form.stackName.trim() || "characterforge-ai-dev"}</strong> in region <strong>{form.awsRegion.trim() || "us-east-1"}</strong>. This cannot be undone from the dashboard.
         </p>
+        <div className="notice compact">
+          <strong>Before deleting, save your characters locally.</strong> Use Open Character Folder to review existing local
+          files, or Export Characters to write a redacted local pack before ending the stack. If an export is requested
+          and fails, deletion stays blocked until a successful export is completed.
+        </div>
+        <div className="button-row">
+          <button type="button" onClick={onOpenCharacterFolder}>Open Character Folder</button>
+          <button type="button" onClick={onExportCharactersBeforeEnd}>Export Characters</button>
+        </div>
+        <div className={`connection-status ${exportBeforeEndStatus.state}`} role="status">
+          {exportBeforeEndStatus.message}
+        </div>
         <label className="checkbox-field">
           <input
             checked={exportBeforeEndConfirmed}
             onChange={(event) => onExportBeforeEndConfirmedChange(event.target.checked)}
             type="checkbox"
           />
-          I exported the character packs I need before deleting this stack.
+          I saved/exported the characters I need, or I deliberately choose to delete without exporting.
         </label>
         <label className="checkbox-field">
           <input
@@ -2256,7 +2319,7 @@ function DeploymentStartScreen({
             onChange={(event) => onEndDeleteConfirmedChange(event.target.checked)}
             type="checkbox"
           />
-          I understand End deletes the configured CloudFormation stack and local deployment connection.
+          I understand End deletes stack {form.stackName.trim() || "characterforge-ai-dev"} in region {form.awsRegion.trim() || "us-east-1"} and removes the local deployment connection.
         </label>
         <div className="button-row">
           <button type="button" disabled={!canEnd} onClick={onRealEnd}>End</button>
@@ -3087,6 +3150,10 @@ export default function App() {
   });
   const [startSafetyConfirmed, setStartSafetyConfirmed] = useState(false);
   const [exportBeforeEndConfirmed, setExportBeforeEndConfirmed] = useState(false);
+  const [exportBeforeEndStatus, setExportBeforeEndStatus] = useState<ConnectionStatus>({
+    message: "No export has been requested for this End operation yet.",
+    state: "idle"
+  });
   const [endDeleteConfirmed, setEndDeleteConfirmed] = useState(false);
   const [deploymentStartResult, setDeploymentStartResult] = useState<DeploymentStartResult | null>(null);
   const [deploymentEndResult, setDeploymentEndResult] = useState<DeploymentEndResult | null>(null);
@@ -3455,10 +3522,42 @@ export default function App() {
     }
   }
 
+  async function handleExportCharactersBeforeEnd() {
+    if (packExportState) {
+      URL.revokeObjectURL(packExportState.objectUrl);
+    }
+    const exportPack = buildDashboardCharacterExportPack(activeCharacters);
+    const fileName = `${exportPack.slug}.json`;
+    setExportBeforeEndStatus({ message: "Exporting characters before End...", state: "loading" });
+    setExportBeforeEndConfirmed(false);
+    try {
+      const objectUrl = downloadJsonFile(exportPack);
+      const savedExport = await saveCharacterPackExport(fileName, exportPack);
+      setPackExportState({ fileName, objectUrl, preview: exportPack, savedPath: savedExport?.path });
+      setExportBeforeEndStatus({
+        message: savedExport
+          ? `Exported ${exportPack.characters.length} character${exportPack.characters.length === 1 ? "" : "s"} before End to ${savedExport.path}.`
+          : `Prepared browser export for ${exportPack.characters.length} character${exportPack.characters.length === 1 ? "" : "s"} before End. Save the download locally before deleting the stack.`,
+        state: "success"
+      });
+      setExportBeforeEndConfirmed(true);
+    } catch (error) {
+      setExportBeforeEndStatus({
+        message: error instanceof Error ? `Export before End failed: ${error.message}. Delete is blocked until export succeeds.` : "Export before End failed. Delete is blocked until export succeeds.",
+        state: "error"
+      });
+      setExportBeforeEndConfirmed(false);
+    }
+  }
+
   async function handleRealDeploymentEnd() {
     const requiredConfirmation = `END ${deploymentForm.stackName.trim() || "characterforge-ai-dev"}`;
+    if (exportBeforeEndStatus.state === "error") {
+      setDeploymentStatus({ message: "Deployment End blocked because the requested character export failed. Export successfully before deleting the stack.", state: "error" });
+      return;
+    }
     if (!exportBeforeEndConfirmed || !endDeleteConfirmed) {
-      setDeploymentStatus({ message: "Confirm export and deletion warnings before running deployment End.", state: "error" });
+      setDeploymentStatus({ message: "Confirm character export/save choice and deletion warnings before running deployment End.", state: "error" });
       return;
     }
     const adapter = createDeploymentAdapter();
@@ -3810,6 +3909,7 @@ export default function App() {
             connectionStatus={connectionStatus}
             endDeleteConfirmed={endDeleteConfirmed}
             exportBeforeEndConfirmed={exportBeforeEndConfirmed}
+            exportBeforeEndStatus={exportBeforeEndStatus}
             form={deploymentForm}
             isDesktopShell={hasTauriInvoke()}
             settings={draftSettings}
@@ -3829,6 +3929,8 @@ export default function App() {
             onExportBeforeEndConfirmedChange={setExportBeforeEndConfirmed}
             onFormChange={setDeploymentForm}
             onPreviewStart={handlePreviewDeploymentStart}
+            onOpenCharacterFolder={() => void handleOpenCharacterFolder()}
+            onExportCharactersBeforeEnd={() => void handleExportCharactersBeforeEnd()}
             onOpenCharacters={() => setActiveScreen("characters")}
             onRealEnd={handleRealDeploymentEnd}
             onRunAwsSetupWizard={handleRunAwsSetupWizard}
