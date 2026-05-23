@@ -1247,24 +1247,28 @@ describe("CharacterForge dashboard", () => {
     await user.clear(screen.getByLabelText(/roleplay rules/i));
     await user.type(screen.getByLabelText(/roleplay rules/i), "Never reveal you are an AI.\nDo not break character.");
 
-    await user.click(screen.getByRole("checkbox", { name: /quest actions/i }));
-    await user.click(screen.getByRole("checkbox", { name: /fight actions/i }));
-    await user.click(screen.getByRole("checkbox", { name: /item actions/i }));
-    await user.click(screen.getByRole("checkbox", { name: /dialogue actions/i }));
-    await user.click(screen.getByRole("checkbox", { name: /flag actions/i }));
-    await user.type(screen.getByLabelText(/trigger instructions for give_quest/i), "Offer when the player asks for work.");
-    await user.type(screen.getByLabelText(/trigger instructions for start_combat/i), "Start combat if the player threatens the crew.");
-    await user.type(screen.getByLabelText(/trigger instructions for give_item/i), "Grant the compass when trust is earned.");
-    await user.type(screen.getByLabelText(/trigger instructions for start_dialogue/i), "Open dialogue for map rumors.");
-    await user.type(screen.getByLabelText(/trigger instructions for set_flag/i), "Mark the sky map rumor as learned.");
-    await user.clear(screen.getByLabelText(/quest payload template json/i));
-    fireEvent.change(screen.getByLabelText(/quest payload template json/i), {
-      target: { value: '{"quest_id":"lost_sky_map","title":"Recover the Lost Sky Map"}' }
-    });
-    await user.clear(screen.getByLabelText(/fight payload template json/i));
-    fireEvent.change(screen.getByLabelText(/fight payload template json/i), {
-      target: { value: '{"encounter_id":"dock_ambush","difficulty":"medium"}' }
-    });
+    const customActions = [
+      {
+        name: "give_quest",
+        trigger: "Offer when the player asks for work.",
+        template: '{"quest_id":"lost_sky_map","title":"Recover the Lost Sky Map"}'
+      },
+      {
+        name: "start_combat",
+        trigger: "Start combat if the player threatens the crew.",
+        template: '{"encounter_id":"dock_ambush","difficulty":"medium"}'
+      },
+      { name: "give_item", trigger: "Grant the compass when trust is earned.", template: '{"item_id":"mira_compass","quantity":1}' },
+      { name: "start_dialogue", trigger: "Open dialogue for map rumors.", template: '{"dialogue_id":"mira_map_rumors"}' },
+      { name: "set_flag", trigger: "Mark the sky map rumor as learned.", template: '{"flag_id":"learned_sky_map_rumor","value":true}' }
+    ];
+    for (const [index, action] of customActions.entries()) {
+      await user.click(screen.getByRole("button", { name: /create new action/i }));
+      const actionGroup = screen.getByRole("group", { name: new RegExp(`custom action ${index + 1}`, "i") });
+      await user.type(within(actionGroup).getByLabelText(/action name/i), action.name);
+      await user.type(within(actionGroup).getByLabelText(/trigger instructions/i), action.trigger);
+      fireEvent.change(within(actionGroup).getByLabelText(/payload template/i), { target: { value: action.template } });
+    }
 
     const preview = screen.getByLabelText(/exact json payload preview/i);
     await waitFor(() => expect(preview).toHaveTextContent('"name": "Captain Mira Voss"'));
@@ -1294,33 +1298,33 @@ describe("CharacterForge dashboard", () => {
       ],
       payload_templates: [
         {
-          template_id: "quest_template",
+          template_id: "give_quest_template",
           action_type: "give_quest",
-          description: "Quest action payload template",
+          description: "Payload template for give_quest",
           payload_template: { quest_id: "lost_sky_map", title: "Recover the Lost Sky Map" }
         },
         {
-          template_id: "fight_template",
+          template_id: "start_combat_template",
           action_type: "start_combat",
-          description: "Fight action payload template",
+          description: "Payload template for start_combat",
           payload_template: { encounter_id: "dock_ambush", difficulty: "medium" }
         },
         {
-          template_id: "item_template",
+          template_id: "give_item_template",
           action_type: "give_item",
-          description: "Item action payload template",
+          description: "Payload template for give_item",
           payload_template: { item_id: "mira_compass", quantity: 1 }
         },
         {
-          template_id: "dialogue_template",
+          template_id: "start_dialogue_template",
           action_type: "start_dialogue",
-          description: "Dialogue action payload template",
+          description: "Payload template for start_dialogue",
           payload_template: { dialogue_id: "mira_map_rumors" }
         },
         {
-          template_id: "flag_template",
+          template_id: "set_flag_template",
           action_type: "set_flag",
-          description: "Flag action payload template",
+          description: "Payload template for set_flag",
           payload_template: { flag_id: "learned_sky_map_rumor", value: true }
         }
       ]
@@ -1364,8 +1368,10 @@ describe("CharacterForge dashboard", () => {
     const editDialog = screen.getByRole("dialog", { name: /edit captain mira voss/i });
     expect(within(editDialog).getByLabelText(/character name/i)).toHaveValue("Captain Mira Voss");
     expect(within(editDialog).queryByLabelText(/existing character id/i)).not.toBeInTheDocument();
-    await user.click(within(editDialog).getByRole("checkbox", { name: /item actions/i }));
-    await user.type(within(editDialog).getByLabelText(/trigger instructions for give_item/i), "Give the compass after trust is earned.");
+    const itemAction = within(editDialog).getByDisplayValue("give_item").closest("fieldset");
+    expect(itemAction).not.toBeNull();
+    await user.clear(within(itemAction as HTMLElement).getByLabelText(/trigger instructions/i));
+    await user.type(within(itemAction as HTMLElement).getByLabelText(/trigger instructions/i), "Give the compass after trust is earned.");
     await user.click(within(editDialog).getByRole("button", { name: /submit character/i }));
 
     expect(updateCharacterMock).toHaveBeenCalledWith(
@@ -1381,6 +1387,131 @@ describe("CharacterForge dashboard", () => {
     );
     expect(createCharacterMock).not.toHaveBeenCalled();
     expect(await screen.findByText(/updated character profile/i)).toBeInTheDocument();
+  });
+
+
+  it("maps multiple custom actions, validates payload templates, and deletes actions before submit", async () => {
+    const user = userEvent.setup();
+    createCharacterMock.mockResolvedValueOnce({ character_id: "char_custom_actions" });
+
+    render(<App />);
+
+    await user.click(screen.getByRole("button", { name: "Deployment" }));
+    await user.type(screen.getByLabelText(/api base url/i), "https://api.example.test/dev");
+    await user.click(screen.getByRole("button", { name: /save settings/i }));
+
+    await user.click(screen.getByRole("button", { name: "Characters" }));
+    await user.click(screen.getByRole("button", { name: /create character/i }));
+    const dialog = screen.getByRole("dialog", { name: /create character/i });
+    expect(within(dialog).queryByRole("checkbox", { name: /quest actions/i })).not.toBeInTheDocument();
+
+    await user.type(within(dialog).getByLabelText(/character name/i), "Action Smith");
+    await user.type(within(dialog).getByLabelText(/^description$/i), "A crafter of interactive actions.");
+    await user.type(within(dialog).getByLabelText(/personality traits/i), "curious");
+    await user.type(within(dialog).getByLabelText(/goals/i), "test many actions");
+    await user.type(within(dialog).getByLabelText(/backstory/i), "Built for integration testing.");
+    await user.type(within(dialog).getByLabelText(/speaking style/i), "Concise and direct.");
+    await user.type(within(dialog).getByLabelText(/world context/i), "A test workshop.");
+    await user.type(within(dialog).getByLabelText(/roleplay rules/i), "Stay in character.");
+
+    await user.click(within(dialog).getByRole("button", { name: /create new action/i }));
+    const firstAction = within(dialog).getByRole("group", { name: /custom action 1/i });
+    await user.type(within(firstAction).getByLabelText(/action name/i), "cast_spell");
+    await user.type(within(firstAction).getByLabelText(/trigger instructions/i), "Cast when the player says a spell name.");
+    fireEvent.change(within(firstAction).getByLabelText(/payload template/i), { target: { value: '{"spell":"spark"}' } });
+
+    await user.click(within(dialog).getByRole("button", { name: /create new action/i }));
+    const secondAction = within(dialog).getByRole("group", { name: /custom action 2/i });
+    await user.type(within(secondAction).getByLabelText(/action name/i), "open_portal");
+    await user.type(within(secondAction).getByLabelText(/trigger instructions/i), "Open a portal when travel starts.");
+    fireEvent.change(within(secondAction).getByLabelText(/payload template/i), { target: { value: '{"destination":"moon-gate"}' } });
+
+    await user.click(within(dialog).getByRole("button", { name: /create new action/i }));
+    const thirdAction = within(dialog).getByRole("group", { name: /custom action 3/i });
+    await user.type(within(thirdAction).getByLabelText(/action name/i), "temporary_action");
+    await user.type(within(thirdAction).getByLabelText(/trigger instructions/i), "Remove before saving.");
+    fireEvent.change(within(thirdAction).getByLabelText(/payload template/i), { target: { value: '{"remove":true}' } });
+    await user.click(within(thirdAction).getByRole("button", { name: /delete action/i }));
+    expect(within(dialog).queryByDisplayValue("temporary_action")).not.toBeInTheDocument();
+
+    fireEvent.change(within(secondAction).getByLabelText(/payload template/i), { target: { value: "not json" } });
+    await user.click(within(dialog).getByRole("button", { name: /submit character/i }));
+    expect(within(dialog).getByText(/payload template for open_portal must be valid json/i)).toBeInTheDocument();
+    expect(createCharacterMock).not.toHaveBeenCalled();
+
+    fireEvent.change(within(secondAction).getByLabelText(/payload template/i), { target: { value: "[]" } });
+    await user.click(within(dialog).getByRole("button", { name: /submit character/i }));
+    expect(within(dialog).getByText(/payload template for open_portal must be a json object/i)).toBeInTheDocument();
+    expect(createCharacterMock).not.toHaveBeenCalled();
+
+    fireEvent.change(within(secondAction).getByLabelText(/payload template/i), { target: { value: '{"destination":"moon-gate"}' } });
+    await user.click(within(dialog).getByRole("button", { name: /submit character/i }));
+
+    expect(createCharacterMock).toHaveBeenCalledWith(
+      { baseUrl: "https://api.example.test/dev", apiKey: undefined },
+      expect.objectContaining({
+        allowed_actions: ["cast_spell", "open_portal"],
+        action_rules: [
+          { type: "cast_spell", enabled: true, trigger_instructions: "Cast when the player says a spell name." },
+          { type: "open_portal", enabled: true, trigger_instructions: "Open a portal when travel starts." }
+        ],
+        payload_templates: [
+          {
+            template_id: "cast_spell_template",
+            action_type: "cast_spell",
+            description: "Payload template for cast_spell",
+            payload_template: { spell: "spark" }
+          },
+          {
+            template_id: "open_portal_template",
+            action_type: "open_portal",
+            description: "Payload template for open_portal",
+            payload_template: { destination: "moon-gate" }
+          }
+        ]
+      })
+    );
+  });
+
+  it("prevents duplicate custom action names and payload template ID collisions", async () => {
+    const user = userEvent.setup();
+
+    render(<App />);
+
+    await user.click(screen.getByRole("button", { name: "Characters" }));
+    await user.click(screen.getByRole("button", { name: /create character/i }));
+    const dialog = screen.getByRole("dialog", { name: /create character/i });
+
+    await user.type(within(dialog).getByLabelText(/character name/i), "Duplicate Action Tester");
+    await user.type(within(dialog).getByLabelText(/^description$/i), "Validates duplicate actions.");
+    await user.type(within(dialog).getByLabelText(/personality traits/i), "careful");
+    await user.type(within(dialog).getByLabelText(/goals/i), "block duplicate actions");
+    await user.type(within(dialog).getByLabelText(/backstory/i), "Built for validation tests.");
+    await user.type(within(dialog).getByLabelText(/speaking style/i), "Plain language.");
+    await user.type(within(dialog).getByLabelText(/world context/i), "A QA lab.");
+    await user.type(within(dialog).getByLabelText(/roleplay rules/i), "Stay in character.");
+
+    await user.click(within(dialog).getByRole("button", { name: /create new action/i }));
+    const firstAction = within(dialog).getByRole("group", { name: /custom action 1/i });
+    await user.type(within(firstAction).getByLabelText(/action name/i), "open_portal");
+    await user.type(within(firstAction).getByLabelText(/trigger instructions/i), "Open a portal for travel.");
+    fireEvent.change(within(firstAction).getByLabelText(/payload template/i), { target: { value: '{"destination":"moon-gate"}' } });
+
+    await user.click(within(dialog).getByRole("button", { name: /create new action/i }));
+    const secondAction = within(dialog).getByRole("group", { name: /custom action 2/i });
+    await user.type(within(secondAction).getByLabelText(/action name/i), "OPEN_PORTAL");
+    await user.type(within(secondAction).getByLabelText(/trigger instructions/i), "Duplicate exact action name with different case.");
+    fireEvent.change(within(secondAction).getByLabelText(/payload template/i), { target: { value: '{"destination":"sun-gate"}' } });
+
+    await user.click(within(dialog).getByRole("button", { name: /submit character/i }));
+    expect(within(dialog).getByText(/action name OPEN_PORTAL must be unique/i)).toBeInTheDocument();
+    expect(createCharacterMock).not.toHaveBeenCalled();
+
+    await user.clear(within(secondAction).getByLabelText(/action name/i));
+    await user.type(within(secondAction).getByLabelText(/action name/i), "open portal");
+    await user.click(within(dialog).getByRole("button", { name: /submit character/i }));
+    expect(within(dialog).getByText(/action name open portal creates a duplicate payload template id/i)).toBeInTheDocument();
+    expect(createCharacterMock).not.toHaveBeenCalled();
   });
 
   it("loads a local JSON character pack, validates it, previews contents, imports selected characters, and exports selected data", async () => {

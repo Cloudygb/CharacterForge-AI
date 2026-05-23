@@ -1,11 +1,7 @@
 import pytest
 from pydantic import ValidationError
 
-from characterforge.models.action import (
-    SUPPORTED_ACTION_TYPES,
-    ActionType,
-    CharacterAction,
-)
+from characterforge.models.action import SUPPORTED_ACTION_TYPES, CharacterAction
 
 EXPECTED_ACTION_TYPES = {
     "give_quest",
@@ -52,11 +48,6 @@ def test_supported_action_types_match_the_mvp_action_list() -> None:
     assert set(SUPPORTED_ACTION_TYPES) == EXPECTED_ACTION_TYPES
 
 
-def test_action_type_literal_contains_every_supported_action() -> None:
-    literal_values = set(ActionType.__args__)
-
-    assert literal_values == EXPECTED_ACTION_TYPES
-
 
 @pytest.mark.parametrize("action_type", sorted(EXPECTED_ACTION_TYPES))
 def test_character_action_accepts_every_supported_action_type(action_type: str) -> None:
@@ -66,9 +57,16 @@ def test_character_action_accepts_every_supported_action_type(action_type: str) 
     assert action.payload == {"source": "test"}
 
 
-def test_character_action_rejects_unsupported_action_type() -> None:
+def test_character_action_accepts_custom_action_type() -> None:
+    action = CharacterAction(type="cast_spell", payload={"spell": "spark"})
+
+    assert action.type == "cast_spell"
+    assert action.payload == {"spell": "spark"}
+
+
+def test_character_action_rejects_blank_action_type() -> None:
     with pytest.raises(ValidationError):
-        CharacterAction(type="unsupported_action", payload={})
+        CharacterAction(type="   ", payload={})
 
 
 def test_character_action_payload_defaults_to_empty_dictionary() -> None:

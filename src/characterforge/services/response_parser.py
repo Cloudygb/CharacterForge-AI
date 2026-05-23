@@ -4,7 +4,6 @@ from typing import Any
 
 from pydantic import ValidationError
 
-from characterforge.models.action import SUPPORTED_ACTION_TYPES
 from characterforge.models.character import CharacterProfile
 from characterforge.models.chat import ChatResponse
 
@@ -53,10 +52,6 @@ def _validate_action_types(response_data: dict[str, Any], character: CharacterPr
         if not isinstance(action, dict):
             continue
         action_type = action.get("type")
-        if action_type not in SUPPORTED_ACTION_TYPES:
-            raise LLMResponseParseError(
-                f"LLM response contains unsupported action: {action_type!r}."
-            )
         if action_type not in enabled_actions:
             raise LLMResponseParseError(
                 f"Action {action_type!r} is not enabled for character {character.name}."

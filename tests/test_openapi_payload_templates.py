@@ -24,6 +24,10 @@ def test_openapi_documents_action_payload_template_schema() -> None:
     assert template_schema["properties"]["action_type"] == {
         "$ref": "#/components/schemas/ActionType"
     }
+    action_type_schema = schemas["ActionType"]
+    assert "enum" not in action_type_schema
+    assert action_type_schema["minLength"] == 1
+    assert "custom action names" in action_type_schema["description"]
     assert template_schema["properties"]["payload_template"]["additionalProperties"] is True
 
 

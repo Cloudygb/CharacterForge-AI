@@ -31,12 +31,22 @@ def test_character_action_rule_accepts_disabled_action() -> None:
     assert rule.enabled is False
 
 
-def test_character_action_rule_rejects_invalid_action_type() -> None:
+def test_character_action_rule_accepts_custom_action_type() -> None:
+    rule = CharacterActionRule(
+        type="cast_spell",
+        enabled=True,
+        trigger_instructions="Cast a spell when the player invokes a spell name.",
+    )
+
+    assert rule.type == "cast_spell"
+
+
+def test_character_action_rule_rejects_blank_action_type() -> None:
     with pytest.raises(ValidationError):
         CharacterActionRule(
-            type="unsupported_action",
+            type="   ",
             enabled=True,
-            trigger_instructions="This action does not exist.",
+            trigger_instructions="This action name is blank.",
         )
 
 
