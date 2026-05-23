@@ -473,18 +473,18 @@ async function runAwsSetupWizardCheck(form: SetupCheckForm): Promise<AwsSetupWiz
   }
   const payload = setupRequestPayload(form);
   return {
-    profiles: ["default", payload.profileName].filter((profile, index, profiles) => profiles.indexOf(profile) === index),
+    profiles: [],
     selectedProfile: payload.profileName,
     selectedRegion: payload.awsRegion,
     selectedModel: payload.bedrockModel,
-    availableModels: bedrockModelOptions.map((option) => option.value),
-    bedrockAccessStatus: "mock: model access check is simulated in browser mode",
+    availableModels: [],
+    bedrockAccessStatus: "Browser preview only — no AWS profiles, stacks, or Bedrock model access were checked.",
     stackPreview: {
       stackName: payload.stackName,
       region: payload.awsRegion,
       profileName: payload.profileName,
       bedrockModel: payload.bedrockModel,
-      status: "not checked in browser mock mode"
+      status: "Stack was not queried."
     },
     warnings: [
       "Credential values are never stored, logged, or returned by this wizard.",
@@ -694,7 +694,7 @@ const mockCharacters: Character[] = [
     id: "char_mock_mira",
     name: "Captain Mira Voss",
     archetype: "Rogue airship captain",
-    status: "Ready for chat testing",
+    status: "Sample character",
     description: "A protective smuggler with clipped nautical metaphors and a dangerous reputation.",
     allowedActions: ["give_quest", "start_combat", "give_item", "set_flag", "change_relationship"]
   },
@@ -702,36 +702,9 @@ const mockCharacters: Character[] = [
     id: "char_mock_thalen",
     name: "Ember Archivist Thalen",
     archetype: "Ruins scholar",
-    status: "Draft profile",
+    status: "Sample character",
     description: "A nervous historian who knows too much about sealed ruins and old royal maps.",
     allowedActions: ["give_quest", "give_item", "set_flag"]
-  }
-];
-
-const mockChatMessages: ChatMessage[] = [
-  {
-    speaker: "Player",
-    text: "I can help find the lost sky map."
-  },
-  {
-    speaker: "Captain Mira Voss",
-    text: "Bold offer. Dangerous too. Meet me at the eastern dock after dusk.",
-    actions: [
-      {
-        type: "give_quest",
-        payload: {
-          quest_id: "lost_sky_map",
-          title: "Find the Lost Sky Map"
-        }
-      },
-      {
-        type: "change_relationship",
-        payload: {
-          npc_id: "mira_voss",
-          relationship_change: 1
-        }
-      }
-    ]
   }
 ];
 
@@ -865,7 +838,7 @@ async function runMockSetupCheck(form: SetupCheckForm): Promise<SetupCheckResult
   const profileName = form.profileName.trim() || defaultSetupCheckForm.profileName;
   const stackName = form.stackName.trim() || defaultSetupCheckForm.stackName;
   const warnings = [
-    "Mock results only — this browser adapter does not call AWS.",
+    "Browser preview only — this check does not call AWS.",
     "Confirm Bedrock model access in the AWS console before deployment."
   ];
 
@@ -881,19 +854,19 @@ async function runMockSetupCheck(form: SetupCheckForm): Promise<SetupCheckResult
     bedrockModel,
     profileName,
     stackName,
-    credentialStatus: "Mock credentials detected",
-    bedrockAccessStatus: "Model access simulated as ready",
+    credentialStatus: "Browser preview only — credentials not checked",
+    bedrockAccessStatus: "Browser preview only — Bedrock access not checked",
     existingStackStatus: "No existing stack found",
     checks: [
       { id: "webview2", label: "WebView2 Runtime", status: "ready", detail: "Browser mock mode; desktop WebView2 is checked by the Tauri app." },
       { id: "awsCli", label: "AWS CLI", status: "warning", detail: "Not checked in browser mock mode." },
       { id: "samCli", label: "AWS SAM CLI", status: "warning", detail: "Not checked in browser mock mode." },
       { id: "docker", label: "Docker", status: "warning", detail: "Not checked in browser mock mode." },
-      { id: "resources", label: "Deployment resources", status: "ready", detail: "Mock resources available for UI walkthrough." },
-      { id: "awsProfile", label: "AWS profile", status: "ready", detail: `Mock profile ${profileName} selected.` },
-      { id: "awsRegion", label: "AWS region", status: "ready", detail: `Mock region ${awsRegion} selected.` },
-      { id: "stack", label: "CloudFormation stack", status: "warning", detail: `Mock stack ${stackName} was not queried.` },
-      { id: "model", label: "Bedrock model", status: "ready", detail: "Model access simulated as ready" }
+      { id: "resources", label: "Deployment resources", status: "warning", detail: "Browser preview only; packaged deployment resources are not checked." },
+      { id: "awsProfile", label: "AWS profile", status: "warning", detail: `Profile ${profileName} has not been checked in browser preview.` },
+      { id: "awsRegion", label: "AWS region", status: "warning", detail: `Region ${awsRegion} has not been checked in browser preview.` },
+      { id: "stack", label: "CloudFormation stack", status: "warning", detail: `Stack ${stackName} was not queried in browser preview.` },
+      { id: "model", label: "Bedrock model", status: "warning", detail: "Bedrock model access was not checked in browser preview." }
     ],
     warnings
   };
@@ -926,7 +899,7 @@ function createBlankEditorForm(): CharacterEditorForm {
       id: "",
       name: "",
       archetype: "",
-      status: "Draft profile",
+      status: "Sample character",
       description: "",
       allowedActions: []
     }),
@@ -1313,7 +1286,7 @@ function sourceLabel(character: Character): string {
   if (character.source === "local") {
     return "Source: Local folder";
   }
-  return "Source: Mock";
+  return "Source: Sample";
 }
 
 function syncLabel(character: Character): string {
@@ -1329,7 +1302,7 @@ function syncLabel(character: Character): string {
     case "deleted":
       return "Sync: Deleted";
     default:
-      return "Sync: Mock only";
+      return "Sync: Sample only";
   }
 }
 
@@ -1570,7 +1543,7 @@ function SetupCheckScreen({
         AWS profile, region, stack, and Bedrock model readiness without returning credential values.
       </p>
       <div className="notice compact">
-        Browser mode uses the mocked setup-check adapter; desktop mode uses Tauri Rust commands with redacted output.
+        Browser mode uses the browser preview setup-check adapter; desktop mode uses Tauri Rust commands with redacted output.
       </div>
       <div className="editor-grid">
         <label className="field">
@@ -1665,7 +1638,7 @@ function SetupCheckScreen({
       <section className="warning setup-warning-list" aria-labelledby="setup-warnings-title">
         <h2 id="setup-warnings-title">Warnings</h2>
         <ul>
-          {(result?.warnings ?? ["Mock results only — run the setup check before using this for deployment decisions."]).map((warning) => (
+          {(result?.warnings ?? ["Run readiness check before using this for deployment decisions."]).map((warning) => (
             <li key={warning}>{warning}</li>
           ))}
         </ul>
@@ -1675,15 +1648,23 @@ function SetupCheckScreen({
 }
 
 function AwsSetupWizardSummary({ result }: { result: AwsSetupWizardResult }) {
+  const browserPreviewOnly = result.bedrockAccessStatus.toLowerCase().includes("browser preview only");
   return (
     <section className="setup-warning-list" aria-labelledby="aws-setup-summary-title">
       <h3 id="aws-setup-summary-title">AWS setup wizard summary</h3>
+      {browserPreviewOnly ? <p className="notice compact">{result.bedrockAccessStatus}</p> : null}
       <div className="setup-check-grid">
-        <SetupCheckCard label="Detected AWS CLI profiles" value={result.profiles.join(", ") || "No profiles detected"} />
+        <SetupCheckCard
+          label={browserPreviewOnly ? "AWS CLI profile check" : "Detected AWS CLI profiles"}
+          value={result.profiles.join(", ") || (browserPreviewOnly ? "No profiles checked" : "No profiles detected")}
+        />
         <SetupCheckCard label="Selected profile" value={result.selectedProfile} />
         <SetupCheckCard label="Selected region" value={result.selectedRegion} />
         <SetupCheckCard label="Selected Bedrock model" value={result.selectedModel} />
-        <SetupCheckCard label="Available Bedrock models" value={result.availableModels.join(", ") || "No models listed"} />
+        <SetupCheckCard
+          label={browserPreviewOnly ? "Bedrock model check" : "Available Bedrock models"}
+          value={result.availableModels.join(", ") || (browserPreviewOnly ? "No models checked" : "No models listed")}
+        />
         <SetupCheckCard label="Bedrock access check" value={result.bedrockAccessStatus} />
       </div>
       <section className="notice compact" aria-labelledby="stack-preview-title">
@@ -2097,8 +2078,8 @@ function DeploymentStartScreen({
         <h2 id="deployment-readiness-title">Credential-safe AWS setup wizard</h2>
         <p>
           This merged Deployment wizard uses named AWS CLI profiles, guides region and Bedrock model selection, previews
-          stack settings, and keeps the setup summary together with Start. In browser preview mode it uses the mocked
-          setup-check adapter so no AWS calls are made.
+          stack settings, and keeps the setup summary together with Start. In browser preview mode it shows an honest
+          setup checklist only; use the packaged desktop app for real local AWS checks.
         </p>
         <div className="setup-check-grid">
           <article className="summary-card">
@@ -2152,7 +2133,7 @@ function DeploymentStartScreen({
         <section className="warning setup-warning-list" aria-labelledby="setup-warnings-title">
           <h3 id="setup-warnings-title">Warnings</h3>
           <ul>
-            {(setupResult?.warnings ?? ["Mock results only — run the setup check before using this for deployment decisions."]).map((warning) => (
+            {(setupResult?.warnings ?? ["Run readiness check before using this for deployment decisions."]).map((warning) => (
               <li key={warning}>{warning}</li>
             ))}
           </ul>
@@ -2357,7 +2338,7 @@ function CharactersScreen({
           ? "Showing API characters loaded through the TypeScript SDK."
           : characters.some((character) => character.status === "Loaded from local character folder" || character.status === "local file")
             ? "Showing characters loaded from the local CharacterForgeAI folder."
-            : "Showing mock characters because no API URL is set."}
+            : "Showing sample characters for offline exploration. They are not cloud-synced and can be deleted."}
       </div>
       <div className={`connection-status ${folderStatus.state}`} role={folderStatus.state === "error" ? "alert" : "status"}>
         {folderStatus.message}
@@ -2958,10 +2939,14 @@ function RawJsonPreviewScreen({
           },
           connectionStatus,
           sharedDashboardState: sharedState,
-          mockCharacters,
+          sampleCharacters: mockCharacters.map((character) => ({
+            id: character.id,
+            name: character.name,
+            status: character.status,
+            note: "Sample only; not cloud-synced."
+          })),
           activeCharacters: characters,
-          editorPayloadPreview: editorPayload,
-          mockChatResponse: mockChatMessages[1]
+          editorPayloadPreview: editorPayload
         },
         null,
         2
@@ -2987,7 +2972,7 @@ export default function App() {
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>(() => ({
     message: loadInitialSettings().apiBaseUrl
       ? "API settings loaded. Test the connection to refresh characters."
-      : "Mock mode is active because no API base URL is set.",
+      : "No API Base URL configured yet. Open Deployment to connect a deployed API.",
     state: loadInitialSettings().apiBaseUrl ? "idle" : "mock"
   }));
   const [editorForm, setEditorForm] = useState<CharacterEditorForm>(() => createInitialEditorForm(mockCharacters[0]));
@@ -3237,7 +3222,7 @@ export default function App() {
     if (!nextSettings.apiBaseUrl) {
       setApiCharacters([]);
       setTestedApiConnectionSettings(null);
-      setConnectionStatus({ message: "Mock mode is active because no API base URL is set.", state: "mock" });
+      setConnectionStatus({ message: "No API Base URL configured yet. Open Deployment to connect a deployed API.", state: "mock" });
     } else {
       setTestedApiConnectionSettings(null);
       setConnectionStatus({ message: "API settings saved. Test the connection to load characters.", state: "idle" });
@@ -3255,7 +3240,7 @@ export default function App() {
       saveSettings(nextSettings);
       setApiCharacters([]);
       setTestedApiConnectionSettings(null);
-      setConnectionStatus({ message: "Mock mode is active because no API base URL is set.", state: "mock" });
+      setConnectionStatus({ message: "No API Base URL configured yet. Open Deployment to connect a deployed API.", state: "mock" });
       return;
     }
 
@@ -3294,14 +3279,14 @@ export default function App() {
 
   async function handleRunSetupCheck() {
     const desktopMode = hasTauriInvoke();
-    setSetupCheckStatus({ message: desktopMode ? "Running desktop setup readiness check..." : "Running mocked setup check...", state: "loading" });
+    setSetupCheckStatus({ message: desktopMode ? "Running desktop setup readiness check..." : "Running browser preview setup check...", state: "loading" });
     try {
       const request = getDeploymentSetupForm();
       const result = await runSetupReadinessCheck(request);
       setSetupCheckRequest(request);
       setSetupCheckResult(result);
       setSetupCheckStatus({
-        message: desktopMode ? "Desktop setup readiness check complete." : "Mock setup check complete.",
+        message: desktopMode ? "Desktop setup readiness check complete." : "Browser preview setup check complete.",
         state: "success"
       });
     } catch (error) {
