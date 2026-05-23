@@ -155,6 +155,17 @@ main {
   box-shadow: 0 24px 80px rgba(0, 0, 0, 0.3);
 }
 
+.modal-panel {
+  max-height: min(86vh, 980px);
+  margin: 1.5rem 0;
+  overflow-y: auto;
+  padding: 1.5rem;
+  border: 1px solid rgba(114, 225, 255, 0.28);
+  border-radius: 1.25rem;
+  background: rgba(7, 18, 35, 0.96);
+  box-shadow: 0 20px 70px rgba(0, 0, 0, 0.38);
+}
+
 .eyebrow {
   margin: 0 0 0.5rem;
   color: #72e1ff;
