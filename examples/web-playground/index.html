@@ -30,7 +30,19 @@
         />
         <p class="hint">
           Leave blank to use portfolio mock mode. Paste a local SAM URL or deployed API Gateway
-          URL to call the real backend.
+          URL to call the real backend. Deployed APIs also require an API key from your own stack;
+          the key stays in this browser session and is never saved to localStorage.
+        </p>
+        <label for="api-key">API Key</label>
+        <input
+          id="api-key"
+          type="password"
+          placeholder="<your-api-key-value>"
+          autocomplete="off"
+        />
+        <p class="hint">
+          Leave the key blank for local unauthenticated demos. Do not paste production keys into
+          source files, screenshots, or committed config.
         </p>
         <div id="connection-status" class="status muted">Mock mode: no network calls yet.</div>
       </section>

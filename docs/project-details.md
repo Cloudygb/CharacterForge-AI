@@ -1,6 +1,6 @@
-# CharacterForge AI Developer and API Reference
+# CharacterForge AI Project Details and API Usage Guide
 
-This document keeps the detailed project information that used to live in the main README. The README is intentionally focused on downloads, setup, screenshots, and what the application does.
+This end-user oriented reference keeps details that used to live in the main README. The README is intentionally focused on downloads, setup, screenshots, and what the application does.
 
 ## Why this project exists
 
@@ -18,7 +18,7 @@ CharacterForge AI turns that pattern into a small platform: author characters lo
 
 ### Game AI platform experience
 
-- **Dashboard-first workflow:** configure API settings, run setup checks, edit character profiles, preview JSON payloads, import/export character packs, test chat, and inspect raw responses.
+- **Dashboard-first workflow:** use Welcome guidance, configure Deployment, author and sync Characters, chat with synced characters, and keep app preferences in Settings.
 - **Desktop deployment controls:** run the dashboard as a Tauri desktop app with guarded Start/End controls for local SAM/CloudFormation deployment workflows.
 - **Guided AWS setup:** review region, Bedrock model, credential readiness, stack status, deployment preview, and cost warnings before touching live AWS resources.
 - **Portable character packs:** share pack metadata, character documents, payload templates, and binding files as local JSON bundles.
@@ -42,7 +42,7 @@ CharacterForge AI turns that pattern into a small platform: author characters lo
 
 CharacterForge is organized around a local authoring/deployment experience and a cloud-hosted game AI runtime:
 
-- **Dashboard layer:** React/Vite web UI plus optional Tauri desktop shell for setup checks, pack workflows, SDK-backed API calls, and guarded deployment controls.
+- **Dashboard layer:** React/Vite web UI plus optional Tauri desktop shell for Welcome guidance, Deployment setup, Characters authoring/sync, Chat, and Settings.
 - **Backend API layer:** API Gateway REST API and a Python Lambda router for character, chat, and session requests.
 - **Data and AI layer:** DynamoDB stores character profiles/session history, while Amazon Bedrock Runtime generates structured in-character responses.
 - **Observability layer:** CloudWatch dashboard widgets and API Gateway/Lambda log links provide a ready-made production visibility starting point.
@@ -380,7 +380,7 @@ Do not run the smoke test in automated unit test suites; it calls the real Bedro
 │   ├── aws-deployment.md        # Beginner-friendly AWS deployment guide
 │   ├── character-packs.md       # Guide for portable character packs
 │   ├── game-bindings.md         # Guide for mapping actions to game systems
-│   └── project-details.md       # Developer/API/project reference
+│   └── project-details.md       # Project details and API usage guide
 ├── examples/
 │   ├── character-packs/         # Starter character packs with manifests and bindings
 │   ├── curl/                    # Local and deployed API curl scripts

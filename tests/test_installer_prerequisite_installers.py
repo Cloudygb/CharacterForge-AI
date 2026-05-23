@@ -99,6 +99,11 @@ def test_prerequisite_installer_scripts_use_official_https_sources_and_stable_ex
         assert "$exit_install_failed = 20" in normalized
         assert "$exit_unexpected_error = 99" in normalized
         assert "invoke-webrequest" in normalized
+        assert "assert-installersignature" in normalized
+        assert "get-authenticodesignature" in normalized
+        assert "signature verification failed" in normalized
+        signature_check_position = normalized.index("assert-installersignature -path $installerpath")
+        assert normalized.index("invoke-webrequest") < signature_check_position < normalized.index("start-process")
         assert "start-process" in normalized
         assert "convertto-json" in normalized
         assert "redact-sensitivevalue" in normalized

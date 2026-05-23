@@ -239,7 +239,7 @@ If a deployment rolls back or deletion fails, inspect the CloudFormation events 
 - [Game action bindings](docs/game-bindings.md)
 - [Unity integration](docs/game-engines/unity.md)
 - [Unreal integration](docs/game-engines/unreal.md)
-- [Developer and API reference](docs/project-details.md)
+- [Project details and API usage guide](docs/project-details.md)
 - [OpenAPI contract](openapi.yaml)
 
 ---

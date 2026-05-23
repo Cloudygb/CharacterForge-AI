@@ -89,6 +89,15 @@ function Test-DependencyInstalled {
     [ordered]@{ installed = $false; path = $null; version = $null }
 }
 
+function Assert-InstallerSignature {
+    param([Parameter(Mandatory = $true)][string]$Path)
+    $signature = Get-AuthenticodeSignature -FilePath $Path
+    if ($signature.Status -ne 'Valid') {
+        throw "Signature verification failed for downloaded installer: $($signature.Status)"
+    }
+    Write-CharacterForgeAILog "Downloaded installer signature verified."
+}
+
 try {
     Write-CharacterForgeAILog "Starting $ToolName installer helper. Dry-run: $([bool]$DryRun)."
 
@@ -114,6 +123,7 @@ try {
     Write-CharacterForgeAILog "Downloading $ToolName from official HTTPS source."
     try {
         Invoke-WebRequest -Uri $DownloadUrl -OutFile $installerPath -UseBasicParsing -ErrorAction Stop
+        Assert-InstallerSignature -Path $installerPath
     } catch {
         Write-CharacterForgeAILog "Download failed for $ToolName."
         New-Result -ExitCode $EXIT_DOWNLOAD_FAILED -Message "Download failed." -InstallerPath $installerPath | ConvertTo-Json -Depth 6

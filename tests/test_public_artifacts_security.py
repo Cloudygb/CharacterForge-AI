@@ -65,3 +65,29 @@ def test_public_artifacts_do_not_embed_aws_secrets_or_live_api_hosts() -> None:
                 )
 
     assert failures == []
+
+
+def test_public_docs_use_polished_app_screen_names() -> None:
+    docs_to_check = [
+        REPO_ROOT / "README.md",
+        REPO_ROOT / "apps" / "dashboard" / "README.md",
+        *sorted((REPO_ROOT / "docs").rglob("*.md")),
+    ]
+    stale_screen_names = [
+        "API Settings",
+        "Setup Check",
+        "Character Editor",
+        "Character Packs",
+        "Chat Test",
+        "Raw JSON Preview",
+    ]
+
+    failures: list[str] = []
+    for path in docs_to_check:
+        content = path.read_text(encoding="utf-8")
+        for stale_name in stale_screen_names:
+            if stale_name in content:
+                line_number = content[: content.index(stale_name)].count("\n") + 1
+                failures.append(f"{path.relative_to(REPO_ROOT)}:{line_number} mentions stale screen {stale_name!r}")
+
+    assert failures == []

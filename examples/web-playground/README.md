@@ -4,7 +4,7 @@ This is a tiny static browser playground for the CharacterForge AI backend. It i
 
 The playground lets you:
 
-1. Paste an API URL.
+1. Paste an API URL and, for deployed stacks, an API Key from your own API Gateway deployment.
 2. Choose one of the sample characters.
 3. Create that character with `POST /characters` or select it locally in mock mode.
 4. Send a chat message with `POST /characters/{character_id}/chat`.
@@ -40,7 +40,7 @@ sam local start-api \
   --env-vars examples/curl/local-env.json
 ```
 
-Then paste this API URL into the playground:
+Then paste this API URL into the playground and leave **API Key** blank unless your local API is configured to require one:
 
 ```text
 http://127.0.0.1:3000
@@ -62,11 +62,11 @@ If you are using shell scripts, this is the same value you would normally place 
 export API_BASE_URL="https://<api-id>.execute-api.<region>.amazonaws.com/dev"
 ```
 
-A deployed API can call Amazon Bedrock and write session history to DynamoDB, depending on your stack configuration.
+A deployed API can call Amazon Bedrock and write session history to DynamoDB, depending on your stack configuration. It also requires an API key. Copy the key value from your own stack/API Gateway console and paste it into the **API Key** field only while testing; the playground stores it in browser session storage, not localStorage.
 
 ## Notes
 
 - This playground is a portfolio/demo aid, not a production frontend.
-- It does not handle authentication because the MVP API does not include auth yet.
+- It uses the API Gateway API key that you paste for the current browser session; no key value is embedded in source files.
 - Browser calls to a deployed API require API Gateway CORS to allow the playground origin.
 - No credentials or real API Gateway hosts are embedded in these files.

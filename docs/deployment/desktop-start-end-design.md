@@ -1,6 +1,6 @@
-# Desktop Start/End Deployment Engine Design
+# Desktop Start/End Deployment Safety Guide
 
-This document describes the local deployment engine behind the CharacterForgeAI desktop **Start** and **End** buttons. It is written for contributors implementing the Tauri desktop flow and for reviewers who need to understand what the buttons are allowed to do.
+This document explains the local deployment engine behind the CharacterForgeAI desktop **Start** and **End** buttons for users who want to understand what cloud-changing actions are allowed to do.
 
 The desktop app should remain a local orchestration layer around AWS SAM and CloudFormation. It must not become a credential vault, a hidden Terraform wrapper, or a background process that deploys or deletes cloud resources without explicit user intent.
 

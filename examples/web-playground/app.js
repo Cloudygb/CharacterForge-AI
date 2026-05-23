@@ -65,12 +65,14 @@ const sampleCharacters = [
 
 const state = {
   apiUrl: localStorage.getItem("characterforgeApiUrl") || "",
+  apiKey: sessionStorage.getItem("characterforgeApiKey") || "",
   characterId: localStorage.getItem("characterforgeCharacterId") || "",
   selectedCharacter: sampleCharacters[0],
 };
 
 const elements = {
   apiUrl: document.querySelector("#api-url"),
+  apiKey: document.querySelector("#api-key"),
   connectionStatus: document.querySelector("#connection-status"),
   sampleSelect: document.querySelector("#sample-select"),
   createCharacter: document.querySelector("#create-character"),
@@ -92,6 +94,7 @@ const elements = {
 
 function init() {
   elements.apiUrl.value = state.apiUrl;
+  elements.apiKey.value = state.apiKey;
   elements.sampleSelect.innerHTML = sampleCharacters
     .map((character, index) => `<option value="${index}">${character.name}</option>`)
     .join("");
@@ -101,6 +104,11 @@ function init() {
   elements.apiUrl.addEventListener("input", () => {
     state.apiUrl = normalizeUrl(elements.apiUrl.value);
     localStorage.setItem("characterforgeApiUrl", state.apiUrl);
+    updateConnectionStatus();
+  });
+  elements.apiKey.addEventListener("input", () => {
+    state.apiKey = elements.apiKey.value.trim();
+    sessionStorage.setItem("characterforgeApiKey", state.apiKey);
     updateConnectionStatus();
   });
   elements.sampleSelect.addEventListener("change", () => {
@@ -126,7 +134,9 @@ function updateConnectionStatus(message) {
   }
 
   if (state.apiUrl) {
-    elements.connectionStatus.textContent = `Ready to call ${state.apiUrl}`;
+    elements.connectionStatus.textContent = state.apiKey
+      ? `Ready to call ${state.apiUrl} with a session-only API key.`
+      : `Ready to call ${state.apiUrl}. Add an API key for deployed API Gateway stacks.`;
     elements.connectionStatus.className = "status";
   } else {
     elements.connectionStatus.textContent = "Mock mode: no network calls yet.";
@@ -199,9 +209,13 @@ function chatPayload() {
 }
 
 async function postJson(url, payload) {
+  const headers = { "Content-Type": "application/json" };
+  if (state.apiKey) {
+    headers["x-api-key"] = state.apiKey;
+  }
   const response = await fetch(url, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers,
     body: JSON.stringify(payload),
   });
   const text = await response.text();
