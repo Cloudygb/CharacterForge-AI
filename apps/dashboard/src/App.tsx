@@ -40,6 +40,9 @@ declare global {
   }
 }
 
+type CharacterSource = "mock" | "local" | "api" | "api_local";
+type CharacterSyncStatus = "mock" | "local_only" | "api_synced" | "api_pending" | "conflict" | "deleted";
+
 type Character = {
   id: string;
   name: string;
@@ -47,6 +50,10 @@ type Character = {
   status: string;
   description: string;
   allowedActions: string[];
+  source?: CharacterSource;
+  syncStatus?: CharacterSyncStatus;
+  syncError?: string;
+  payload?: CharacterPayload;
 };
 
 type CharacterFolderInfo = {
@@ -67,6 +74,10 @@ type CharacterFolderScanResult = {
   folderPath: string;
   characters: Character[];
   invalidFiles: CharacterFolderScanIssue[];
+};
+
+type CharacterFileSaveResult = {
+  path: string;
 };
 
 type CharacterFolderStatus = {
@@ -331,7 +342,7 @@ function isSafeCharacterFolderPath(path: string) {
   return normalized.includes("/characterforgeai/characters") || normalized === "%appdata%/characterforgeai/characters";
 }
 
-function normalizeFolderCharacter(rawCharacter: Partial<Character> & { allowed_actions?: string[] }, index: number): Character {
+function normalizeFolderCharacter(rawCharacter: Partial<Character> & { allowed_actions?: string[]; sync_status?: CharacterSyncStatus }, index: number): Character {
   const name = typeof rawCharacter.name === "string" && rawCharacter.name.trim() ? rawCharacter.name.trim() : `Local Character ${index + 1}`;
   return {
     id:
@@ -355,7 +366,11 @@ function normalizeFolderCharacter(rawCharacter: Partial<Character> & { allowed_a
       ? rawCharacter.allowedActions.filter((action): action is string => typeof action === "string")
       : Array.isArray(rawCharacter.allowed_actions)
         ? rawCharacter.allowed_actions.filter((action): action is string => typeof action === "string")
-        : []
+        : [],
+    source: rawCharacter.source ?? "local",
+    syncStatus: rawCharacter.syncStatus ?? rawCharacter.sync_status ?? "api_pending",
+    syncError: rawCharacter.syncError,
+    payload: rawCharacter.payload
   };
 }
 
@@ -393,6 +408,47 @@ async function saveCharacterPackExport(fileName: string, pack: CharacterPackMani
     fileName,
     contents: formatJson(pack)
   })) as CharacterPackExportResult;
+}
+
+
+function localCharacterFileName(character: Character): string {
+  const slug = (character.id || character.name)
+    .toLowerCase()
+    .replace(/[^a-z0-9_-]+/g, "-")
+    .replace(/^-|-$/g, "") || "local-character";
+  return `${slug}.json`;
+}
+
+async function saveCharacterFile(character: Character): Promise<CharacterFileSaveResult | null> {
+  const fileName = localCharacterFileName(character);
+  if (hasTauriInvoke()) {
+    return (await window.__TAURI__!.core!.invoke("save_character_file", { character: { ...character, fileName } })) as CharacterFileSaveResult;
+  }
+  if (typeof window !== "undefined") {
+    const stored = JSON.parse(window.localStorage.getItem(localCharacterIndexStorageKey) ?? "{}") as Record<string, unknown>;
+    const characters = Array.isArray(stored.characters) ? stored.characters : [];
+    const nextCharacters = [
+      ...characters.filter((entry) => !(isRecord(entry) && entry.id === character.id)),
+      { ...character, fileName }
+    ];
+    window.localStorage.setItem(localCharacterIndexStorageKey, JSON.stringify({ ...stored, characters: nextCharacters }));
+  }
+  return { path: `${browserCharacterFolderPath}\${fileName}` };
+}
+
+async function deleteCharacterFile(character: Character): Promise<void> {
+  if (hasTauriInvoke()) {
+    await window.__TAURI__!.core!.invoke("delete_character_file", { characterId: character.id, fileName: localCharacterFileName(character) });
+    return;
+  }
+  if (typeof window !== "undefined") {
+    const stored = JSON.parse(window.localStorage.getItem(localCharacterIndexStorageKey) ?? "{}") as Record<string, unknown>;
+    const characters = Array.isArray(stored.characters) ? stored.characters : [];
+    window.localStorage.setItem(
+      localCharacterIndexStorageKey,
+      JSON.stringify({ ...stored, characters: characters.filter((entry) => !(isRecord(entry) && entry.id === character.id)) })
+    );
+  }
 }
 
 function setupRequestPayload(form: SetupCheckForm) {
@@ -889,7 +945,9 @@ function toDashboardCharacter(summary: CharacterSummary, index: number): Charact
     archetype: stringFrom(summary.archetype) ?? stringFrom(summary.role) ?? "API character",
     status: "Loaded from API",
     description: stringFrom(summary.description) ?? "Character returned from the CharacterForge API.",
-    allowedActions: stringArrayFrom(summary.allowedActions) ?? stringArrayFrom(summary.allowed_actions) ?? []
+    allowedActions: stringArrayFrom(summary.allowedActions) ?? stringArrayFrom(summary.allowed_actions) ?? [],
+    source: "api",
+    syncStatus: "api_synced"
   };
 }
 
@@ -1237,6 +1295,63 @@ function downloadJsonFile(payload: unknown): string {
     blob.text = async () => json;
   }
   return URL.createObjectURL(blob);
+}
+
+
+function sourceLabel(character: Character): string {
+  if (character.source === "api_local") {
+    return "Source: API + local";
+  }
+  if (character.source === "api") {
+    return "Source: API";
+  }
+  if (character.source === "local") {
+    return "Source: Local folder";
+  }
+  return "Source: Mock";
+}
+
+function syncLabel(character: Character): string {
+  switch (character.syncStatus) {
+    case "api_synced":
+      return "Sync: Cloud synced";
+    case "api_pending":
+      return "Sync: Not synced yet";
+    case "conflict":
+      return "Sync: Conflict or sync error";
+    case "local_only":
+      return "Sync: Local only";
+    case "deleted":
+      return "Sync: Deleted";
+    default:
+      return "Sync: Mock only";
+  }
+}
+
+function characterFromPayload(id: string, payload: CharacterPayload, overrides: Partial<Character> = {}): Character {
+  return {
+    id,
+    name: payload.name,
+    archetype: overrides.archetype ?? "Custom character",
+    status: overrides.status ?? "Draft profile",
+    description: payload.description,
+    allowedActions: payload.allowed_actions,
+    payload,
+    ...overrides
+  };
+}
+
+function localIdForPayload(payload: CharacterPayload): string {
+  const slug = payload.name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "local-character";
+  return `local-${slug}`;
+}
+
+function responseCharacterId(response: unknown, fallback: string): string {
+  return isRecord(response) && typeof response.id === "string" && response.id.trim()
+    ? response.id.trim()
+    : isRecord(response) && typeof response.character_id === "string" && response.character_id.trim()
+      ? response.character_id.trim()
+      : fallback;
 }
 
 function WelcomeScreen({
@@ -2174,6 +2289,7 @@ function CharactersScreen({
   characterFolder,
   folderScanIssues,
   folderStatus,
+  syncSummary,
   pendingDelete,
   onCancelDelete,
   onConfirmDelete,
@@ -2209,6 +2325,7 @@ function CharactersScreen({
   characterFolder: CharacterFolderInfo;
   folderScanIssues: CharacterFolderScanIssue[];
   folderStatus: CharacterFolderStatus;
+  syncSummary: string[];
   pendingDelete: Character | null;
   onCancelDelete: () => void;
   onConfirmDelete: () => void;
@@ -2241,6 +2358,16 @@ function CharactersScreen({
         {folderStatus.message}
       </div>
       <p className="helper-text">Import/export location: {characterFolder.path}</p>
+      {syncSummary.length ? (
+        <div className="notice compact" role="status">
+          <strong>Sync summary:</strong>
+          <ul>
+            {syncSummary.map((message) => (
+              <li key={message}>{message}</li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
       {folderScanIssues.length ? (
         <div className="notice compact" role="status">
           <strong>Local scan warnings:</strong>
@@ -2265,6 +2392,11 @@ function CharactersScreen({
                 <p>{character.archetype}</p>
               </div>
               <span className="status-pill">{character.status}</span>
+              <div className="button-row" aria-label={`${character.name} sync badges`}>
+                <span className="status-pill">{sourceLabel(character)}</span>
+                <span className="status-pill">{syncLabel(character)}</span>
+              </div>
+              {character.syncError ? <p className="warning">Sync error: {character.syncError}</p> : null}
               <p>{character.description}</p>
               <div className="button-row">
                 <button onClick={() => onEditCharacter(character)} type="button">
@@ -2289,7 +2421,7 @@ function CharactersScreen({
           <h2 id="delete-character-title">Delete {pendingDelete.name}?</h2>
           <p>
             {mode === "api"
-              ? `Delete ${pendingDelete.name} through the connected CharacterForge API, then remove it from the local index after the backend confirms success.`
+              ? `Delete ${pendingDelete.name} through the connected CharacterForge API, then remove the local folder copy and index after the backend confirms success.`
               : `Delete this local character record from the local character storage/index. This does not call the CharacterForge API.`}
           </p>
           <div className="button-row">
@@ -2768,11 +2900,38 @@ export default function App() {
 
   const apiMode = Boolean(settings.apiBaseUrl.trim());
   const apiConnected = apiMode && connectionStatus.state === "success";
-  const localSourceCharacters = folderCharacters.length ? folderCharacters : mockCharacters;
+  const folderCharacterById = new Map(folderCharacters.map((character) => [character.id, character]));
+  const localSourceCharacters = folderCharacters.length ? folderCharacters : mockCharacters.map((character) => ({ ...character, source: "mock" as const, syncStatus: "mock" as const }));
   const sourceCharacters = apiConnected
-    ? [...apiCharacters, ...folderCharacters.filter((folderCharacter) => !apiCharacters.some((apiCharacter) => apiCharacter.id === folderCharacter.id))]
+    ? [
+        ...apiCharacters.map((apiCharacter) => {
+          const localCopy = folderCharacterById.get(apiCharacter.id);
+          if (!localCopy) {
+            return { ...apiCharacter, source: "api" as const, syncStatus: "api_synced" as const };
+          }
+          return {
+            ...apiCharacter,
+            source: "api_local" as const,
+            syncStatus: localCopy.syncStatus === "api_pending" || localCopy.syncStatus === "conflict" ? "conflict" as const : "api_synced" as const,
+            syncError: localCopy.syncStatus === "api_pending" ? "Pending local changes exist for this API character." : localCopy.syncError
+          };
+        }),
+        ...folderCharacters.filter((folderCharacter) => !apiCharacters.some((apiCharacter) => apiCharacter.id === folderCharacter.id))
+      ]
     : localSourceCharacters;
   const activeCharacters = sourceCharacters.filter((character) => !deletedCharacterIds.includes(character.id));
+  const pendingLocalChanges = folderCharacters.filter((character) => character.syncStatus === "api_pending" || character.syncStatus === "conflict");
+  const syncSummary = [
+    pendingLocalChanges.length
+      ? `Pending local changes: ${pendingLocalChanges.length} character file${pendingLocalChanges.length === 1 ? " is" : "s are"} not synced yet.`
+      : "",
+    ...apiCharacters
+      .filter((apiCharacter) => {
+        const localCopy = folderCharacterById.get(apiCharacter.id);
+        return localCopy?.syncStatus === "api_pending" || localCopy?.syncStatus === "conflict";
+      })
+      .map((apiCharacter) => `Conflict: ${apiCharacter.name} exists in both API and local folder with pending local changes.`)
+  ].filter(Boolean);
   const sharedStateCharacters = activeCharacters;
   const deploymentConfig = useMemo(
     () =>
@@ -2813,7 +2972,7 @@ export default function App() {
             id: character.id,
             name: character.name,
             status: character.status,
-            syncStatus: apiConnected ? "api_synced" : "mock"
+            syncStatus: character.syncStatus ?? (apiConnected ? "api_synced" : "mock")
           })
         ),
         deployment: toDeploymentStatus({
@@ -3136,7 +3295,9 @@ export default function App() {
 
     if (!apiDeleteMode) {
       setCharacterDeleteStatus({ message: `Saving: deleting ${character.name} from local character storage...`, state: "loading" });
+      await deleteCharacterFile(character);
       markCharacterDeleted(character.id);
+      setFolderCharacters((current) => current.filter((folderCharacter) => folderCharacter.id !== character.id));
       setCharacterDeleteStatus({ message: `Saved: deleted ${character.name} from local character storage.`, state: "success" });
       setPendingDeleteCharacter(null);
       return;
@@ -3146,9 +3307,11 @@ export default function App() {
     try {
       const client = new CharacterForgeClient({ baseUrl: settings.apiBaseUrl, apiKey: settings.apiKey || undefined });
       await client.deleteCharacter(character.id);
+      await deleteCharacterFile(character);
       setApiCharacters((current) => current.filter((apiCharacter) => apiCharacter.id !== character.id));
+      setFolderCharacters((current) => current.filter((folderCharacter) => folderCharacter.id !== character.id));
       markCharacterDeleted(character.id);
-      setCharacterDeleteStatus({ message: `Saved: deleted ${character.name} from the API and local index.`, state: "success" });
+      setCharacterDeleteStatus({ message: `Saved: deleted ${character.name} from the API and local index; local folder copy removed after success.`, state: "success" });
       setPendingDeleteCharacter(null);
     } catch (error) {
       setCharacterDeleteStatus({
@@ -3167,26 +3330,89 @@ export default function App() {
       setEditorStatus({ message: "Fix validation issues before submitting the character profile.", state: "error" });
       return;
     }
-    if (!settings.apiBaseUrl.trim()) {
-      setEditorStatus({ message: "API base URL is required before submitting to the CharacterForge API.", state: "error" });
+
+    const existingId = editorForm.characterId.trim();
+    const existingCharacter = existingId ? activeCharacters.find((character) => character.id === existingId) : undefined;
+    const pendingLocalCharacter = existingCharacter?.source === "local" || existingCharacter?.syncStatus === "api_pending" || existingCharacter?.syncStatus === "conflict";
+    const fallbackLocalId = existingId || localIdForPayload(editorPayload);
+
+    if (!apiConnected) {
+      const localCharacter = characterFromPayload(fallbackLocalId, editorPayload, {
+        source: "local",
+        syncStatus: "api_pending",
+        status: editorForm.titleStatus.trim() || "Not synced yet"
+      });
+      setEditorStatus({ message: `Saving: writing ${localCharacter.name} to the local character folder...`, state: "loading" });
+      try {
+        await saveCharacterFile(localCharacter);
+        setFolderCharacters((current) => [...current.filter((character) => character.id !== localCharacter.id), localCharacter]);
+        setEditorStatus({ message: `Not synced yet: saved ${localCharacter.name} to the local character folder.`, state: "success" });
+      } catch (error) {
+        setEditorStatus({
+          message: error instanceof Error ? `Failed: could not save local character file: ${error.message}` : "Failed: could not save local character file.",
+          state: "error"
+        });
+      }
       return;
     }
 
     setEditorStatus({ message: "Saving: syncing character profile to the CharacterForge API...", state: "loading" });
+    const client = new CharacterForgeClient({ baseUrl: settings.apiBaseUrl, apiKey: settings.apiKey || undefined });
+    let apiCharacterId = pendingLocalCharacter ? "" : existingId;
+    let apiOperation: "created" | "updated" = apiCharacterId ? "updated" : "created";
     try {
-      const client = new CharacterForgeClient({ baseUrl: settings.apiBaseUrl, apiKey: settings.apiKey || undefined });
-      const characterId = editorForm.characterId.trim();
-      if (characterId) {
-        await client.updateCharacter(characterId, editorPayload);
-        setEditorStatus({ message: `Saved: updated character profile ${characterId}.`, state: "success" });
+      if (apiCharacterId) {
+        await client.updateCharacter(apiCharacterId, editorPayload);
       } else {
-        await client.createCharacter(editorPayload);
-        setEditorStatus({ message: "Saved: created character profile.", state: "success" });
+        const response = await client.createCharacter(editorPayload);
+        apiCharacterId = responseCharacterId(response, fallbackLocalId);
       }
     } catch (error) {
+      const message = error instanceof Error ? error.message : "character sync failed";
+      const pendingCharacter = characterFromPayload(fallbackLocalId, editorPayload, {
+        source: "local",
+        syncStatus: "conflict",
+        syncError: message,
+        status: editorForm.titleStatus.trim() || "Sync failed"
+      });
+      try {
+        await saveCharacterFile(pendingCharacter);
+        setFolderCharacters((current) => [...current.filter((character) => character.id !== pendingCharacter.id), pendingCharacter]);
+      } catch {
+        // Keep the API error as the primary user-facing failure.
+      }
       setEditorStatus({
-        message: error instanceof Error ? `Failed: character sync failed: ${error.message}` : "Failed: character sync failed.",
+        message: `Failed sync: ${message}. ${pendingCharacter.name} was kept as a pending local change.`,
         state: "error"
+      });
+      return;
+    }
+
+    const syncedCharacter = characterFromPayload(apiCharacterId, editorPayload, {
+      source: "api",
+      syncStatus: "api_synced",
+      status: editorForm.titleStatus.trim() || "Cloud synced"
+    });
+    setApiCharacters((current) => [...current.filter((character) => character.id !== syncedCharacter.id), syncedCharacter]);
+    try {
+      await saveCharacterFile(syncedCharacter);
+      if (pendingLocalCharacter && existingId && existingId !== syncedCharacter.id && existingCharacter) {
+        await deleteCharacterFile(existingCharacter);
+      }
+      setFolderCharacters((current) => [
+        ...current.filter((character) => character.id !== syncedCharacter.id && character.id !== existingId),
+        syncedCharacter
+      ]);
+      setEditorStatus({
+        message: `Saved: ${apiOperation} ${syncedCharacter.name} through the API and updated the local folder copy.`,
+        state: "success"
+      });
+    } catch (error) {
+      setEditorStatus({
+        message: error instanceof Error
+          ? `Saved: ${apiOperation} ${syncedCharacter.name} through the API, but the local folder copy could not be updated: ${error.message}`
+          : `Saved: ${apiOperation} ${syncedCharacter.name} through the API, but the local folder copy could not be updated.`,
+        state: "success"
       });
     }
   }
@@ -3396,6 +3622,7 @@ export default function App() {
             characterFolder={characterFolder}
             folderScanIssues={folderScanIssues}
             folderStatus={characterFolderStatus}
+            syncSummary={syncSummary}
             packTools={{
               exportState: packExportState,
               loadedPack,
