@@ -152,6 +152,10 @@ $NsisDir = Join-Path $ReleaseDir "bundle\nsis"
 $AppExecutable = Join-Path $ReleaseDir "CharacterForgeAI.exe"
 $DistDir = Join-Path $RepoRoot "dist"
 $InstallerOutput = Join-Path $DistDir "characterforgeai-installer.exe"
+$ReleaseManifestJson = Join-Path $DistDir "release-manifest.json"
+$ReleaseManifestMarkdown = Join-Path $DistDir "release-manifest.md"
+$InstallerVerificationJson = Join-Path $DistDir "installer-verification.json"
+$DashboardPackageJson = Join-Path $DashboardDir "package.json"
 
 if (-not $SigningConfigPath) {
     if ($ReleaseMode) {
@@ -254,7 +258,26 @@ if ($SignArtifacts) {
 
 if ($ReleaseMode) {
     Write-Step "Verifying signed release installer"
-    Invoke-Checked "powershell" "-NoProfile" "-ExecutionPolicy" "Bypass" "-File" (Join-Path $ScriptDir "verify-windows-installer.ps1") "-InstallerPath" $InstallerOutput "-SkipInstalledArtifacts" "-ReleaseMode" "-ExpectedPublisher" ([string]$signingConfig["ExpectedPublisher"])
+    $verificationArguments = @(
+        "-NoProfile",
+        "-ExecutionPolicy", "Bypass",
+        "-File", (Join-Path $ScriptDir "verify-windows-installer.ps1"),
+        "-InstallerPath", $InstallerOutput,
+        "-SkipInstalledArtifacts",
+        "-ReleaseMode",
+        "-ExpectedPublisher", ([string]$signingConfig["ExpectedPublisher"]),
+        "-Json"
+    )
+    Write-Host "> powershell $($verificationArguments -join ' ')"
+    $verificationJson = & powershell @verificationArguments
+    if ($LASTEXITCODE -ne 0) {
+        throw "Command failed with exit code ${LASTEXITCODE}: powershell $($verificationArguments -join ' ')"
+    }
+    $verificationJson | Out-File $InstallerVerificationJson -Encoding utf8
+
+    Write-Step "Generating release manifest from signed artifact"
+    $package = Get-Content -LiteralPath $DashboardPackageJson -Raw | ConvertFrom-Json
+    Invoke-Checked "node" (Join-Path $ScriptDir "generate-release-manifest.mjs") "--artifact" $InstallerOutput "--version" ([string]$package.version) "--signature-json" $InstallerVerificationJson "--output" $ReleaseManifestJson "--markdown-output" $ReleaseManifestMarkdown
 }
 
 $Staged = Get-Item $InstallerOutput
