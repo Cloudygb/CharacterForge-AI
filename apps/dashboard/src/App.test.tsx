@@ -142,8 +142,8 @@ describe("CharacterForge dashboard", () => {
     expect(screen.getByText(/step 6 of 8/i)).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: /create or import characters/i })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /open characters/i })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /open character editor/i })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /open character packs/i })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /open character editor/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /open character packs/i })).not.toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: /next: chat and payloads/i }));
     expect(screen.getByText(/step 7 of 8/i)).toBeInTheDocument();
@@ -190,12 +190,14 @@ describe("CharacterForge dashboard", () => {
     expect(screen.getByRole("heading", { name: /characters/i })).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "Welcome" }));
-    await user.click(screen.getByRole("button", { name: /open character editor/i }));
-    expect(screen.getByRole("heading", { name: /character editor/i })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /open characters/i }));
+    await user.click(screen.getByRole("button", { name: /create character/i }));
+    expect(screen.getByRole("heading", { name: /create or edit character/i })).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "Welcome" }));
-    await user.click(screen.getByRole("button", { name: /open character packs/i }));
-    expect(screen.getByRole("heading", { name: /character packs/i })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /open characters/i }));
+    await user.click(screen.getByRole("button", { name: /open character folder \/ import-export/i }));
+    expect(screen.getByRole("heading", { name: /character folder import-export/i })).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "Welcome" }));
     await user.click(screen.getByRole("button", { name: /next: chat and payloads/i }));
@@ -286,21 +288,16 @@ describe("CharacterForge dashboard", () => {
 
     await user.click(screen.getByText("Developer / Advanced"));
     expect(screen.queryByRole("button", { name: "Setup Check" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Character Editor" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Character Packs" })).not.toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "Characters" }));
     expect(screen.getByRole("heading", { name: /characters/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /create character/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /open character folder \/ import-export/i })).toBeInTheDocument();
     expect(screen.getByText("Captain Mira Voss")).toBeInTheDocument();
     expect(screen.getByText("Ember Archivist Thalen")).toBeInTheDocument();
     expect(screen.getByText(/showing mock characters/i)).toBeInTheDocument();
-
-    await user.click(screen.getByRole("button", { name: "Character Editor" }));
-    expect(screen.getByRole("heading", { name: /character editor/i })).toBeInTheDocument();
-    expect(screen.getByLabelText(/character name/i)).toHaveValue("Captain Mira Voss");
-    expect(screen.getByText(/allowed action types/i)).toBeInTheDocument();
-
-    await user.click(screen.getByRole("button", { name: "Character Packs" }));
-    expect(screen.getByRole("heading", { name: /character packs/i })).toBeInTheDocument();
-    expect(screen.getByText(/load a local pack/i)).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "Chat" }));
     expect(screen.getByRole("heading", { name: /^chat$/i })).toBeInTheDocument();
@@ -317,6 +314,43 @@ describe("CharacterForge dashboard", () => {
     expect(screen.getByRole("heading", { name: /raw json preview/i })).toBeInTheDocument();
     expect(screen.getByText(/mockCharacters/i)).toBeInTheDocument();
     expect(screen.getByText(/connectionStatus/i)).toBeInTheDocument();
+  });
+
+  it("merges character editing, pack tools, and delete confirmation into the Characters page", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+
+    await user.click(screen.getByRole("button", { name: "Characters" }));
+
+    expect(screen.getByRole("button", { name: /create character/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /open character folder \/ import-export/i })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Character Editor" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Character Packs" })).not.toBeInTheDocument();
+
+    const miraCard = screen.getByRole("article", { name: /captain mira voss/i });
+    expect(within(miraCard).getByRole("button", { name: /edit captain mira voss/i })).toBeInTheDocument();
+    expect(within(miraCard).getByRole("button", { name: /delete captain mira voss/i })).toBeInTheDocument();
+
+    await user.click(within(miraCard).getByRole("button", { name: /edit captain mira voss/i }));
+    expect(screen.getByRole("heading", { name: /create or edit character/i })).toBeInTheDocument();
+    expect(screen.getByLabelText(/character name/i)).toHaveValue("Captain Mira Voss");
+
+    await user.click(screen.getByRole("button", { name: /open character folder \/ import-export/i }));
+    expect(screen.getByRole("heading", { name: /character folder import-export/i })).toBeInTheDocument();
+    expect(screen.getByLabelText(/load pack json, folder, or zip/i)).toBeInTheDocument();
+
+    await user.click(within(miraCard).getByRole("button", { name: /delete captain mira voss/i }));
+    expect(screen.getByRole("alertdialog", { name: /delete captain mira voss/i })).toBeInTheDocument();
+    expect(screen.getByText(/this only removes the character from this dashboard view/i)).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /cancel delete/i }));
+    expect(screen.getByText("Captain Mira Voss")).toBeInTheDocument();
+
+    await user.click(within(miraCard).getByRole("button", { name: /delete captain mira voss/i }));
+    await user.click(screen.getByRole("button", { name: /confirm delete/i }));
+    expect(screen.queryByText("Captain Mira Voss")).not.toBeInTheDocument();
+    expect(screen.getByText(/character removed from this dashboard view/i)).toBeInTheDocument();
+    expect(listCharactersMock).not.toHaveBeenCalled();
+    expect(createCharacterMock).not.toHaveBeenCalled();
   });
 
   it("runs mocked setup checks for AWS readiness without calling AWS", async () => {
@@ -1189,7 +1223,8 @@ describe("CharacterForge dashboard", () => {
     await user.type(screen.getByLabelText(/^api key$/i), "test-api-key");
     await user.click(screen.getByRole("button", { name: /save settings/i }));
 
-    await user.click(screen.getByRole("button", { name: "Character Editor" }));
+    await user.click(screen.getByRole("button", { name: "Characters" }));
+    await user.click(screen.getByRole("button", { name: /create character/i }));
     await user.clear(screen.getByLabelText(/character name/i));
     await user.type(screen.getByLabelText(/character name/i), "Captain Mira Voss");
     await user.clear(screen.getByLabelText(/^description$/i));
@@ -1299,7 +1334,8 @@ describe("CharacterForge dashboard", () => {
 
     render(<App />);
 
-    await user.click(screen.getByRole("button", { name: "Character Editor" }));
+    await user.click(screen.getByRole("button", { name: "Characters" }));
+    await user.click(screen.getByRole("button", { name: /create character/i }));
     await user.clear(screen.getByLabelText(/character name/i));
     await user.click(screen.getByRole("button", { name: /submit character/i }));
     expect(screen.getByText(/character name is required/i)).toBeInTheDocument();
@@ -1311,7 +1347,8 @@ describe("CharacterForge dashboard", () => {
     await user.type(screen.getByLabelText(/api base url/i), "https://api.example.test/dev");
     await user.click(screen.getByRole("button", { name: /save settings/i }));
 
-    await user.click(screen.getByRole("button", { name: "Character Editor" }));
+    await user.click(screen.getByRole("button", { name: "Characters" }));
+    await user.click(screen.getByRole("button", { name: /create character/i }));
     await user.clear(screen.getByLabelText(/existing character id/i));
     await user.type(screen.getByLabelText(/existing character id/i), "char_mira_voss");
     await user.click(screen.getByRole("checkbox", { name: /item actions/i }));
@@ -1410,7 +1447,8 @@ describe("CharacterForge dashboard", () => {
     await user.click(screen.getByRole("button", { name: "Deployment" }));
     await user.type(screen.getByLabelText(/api base url/i), "https://api.example.test/dev");
     await user.click(screen.getByRole("button", { name: /save settings/i }));
-    await user.click(screen.getByRole("button", { name: "Character Packs" }));
+    await user.click(screen.getByRole("button", { name: "Characters" }));
+    await user.click(screen.getByRole("button", { name: /open character folder \/ import-export/i }));
 
     const fileInput = screen.getByLabelText(/load pack json, folder, or zip/i);
     fireEvent.change(fileInput, {
@@ -1420,7 +1458,7 @@ describe("CharacterForge dashboard", () => {
     expect(await screen.findByText(/validated local test pack/i)).toBeInTheDocument();
     expect(screen.getByText(/2 characters/i)).toBeInTheDocument();
     expect(screen.getByText(/1 binding/i)).toBeInTheDocument();
-    expect(screen.getByText("Captain Mira Voss")).toBeInTheDocument();
+    expect(screen.getAllByText("Captain Mira Voss").length).toBeGreaterThan(0);
     expect(screen.getByText("Archivist Thalen")).toBeInTheDocument();
     expect(screen.getByLabelText(/pack preview json/i)).toHaveTextContent('"slug": "local-test-pack"');
 
@@ -1451,7 +1489,8 @@ describe("CharacterForge dashboard", () => {
     const user = userEvent.setup();
     render(<App />);
 
-    await user.click(screen.getByRole("button", { name: "Character Packs" }));
+    await user.click(screen.getByRole("button", { name: "Characters" }));
+    await user.click(screen.getByRole("button", { name: /open character folder \/ import-export/i }));
     fireEvent.change(screen.getByLabelText(/load pack json, folder, or zip/i), {
       target: { files: [new File([JSON.stringify({ name: "Broken Pack" })], "broken-pack.json", { type: "application/json" })] }
     });
