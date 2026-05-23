@@ -478,7 +478,7 @@ async function runAwsSetupWizardCheck(form: SetupCheckForm): Promise<AwsSetupWiz
     selectedRegion: payload.awsRegion,
     selectedModel: payload.bedrockModel,
     availableModels: [],
-    bedrockAccessStatus: "Browser preview only — no AWS profiles, stacks, or Bedrock model access were checked.",
+    bedrockAccessStatus: "Local preview only — no AWS profiles, stacks, or Bedrock model access were checked.",
     stackPreview: {
       stackName: payload.stackName,
       region: payload.awsRegion,
@@ -694,7 +694,7 @@ const mockCharacters: Character[] = [
     id: "char_mock_mira",
     name: "Captain Mira Voss",
     archetype: "Rogue airship captain",
-    status: "Sample character",
+    status: "Starter character",
     description: "A protective smuggler with clipped nautical metaphors and a dangerous reputation.",
     allowedActions: ["give_quest", "start_combat", "give_item", "set_flag", "change_relationship"]
   },
@@ -702,7 +702,7 @@ const mockCharacters: Character[] = [
     id: "char_mock_thalen",
     name: "Ember Archivist Thalen",
     archetype: "Ruins scholar",
-    status: "Sample character",
+    status: "Starter character",
     description: "A nervous historian who knows too much about sealed ruins and old royal maps.",
     allowedActions: ["give_quest", "give_item", "set_flag"]
   }
@@ -838,7 +838,7 @@ async function runMockSetupCheck(form: SetupCheckForm): Promise<SetupCheckResult
   const profileName = form.profileName.trim() || defaultSetupCheckForm.profileName;
   const stackName = form.stackName.trim() || defaultSetupCheckForm.stackName;
   const warnings = [
-    "Browser preview only — this check does not call AWS.",
+    "Local preview only — this check does not call AWS.",
     "Confirm Bedrock model access in the AWS console before deployment."
   ];
 
@@ -846,7 +846,7 @@ async function runMockSetupCheck(form: SetupCheckForm): Promise<SetupCheckResult
     warnings.push(`Verify that CharacterForge deployment templates target ${awsRegion}.`);
   }
   if (bedrockModel.includes("sonnet")) {
-    warnings.push("Higher-capability models may cost more per request; review Bedrock pricing before demos.");
+    warnings.push("Higher-capability models may cost more per request; review Bedrock pricing before use.");
   }
 
   return {
@@ -854,19 +854,19 @@ async function runMockSetupCheck(form: SetupCheckForm): Promise<SetupCheckResult
     bedrockModel,
     profileName,
     stackName,
-    credentialStatus: "Browser preview only — credentials not checked",
-    bedrockAccessStatus: "Browser preview only — Bedrock access not checked",
+    credentialStatus: "Local preview only — credentials not checked",
+    bedrockAccessStatus: "Local preview only — Bedrock access not checked",
     existingStackStatus: "No existing stack found",
     checks: [
       { id: "webview2", label: "WebView2 Runtime", status: "ready", detail: "Browser mock mode; desktop WebView2 is checked by the Tauri app." },
       { id: "awsCli", label: "AWS CLI", status: "warning", detail: "Not checked in browser mock mode." },
       { id: "samCli", label: "AWS SAM CLI", status: "warning", detail: "Not checked in browser mock mode." },
       { id: "docker", label: "Docker", status: "warning", detail: "Not checked in browser mock mode." },
-      { id: "resources", label: "Deployment resources", status: "warning", detail: "Browser preview only; packaged deployment resources are not checked." },
-      { id: "awsProfile", label: "AWS profile", status: "warning", detail: `Profile ${profileName} has not been checked in browser preview.` },
-      { id: "awsRegion", label: "AWS region", status: "warning", detail: `Region ${awsRegion} has not been checked in browser preview.` },
-      { id: "stack", label: "CloudFormation stack", status: "warning", detail: `Stack ${stackName} was not queried in browser preview.` },
-      { id: "model", label: "Bedrock model", status: "warning", detail: "Bedrock model access was not checked in browser preview." }
+      { id: "resources", label: "Deployment resources", status: "warning", detail: "Local preview only; desktop deployment resources are not checked." },
+      { id: "awsProfile", label: "AWS profile", status: "warning", detail: `Profile ${profileName} has not been checked in local preview.` },
+      { id: "awsRegion", label: "AWS region", status: "warning", detail: `Region ${awsRegion} has not been checked in local preview.` },
+      { id: "stack", label: "CloudFormation stack", status: "warning", detail: `Stack ${stackName} was not queried in local preview.` },
+      { id: "model", label: "Bedrock model", status: "warning", detail: "Bedrock model access was not checked in local preview." }
     ],
     warnings
   };
@@ -899,7 +899,7 @@ function createBlankEditorForm(): CharacterEditorForm {
       id: "",
       name: "",
       archetype: "",
-      status: "Sample character",
+      status: "Starter character",
       description: "",
       allowedActions: []
     }),
@@ -1420,7 +1420,7 @@ function WelcomeScreen({
 
   return (
     <section className="screen-card" aria-labelledby="welcome-title">
-      <p className="eyebrow">{connected ? "API-connected dashboard" : "Setup needed"}</p>
+      <p className="eyebrow">{connected ? "Connected workspace" : "Setup needed"}</p>
       <h1 id="welcome-title">Welcome to CharacterForgeAI</h1>
       <p>
         See whether CharacterForgeAI is connected, whether the deployment is ready, and what to do next before creating
@@ -1441,7 +1441,7 @@ function WelcomeScreen({
       </div>
       {!connected ? (
         <div className="button-row">
-          <button type="button" onClick={() => onOpenScreen("deployment")}>Open Deployment Setup</button>
+          <button type="button" onClick={() => onOpenScreen("deployment")}>Set up Deployment</button>
           <button className="secondary" type="button" onClick={onReopenTutorial}>Start Guided Setup</button>
         </div>
       ) : null}
@@ -1449,7 +1449,7 @@ function WelcomeScreen({
         <SummaryCard label="Connection" value={connectionLabel} />
         <SummaryCard label="Deployment" value={deploymentStatus} />
         <SummaryCard label="Characters" value={characterCountLabel} />
-        <SummaryCard label="API endpoint" value={endpointStatus} />
+        <SummaryCard label="Service URL" value={endpointStatus} />
       </div>
       {showTutorial ? (
         <section className="tutorial-card" aria-labelledby="tutorial-title">
@@ -1469,7 +1469,7 @@ function WelcomeScreen({
             </div>
             <div className="warning">
               <strong>Credential safety warning</strong>
-              <p>Never paste production credentials into browser forms, commits, screenshots, or public demos.</p>
+              <p>Never paste production credentials into browser forms, commits, screenshots, or public examples.</p>
             </div>
           </div>
           <div className="button-row">
@@ -1525,23 +1525,23 @@ function SettingsScreen({
       <p className="eyebrow">Application preferences</p>
       <h1 id="settings-title">Settings</h1>
       <p>
-        App-level preferences live here. Deployment setup, AWS readiness checks, and API connection fields stay on
-        Deployment so users have one setup path.
+        App-level preferences live here. Deployment keeps service connection, AWS readiness, and Start/End controls together
+        so setup stays in one place.
       </p>
       <section className="setup-safety-panel" aria-labelledby="updates-title">
         <p className="eyebrow">App updates</p>
         <h2 id="updates-title">Check for Updates</h2>
         <p>
-          Check whether a signed CharacterForgeAI desktop update is available. Browser mode uses a safe mock result and
-          does not download anything.
+          Check whether a signed CharacterForgeAI desktop update is available. In local preview, this safely reports that
+          no download is available.
         </p>
         <div className="button-row">
           <button type="button" onClick={onCheckForUpdates} disabled={updateStatus.state === "loading"}>
-            Check for Updates
+            Check for updates
           </button>
           {updateCheckResult?.available ? (
             <button type="button" onClick={onInstallUpdate}>
-              Update Now
+              Install update
             </button>
           ) : null}
         </div>
@@ -1587,7 +1587,7 @@ function SetupCheckScreen({
         AWS profile, region, stack, and Bedrock model readiness without returning credential values.
       </p>
       <div className="notice compact">
-        Browser mode uses the browser preview setup-check adapter; desktop mode uses Tauri Rust commands with redacted output.
+        Local preview uses safe setup checks. The desktop app runs the full local readiness checks with redacted output.
       </div>
       <div className="editor-grid">
         <label className="field">
@@ -1692,7 +1692,7 @@ function SetupCheckScreen({
 }
 
 function AwsSetupWizardSummary({ result }: { result: AwsSetupWizardResult }) {
-  const browserPreviewOnly = result.bedrockAccessStatus.toLowerCase().includes("browser preview only");
+  const browserPreviewOnly = result.bedrockAccessStatus.toLowerCase().includes("local preview only");
   return (
     <section className="setup-warning-list" aria-labelledby="aws-setup-summary-title">
       <h3 id="aws-setup-summary-title">AWS setup wizard summary</h3>
@@ -2009,8 +2009,7 @@ function DeploymentStartScreen({
       <p className="eyebrow">API setup and AWS deployment</p>
       <h1 id="deployment-title">Deployment</h1>
       <p>
-        Configure the deployed CharacterForgeAI API, verify AWS readiness, and preview the local desktop Start/End flow from
-        one place.
+        Connect the CharacterForgeAI service, check AWS readiness, and use the desktop Start/End controls from one place.
       </p>
       <DeploymentStatusPanels
         connectionStatus={connectionStatus}
@@ -2049,7 +2048,7 @@ function DeploymentStartScreen({
           </ol>
         </section>
         <p className="warning">
-          <strong>Credential safety warning:</strong> API keys should be treated as secrets: do not commit them, paste production secrets into demos, screenshots, or issue reports,
+          <strong>Credential safety warning:</strong> API keys should be treated as secrets: do not commit them, paste production secrets into examples, screenshots, or issue reports,
           and remove them from this field before sharing your screen.
         </p>
         <div className="editor-grid">
@@ -2080,7 +2079,13 @@ function DeploymentStartScreen({
           {connectionStatus.message}
         </div>
       </section>
-      <div className="notice compact">Dry-run mode only: safe local command preview, no AWS requests.</div>
+      <details className="notice compact">
+        <summary>Advanced local preview</summary>
+        <p>Preview Start shows the planned deployment steps without making AWS requests.</p>
+        <div className="button-row">
+          <button className="secondary" type="button" onClick={onPreviewStart}>Preview Start dry run</button>
+        </div>
+      </details>
       <div className="editor-grid">
         <label className="field">
           AWS region
@@ -2167,9 +2172,8 @@ function DeploymentStartScreen({
       <section className="setup-safety-panel" aria-labelledby="deployment-readiness-title">
         <h2 id="deployment-readiness-title">Credential-safe AWS setup wizard</h2>
         <p>
-          This merged Deployment wizard uses named AWS CLI profiles, guides region and Bedrock model selection, previews
-          stack settings, and keeps the setup summary together with Start. In browser preview mode it shows an honest
-          setup checklist only; use the packaged desktop app for real local AWS checks.
+          Use a named AWS CLI profile, confirm region and Bedrock model access, and review stack settings before Start.
+          The desktop app performs local checks without displaying credential values.
         </p>
         <div className="setup-check-grid">
           <article className="summary-card">
@@ -2211,14 +2215,14 @@ function DeploymentStartScreen({
         </div>
         {wizardResult ? <AwsSetupWizardSummary result={wizardResult} /> : null}
         {setupResult?.checks.length ? (
-          <section className="setup-warning-list" aria-labelledby="readiness-details-title">
-            <h3 id="readiness-details-title">Readiness details</h3>
+          <details className="setup-warning-list">
+            <summary id="readiness-details-title">Show readiness details</summary>
             <div className="setup-check-grid">
               {setupResult.checks.map((check) => (
                 <SetupCheckCard key={check.id} label={check.label} value={`${check.status}: ${check.detail}`} />
               ))}
             </div>
-          </section>
+          </details>
         ) : null}
         <section className="warning setup-warning-list" aria-labelledby="setup-warnings-title">
           <h3 id="setup-warnings-title">Warnings</h3>
@@ -2230,21 +2234,17 @@ function DeploymentStartScreen({
         </section>
       </section>
 
-      <div className="button-row">
-        <button type="button" onClick={onPreviewStart}>Preview Start dry run</button>
-      </div>
 
       <section className="setup-safety-panel" aria-labelledby="desktop-start-end-title">
         <h2 id="desktop-start-end-title">Desktop Start and End</h2>
         <p>
-          Start and End use the existing desktop deployment engine with the configured AWS profile, region, Bedrock
-          model, and stack name. No command text is required from the user; the app passes the required stack
-          confirmation to the Tauri command after the setup checks and safety acknowledgement are complete.
+          Start creates or updates the configured AWS stack. End deletes that stack only after export/save and delete
+          confirmations are complete. You do not need to type deployment commands.
         </p>
         <p className="warning">
           {isDesktopShell
-            ? "Start stays disabled until required setup fields, readiness checks, API connection requirements, and safety acknowledgement are ready."
-            : "Start and End are disabled in the browser preview and are available only in the packaged Tauri desktop shell."}
+            ? "Start stays disabled until setup fields, readiness checks, API connection requirements, and safety acknowledgement are ready."
+            : "Start and End are disabled in local preview and are available only in the desktop app."}
         </p>
         <label className="checkbox-field">
           <input
@@ -2286,16 +2286,16 @@ function DeploymentStartScreen({
       <section className="setup-safety-panel" aria-labelledby="desktop-end-title">
         <h2 id="desktop-end-title">End deployment</h2>
         <p>
-          End deletes the configured CloudFormation stack through the desktop shell. Save or export character data before
-          deletion, then explicitly confirm the stack and region before the End button is enabled. Logs are redacted and
-          stack deletion status is polled until it succeeds or fails.
+          End deletes the configured CloudFormation stack through the desktop app. Save or export character data before
+          deletion, then explicitly confirm the stack and region before the End button is enabled. Advanced deletion
+          details stay hidden unless you open them.
         </p>
         <p className="warning">
           Warning: End deletes AWS backend resources for stack <strong>{form.stackName.trim() || "characterforge-ai-dev"}</strong> in region <strong>{form.awsRegion.trim() || "us-east-1"}</strong>. This cannot be undone from the dashboard.
         </p>
         <div className="notice compact">
           <strong>Before deleting, save your characters locally.</strong> Use Open Character Folder to review existing local
-          files, or Export Characters to write a redacted local pack before ending the stack. If an export is requested
+          files, or Export Characters to write a local pack before ending the stack. If an export is requested
           and fails, deletion stays blocked until a successful export is completed.
         </div>
         <div className="button-row">
@@ -2331,12 +2331,13 @@ function DeploymentStartScreen({
       </div>
 
       {preview ? (
-        <div className="deployment-preview">
+        <details className="deployment-preview">
+          <summary>Show advanced Start preview</summary>
           <div className="notice compact">
-            {preview.awsCallsMade ? "Adapter reported live calls." : "No AWS, SAM, CloudFormation, Bedrock, or credential provider calls were made."}
+            {preview.awsCallsMade ? "Preview reported live calls." : "Preview did not make AWS, Bedrock, CloudFormation, or credential-provider calls."}
           </div>
-          <h2>SAM deploy command preview</h2>
-          <pre className="json-preview" aria-label="SAM deploy command preview">
+          <h2>Deployment command preview</h2>
+          <pre className="json-preview" aria-label="Deployment command preview">
             {preview.commands.join("\n")}
           </pre>
           <section aria-labelledby="deployment-resources-title">
@@ -2348,24 +2349,24 @@ function DeploymentStartScreen({
             </ul>
           </section>
           <section className="warning setup-warning-list" aria-labelledby="deployment-warnings-title">
-            <h2 id="deployment-warnings-title">Dry-run warnings</h2>
+            <h2 id="deployment-warnings-title">Preview warnings</h2>
             <ul>
               {preview.warnings.map((warning) => (
                 <li key={warning}>{warning}</li>
               ))}
             </ul>
           </section>
-        </div>
+        </details>
       ) : null}
 
       {startResult ? (
         <details className="deployment-preview">
-          <summary>Real Start redacted log</summary>
+          <summary>Show advanced Start log</summary>
           <p>
             Final stack status: <strong>{startResult.finalStackStatus}</strong>
             {startResult.savedOutputsPath ? ` · Outputs saved to ${startResult.savedOutputsPath}` : ""}
           </p>
-          <pre className="json-preview" aria-label="Real Start redacted log">
+          <pre className="json-preview" aria-label="Advanced Start log">
             {startResult.logs.join("\n")}
           </pre>
         </details>
@@ -2373,11 +2374,11 @@ function DeploymentStartScreen({
 
       {endResult ? (
         <details className="deployment-preview">
-          <summary>Real End redacted log</summary>
+          <summary>Show advanced End log</summary>
           <p>
             Final stack status: <strong>{endResult.finalStackStatus}</strong>
           </p>
-          <pre className="json-preview" aria-label="Real End redacted log">
+          <pre className="json-preview" aria-label="Advanced End log">
             {endResult.logs.join("\n")}
           </pre>
         </details>
@@ -2456,10 +2457,10 @@ function CharactersScreen({
       </div>
       <div className="notice compact">
         {mode === "api"
-          ? "Showing API characters loaded through the TypeScript SDK."
+          ? "Showing characters loaded from your connected service."
           : characters.some((character) => character.status === "Loaded from local character folder" || character.status === "local file")
             ? "Showing characters loaded from the local CharacterForgeAI folder."
-            : "Showing sample characters for offline exploration. They are not cloud-synced and can be deleted."}
+            : "Showing starter characters for offline exploration. They are local only until you connect and sync."}
       </div>
       <div className={`connection-status ${folderStatus.state}`} role={folderStatus.state === "error" ? "alert" : "status"}>
         {folderStatus.message}
@@ -2519,7 +2520,7 @@ function CharactersScreen({
       ) : (
         <div className="empty-state">
           <h2>No characters yet</h2>
-          <p>Create a character or import a local character pack to begin.</p>
+          <p>Create a character or open your local character folder to begin.</p>
         </div>
       )}
 
@@ -2528,8 +2529,8 @@ function CharactersScreen({
           <h2 id="delete-character-title">Delete {pendingDelete.name}?</h2>
           <p>
             {mode === "api"
-              ? `Delete ${pendingDelete.name} through the connected CharacterForge API, then remove the local folder copy and index after the backend confirms success.`
-              : `Delete this local character record from the local character storage/index. This does not call the CharacterForge API.`}
+              ? `Delete ${pendingDelete.name} from the connected service, then remove the local copy after deletion succeeds.`
+              : `Delete this local character from this device. This does not change any connected service.`}
           </p>
           <div className="button-row">
             <button onClick={onCancelDelete} type="button">
@@ -3029,10 +3030,10 @@ function ChatScreen({
           </article>
         )) : <p className="muted">Send a message to start the transcript.</p>}
       </div>
-      <section className="action-panel" aria-labelledby="chat-payload-title">
-        <h2 id="chat-payload-title">Returned payloads and actions</h2>
-        {lastResponse ? <pre className="json-preview">{formatJson(lastResponse)}</pre> : <p>No payload returned yet.</p>}
-      </section>
+      <details className="action-panel" aria-labelledby="chat-payload-title">
+        <summary id="chat-payload-title">Show response details</summary>
+        {lastResponse ? <pre className="json-preview">{formatJson(lastResponse)}</pre> : <p>No response details yet.</p>}
+      </details>
     </section>
   );
 }
@@ -3060,11 +3061,11 @@ function RawJsonPreviewScreen({
           },
           connectionStatus,
           sharedDashboardState: sharedState,
-          sampleCharacters: mockCharacters.map((character) => ({
+          starterCharacters: mockCharacters.map((character) => ({
             id: character.id,
             name: character.name,
             status: character.status,
-            note: "Sample only; not cloud-synced."
+            note: "Starter data only; not cloud-synced."
           })),
           activeCharacters: characters,
           editorPayloadPreview: editorPayload
@@ -3404,14 +3405,14 @@ export default function App() {
 
   async function handleRunSetupCheck() {
     const desktopMode = hasTauriInvoke();
-    setSetupCheckStatus({ message: desktopMode ? "Running desktop setup readiness check..." : "Running browser preview setup check...", state: "loading" });
+    setSetupCheckStatus({ message: desktopMode ? "Running desktop setup readiness check..." : "Running local preview setup check...", state: "loading" });
     try {
       const request = getDeploymentSetupForm();
       const result = await runSetupReadinessCheck(request);
       setSetupCheckRequest(request);
       setSetupCheckResult(result);
       setSetupCheckStatus({
-        message: desktopMode ? "Desktop setup readiness check complete." : "Browser preview setup check complete.",
+        message: desktopMode ? "Desktop setup readiness check complete." : "Local preview setup check complete.",
         state: "success"
       });
     } catch (error) {
@@ -3844,7 +3845,7 @@ export default function App() {
       return;
     }
 
-    setPackStatus({ message: "Importing selected pack characters through the TypeScript SDK...", state: "loading" });
+    setPackStatus({ message: "Importing selected pack characters through the connected service...", state: "loading" });
     try {
       const client = new CharacterForgeClient({ baseUrl: settings.apiBaseUrl, apiKey: settings.apiKey || undefined });
       const selectedCharacters = loadedPack.manifest.characters.filter((character) => selectedPackCharacterIds.includes(character.id));
@@ -4037,7 +4038,7 @@ export default function App() {
           <span className="brand-mark">CF</span>
           <div>
             <strong>CharacterForge</strong>
-            <span>{apiMode ? "Dashboard connected" : "Dashboard mockup"}</span>
+            <span>CharacterForgeAI workspace</span>
           </div>
         </div>
         <nav aria-label="Dashboard screens">
