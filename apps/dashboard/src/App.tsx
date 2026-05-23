@@ -177,10 +177,16 @@ type TutorialStep = {
 };
 
 type UpdateSettings = {
-  channel: "stable" | "beta" | "nightly";
-  manifestUrl: string;
-  manualCheckEnabled: boolean;
-  unsafeAutoUpdateEnabled: boolean;
+  channel: "stable";
+  manifestUrl: "";
+  manualCheckEnabled: false;
+  unsafeAutoUpdateEnabled: false;
+};
+
+type UpdateCheckResult = {
+  available: boolean;
+  version?: string;
+  notes?: string;
 };
 
 type AppConfig = {
@@ -638,11 +644,10 @@ function saveSettings(settings: ApiSettings) {
   window.localStorage.setItem(settingsStorageKey, JSON.stringify({ apiBaseUrl: settings.apiBaseUrl, apiKey: "" }));
 }
 
-function normalizeUpdateSettings(settings: Partial<UpdateSettings> | null | undefined): UpdateSettings {
-  const channel = settings?.channel === "beta" || settings?.channel === "nightly" ? settings.channel : "stable";
+function normalizeUpdateSettings(_settings: Partial<UpdateSettings> | null | undefined): UpdateSettings {
   return {
-    channel,
-    manifestUrl: typeof settings?.manifestUrl === "string" ? settings.manifestUrl : "",
+    channel: "stable",
+    manifestUrl: "",
     manualCheckEnabled: false,
     unsafeAutoUpdateEnabled: false
   };
@@ -683,6 +688,31 @@ async function saveAppConfig(config: AppConfig): Promise<AppConfig> {
   }
   window.localStorage.setItem(appConfigStorageKey, JSON.stringify(normalized));
   return normalized;
+}
+
+function normalizeUpdateCheckResult(result: unknown): UpdateCheckResult {
+  if (!result || typeof result !== "object") {
+    return { available: false };
+  }
+  const record = result as Record<string, unknown>;
+  return {
+    available: record.available === true,
+    version: typeof record.version === "string" ? record.version : undefined,
+    notes: typeof record.notes === "string" ? record.notes : undefined
+  };
+}
+
+async function checkForUpdates(): Promise<UpdateCheckResult> {
+  if (hasTauriInvoke()) {
+    return normalizeUpdateCheckResult(await window.__TAURI__!.core!.invoke("check_for_updates", {}));
+  }
+  return { available: false };
+}
+
+async function installUpdate(): Promise<void> {
+  if (hasTauriInvoke()) {
+    await window.__TAURI__!.core!.invoke("install_update", {});
+  }
 }
 
 async function runMockSetupCheck(form: SetupCheckForm): Promise<SetupCheckResult> {
@@ -1204,14 +1234,14 @@ function SummaryCard({ label, value }: { label: string; value: string }) {
 }
 
 function SettingsScreen({
-  onSaveUpdateSettings,
-  onUpdateSettingsChange,
-  updateSettings,
+  onCheckForUpdates,
+  onInstallUpdate,
+  updateCheckResult,
   updateStatus
 }: {
-  onSaveUpdateSettings: () => void;
-  onUpdateSettingsChange: (settings: UpdateSettings) => void;
-  updateSettings: UpdateSettings;
+  onCheckForUpdates: () => void;
+  onInstallUpdate: () => void;
+  updateCheckResult: UpdateCheckResult | null;
   updateStatus: ConnectionStatus;
 }) {
   return (
@@ -1219,52 +1249,34 @@ function SettingsScreen({
       <p className="eyebrow">Application preferences</p>
       <h1 id="settings-title">Settings</h1>
       <p>
-        Plan desktop update behavior here. API setup, AWS readiness checks, and deployment connection fields now live on
+        App-level preferences live here. Deployment setup, AWS readiness checks, and API connection fields stay on
         Deployment so users have one setup path.
       </p>
       <section className="setup-safety-panel" aria-labelledby="updates-title">
-        <p className="eyebrow">Future-ready placeholder</p>
+        <p className="eyebrow">App updates</p>
         <h2 id="updates-title">Check for Updates</h2>
         <p>
-          Plan the release channel and manifest location now, but keep update checks inactive until the Tauri updater
-          plugin, signed release artifacts, and endpoint signatures are configured.
+          Check whether a signed CharacterForgeAI desktop update is available. Browser mode uses a safe mock result and
+          does not download anything.
         </p>
-        <div className="warning">
-          Unsafe auto-updates are disabled. This screen does not download, install, or launch updater code.
-        </div>
-        <div className="editor-grid">
-          <label className="field">
-            Update channel
-            <select
-              value={updateSettings.channel}
-              onChange={(event) =>
-                onUpdateSettingsChange(normalizeUpdateSettings({ ...updateSettings, channel: event.target.value as UpdateSettings["channel"] }))
-              }
-            >
-              <option value="stable">stable</option>
-              <option value="beta">beta</option>
-              <option value="nightly">nightly</option>
-            </select>
-          </label>
-          <label className="field field-wide">
-            Update manifest URL
-            <input
-              placeholder="https://updates.example.test/characterforge/{{channel}}.json"
-              value={updateSettings.manifestUrl}
-              onChange={(event) => onUpdateSettingsChange(normalizeUpdateSettings({ ...updateSettings, manifestUrl: event.target.value }))}
-            />
-          </label>
-        </div>
         <div className="button-row">
-          <button type="button" disabled>
-            Check for updates
+          <button type="button" onClick={onCheckForUpdates} disabled={updateStatus.state === "loading"}>
+            Check for Updates
           </button>
-          <button type="button" onClick={onSaveUpdateSettings}>
-            Save update planning settings
-          </button>
+          {updateCheckResult?.available ? (
+            <button type="button" onClick={onInstallUpdate}>
+              Update Now
+            </button>
+          ) : null}
         </div>
         <div className={`connection-status ${updateStatus.state}`} role="status">
           {updateStatus.message}
+          {updateCheckResult?.available ? (
+            <div>
+              {updateCheckResult.version ? <span> Version {updateCheckResult.version}.</span> : null}
+              {updateCheckResult.notes ? <span> {updateCheckResult.notes}</span> : null}
+            </div>
+          ) : null}
         </div>
       </section>
     </section>
@@ -2407,9 +2419,10 @@ export default function App() {
   const [packExportState, setPackExportState] = useState<PackExportState | null>(null);
   const [appConfig, setAppConfig] = useState<AppConfig>(defaultAppConfig);
   const [updateStatus, setUpdateStatus] = useState<ConnectionStatus>({
-    message: "Update checks are not enabled yet.",
+    message: "Click Check for Updates to look for a desktop update.",
     state: "idle"
   });
+  const [updateCheckResult, setUpdateCheckResult] = useState<UpdateCheckResult | null>(null);
   const [tutorialStepIndex, setTutorialStepIndex] = useState(0);
   const [showTutorial, setShowTutorial] = useState(true);
   const [setupCheckResult, setSetupCheckResult] = useState<SetupCheckResult | null>(null);
@@ -2549,15 +2562,31 @@ export default function App() {
     setShowTutorial(true);
   }
 
-  function handleUpdateSettingsChange(updateSettings: UpdateSettings) {
-    setAppConfig((current) => ({ ...current, updateSettings: normalizeUpdateSettings(updateSettings) }));
-    setUpdateStatus({ message: "Update planning settings changed but not saved yet.", state: "idle" });
+  async function handleCheckForUpdates() {
+    setUpdateCheckResult(null);
+    setUpdateStatus({ message: "Checking for updates...", state: "loading" });
+    try {
+      const result = await checkForUpdates();
+      setUpdateCheckResult(result);
+      if (result.available) {
+        setUpdateStatus({ message: "Update available.", state: "success" });
+      } else {
+        setUpdateStatus({ message: "You are up to date.", state: "success" });
+      }
+    } catch {
+      setUpdateCheckResult(null);
+      setUpdateStatus({ message: "Could not check for updates.", state: "error" });
+    }
   }
 
-  function handleSaveUpdateSettings() {
-    const nextConfig = normalizeAppConfig(appConfig);
-    persistAppConfig(nextConfig);
-    setUpdateStatus({ message: "Update planning settings saved. Update checks remain disabled.", state: "success" });
+  async function handleInstallUpdate() {
+    setUpdateStatus({ message: "Starting update...", state: "loading" });
+    try {
+      await installUpdate();
+      setUpdateStatus({ message: "Update started.", state: "success" });
+    } catch {
+      setUpdateStatus({ message: "Could not start the update.", state: "error" });
+    }
   }
 
   function handleSaveSettings() {
@@ -2849,9 +2878,9 @@ export default function App() {
       case "settings":
         return (
           <SettingsScreen
-            onSaveUpdateSettings={handleSaveUpdateSettings}
-            onUpdateSettingsChange={handleUpdateSettingsChange}
-            updateSettings={appConfig.updateSettings}
+            onCheckForUpdates={() => void handleCheckForUpdates()}
+            onInstallUpdate={() => void handleInstallUpdate()}
+            updateCheckResult={updateCheckResult}
             updateStatus={updateStatus}
           />
         );

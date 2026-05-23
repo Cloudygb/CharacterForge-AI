@@ -68,6 +68,18 @@ def test_tauri_updater_is_not_enabled_before_signed_release_requirements_are_rea
     assert "@tauri-apps/plugin-updater" not in package.get("devDependencies", {})
 
 
+def test_tauri_update_commands_are_safe_stubs_until_real_updater_plumbing_exists() -> None:
+    rust_shell = (TAURI / "src" / "lib.rs").read_text(encoding="utf-8")
+    normalized = rust_shell.lower()
+
+    assert "fn check_for_updates() -> updatecheckresult" in normalized
+    assert "available: false" in normalized
+    assert "fn install_update() -> result<(), string>" in normalized
+    assert "signed updater plumbing is not configured yet" in normalized
+    assert "check_for_updates," in normalized
+    assert "install_update," in normalized
+
+
 def test_custom_nsis_installer_hook_is_user_friendly_and_safe() -> None:
     hook_path = TAURI / "installer" / "characterforgeai.nsh"
     hook = hook_path.read_text(encoding="utf-8")
