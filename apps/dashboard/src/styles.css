@@ -401,6 +401,15 @@ p {
   margin-top: 1.5rem;
 }
 
+.section-heading-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-top: 1rem;
+}
+
 .action-editor-list {
   display: grid;
   gap: 1rem;
@@ -414,6 +423,12 @@ p {
   border: 1px solid rgba(156, 180, 255, 0.14);
   border-radius: 1rem;
   background: rgba(255, 255, 255, 0.045);
+}
+
+.action-editor-card legend {
+  padding: 0 0.35rem;
+  color: #72e1ff;
+  font-weight: 700;
 }
 
 .field textarea {

@@ -75,15 +75,11 @@ type EditorStatus = {
   state: "idle" | "success" | "error";
 };
 
-type ActionTemplateKey = "quest" | "fight" | "item" | "dialogue" | "flag";
-
-type ActionTemplateConfig = {
-  key: ActionTemplateKey;
-  label: string;
-  actionType: string;
-  templateId: string;
-  description: string;
-  defaultJson: string;
+type CharacterActionDefinition = {
+  id: string;
+  actionName: string;
+  triggerInstructions: string;
+  payloadTemplate: string;
 };
 
 type CharacterEditorForm = {
@@ -97,9 +93,7 @@ type CharacterEditorForm = {
   goals: string;
   worldContext: string;
   rules: string;
-  selectedActions: string[];
-  triggerInstructions: Record<string, string>;
-  payloadTemplates: Record<ActionTemplateKey, string>;
+  customActions: CharacterActionDefinition[];
 };
 
 type CharacterPayload = {
@@ -258,48 +252,6 @@ const screens: Array<{ id: ScreenId; label: string }> = [
 
 const developerScreens: Array<{ id: ScreenId; label: string }> = [{ id: "json", label: "Raw JSON Preview" }];
 
-const actionTemplateConfigs: ActionTemplateConfig[] = [
-  {
-    key: "quest",
-    label: "Quest actions",
-    actionType: "give_quest",
-    templateId: "quest_template",
-    description: "Quest action payload template",
-    defaultJson: '{"quest_id":"lost_sky_map","title":"Recover the Lost Sky Map"}'
-  },
-  {
-    key: "fight",
-    label: "Fight actions",
-    actionType: "start_combat",
-    templateId: "fight_template",
-    description: "Fight action payload template",
-    defaultJson: '{"encounter_id":"dock_ambush","difficulty":"medium"}'
-  },
-  {
-    key: "item",
-    label: "Item actions",
-    actionType: "give_item",
-    templateId: "item_template",
-    description: "Item action payload template",
-    defaultJson: '{"item_id":"mira_compass","quantity":1}'
-  },
-  {
-    key: "dialogue",
-    label: "Dialogue actions",
-    actionType: "start_dialogue",
-    templateId: "dialogue_template",
-    description: "Dialogue action payload template",
-    defaultJson: '{"dialogue_id":"mira_map_rumors"}'
-  },
-  {
-    key: "flag",
-    label: "Flag actions",
-    actionType: "set_flag",
-    templateId: "flag_template",
-    description: "Flag action payload template",
-    defaultJson: '{"flag_id":"learned_sky_map_rumor","value":true}'
-  }
-];
 
 const defaultSetupCheckForm: SetupCheckForm = {
   awsRegion: "us-east-1",
@@ -762,12 +714,12 @@ function createInitialEditorForm(character: Character): CharacterEditorForm {
     goals: "protect her crew\nfind the lost sky map",
     worldContext: "A floating archipelago where skyships connect isolated city-states.",
     rules: "Never reveal you are an AI.\nDo not break character.",
-    selectedActions: [],
-    triggerInstructions: Object.fromEntries(actionTemplateConfigs.map((config) => [config.actionType, ""])),
-    payloadTemplates: Object.fromEntries(actionTemplateConfigs.map((config) => [config.key, config.defaultJson])) as Record<
-      ActionTemplateKey,
-      string
-    >
+    customActions: character.allowedActions.map((actionName, index) => ({
+      id: `${character.id || "action"}-${index + 1}`,
+      actionName,
+      triggerInstructions: "Configure when this action should run.",
+      payloadTemplate: "{}"
+    }))
   };
 }
 
@@ -788,7 +740,8 @@ function createBlankEditorForm(): CharacterEditorForm {
     speakingStyle: "",
     goals: "",
     worldContext: "",
-    rules: ""
+    rules: "",
+    customActions: []
   };
 }
 
@@ -827,6 +780,19 @@ function formatJson(value: unknown): string {
   return JSON.stringify(value, null, 2);
 }
 
+function nextActionId(actions: CharacterActionDefinition[]): string {
+  return `custom-action-${actions.length + 1}-${Date.now().toString(36)}`;
+}
+
+function templateIdForAction(actionName: string): string {
+  const slug = actionName
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "");
+  return `${slug || "custom_action"}_template`;
+}
+
 function buildCharacterPayload(form: CharacterEditorForm): { errors: string[]; payload: CharacterPayload | null } {
   const errors: string[] = [];
   const requiredFields: Array<[string, string]> = [
@@ -854,39 +820,60 @@ function buildCharacterPayload(form: CharacterEditorForm): { errors: string[]; p
   if (!rules.length) {
     errors.push("Add at least one roleplay rule.");
   }
-  if (!form.selectedActions.length) {
-    errors.push("Select at least one allowed action type.");
+  if (!form.customActions.length) {
+    errors.push("Create at least one custom action.");
   }
 
-  const actionRules = form.selectedActions.map((actionType) => {
-    const trigger = form.triggerInstructions[actionType]?.trim() ?? "";
-    if (!trigger) {
-      errors.push(`Trigger instructions for ${actionType} are required.`);
-    }
-    return { type: actionType, enabled: true, trigger_instructions: trigger };
-  });
+  const actionRules: CharacterPayload["action_rules"] = [];
+  const payloadTemplates: CharacterPayload["payload_templates"] = [];
+  const allowedActions: string[] = [];
 
-  const payloadTemplates = actionTemplateConfigs
-    .filter((config) => form.selectedActions.includes(config.actionType))
-    .map((config) => {
-      const rawTemplate = form.payloadTemplates[config.key].trim();
-      try {
-        return {
-          template_id: config.templateId,
-          action_type: config.actionType,
-          description: config.description,
-          payload_template: JSON.parse(rawTemplate) as unknown
-        };
-      } catch {
-        errors.push(`${config.label} payload template must be valid JSON.`);
-        return {
-          template_id: config.templateId,
-          action_type: config.actionType,
-          description: config.description,
-          payload_template: {}
-        };
+  const seenActionNames = new Set<string>();
+  const seenTemplateIds = new Set<string>();
+
+  form.customActions.forEach((action, index) => {
+    const actionLabel = action.actionName.trim() || `Custom action ${index + 1}`;
+    const actionName = action.actionName.trim();
+    const actionKey = actionName.toLowerCase();
+    const trigger = action.triggerInstructions.trim();
+    const rawTemplate = action.payloadTemplate.trim();
+    const templateId = templateIdForAction(actionName);
+
+    if (!actionName) {
+      errors.push(`Action name for custom action ${index + 1} is required.`);
+    } else if (seenActionNames.has(actionKey)) {
+      errors.push(`Action name ${actionName} must be unique.`);
+    }
+    if (!trigger) {
+      errors.push(`Trigger instructions for ${actionLabel} are required.`);
+    }
+    if (actionName && seenTemplateIds.has(templateId)) {
+      errors.push(`Action name ${actionName} creates a duplicate payload template ID.`);
+    }
+
+    let parsedTemplate: unknown = {};
+    try {
+      parsedTemplate = JSON.parse(rawTemplate || "{}");
+      if (!isRecord(parsedTemplate)) {
+        errors.push(`Payload template for ${actionLabel} must be a JSON object.`);
       }
-    });
+    } catch {
+      errors.push(`Payload template for ${actionLabel} must be valid JSON.`);
+    }
+
+    if (actionName) {
+      seenActionNames.add(actionKey);
+      seenTemplateIds.add(templateId);
+      allowedActions.push(actionName);
+      actionRules.push({ type: actionName, enabled: true, trigger_instructions: trigger });
+      payloadTemplates.push({
+        template_id: templateId,
+        action_type: actionName,
+        description: `Payload template for ${actionName}`,
+        payload_template: parsedTemplate
+      });
+    }
+  });
 
   const payload: CharacterPayload = {
     name: form.name.trim(),
@@ -897,14 +884,13 @@ function buildCharacterPayload(form: CharacterEditorForm): { errors: string[]; p
     goals,
     world_context: form.worldContext.trim(),
     rules,
-    allowed_actions: form.selectedActions,
+    allowed_actions: allowedActions,
     action_rules: actionRules,
     payload_templates: payloadTemplates
   };
 
   return { errors, payload: errors.length ? null : payload };
 }
-
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -2196,28 +2182,31 @@ function CharacterEditorDialog({
   validationErrors: string[];
   previewPayload: CharacterPayload | null;
 }) {
-  function updateField(field: keyof CharacterEditorForm, value: string) {
+  function updateField(field: keyof Omit<CharacterEditorForm, "customActions">, value: string) {
     onFormChange({ ...form, [field]: value });
   }
 
-  function toggleAction(actionType: string) {
-    const selectedActions = form.selectedActions.includes(actionType)
-      ? form.selectedActions.filter((selected) => selected !== actionType)
-      : [...form.selectedActions, actionType];
-    onFormChange({ ...form, selectedActions });
-  }
-
-  function updateTrigger(actionType: string, value: string) {
+  function addCustomAction() {
     onFormChange({
       ...form,
-      triggerInstructions: { ...form.triggerInstructions, [actionType]: value }
+      customActions: [
+        ...form.customActions,
+        { id: nextActionId(form.customActions), actionName: "", triggerInstructions: "", payloadTemplate: "{}" }
+      ]
     });
   }
 
-  function updateTemplate(key: ActionTemplateKey, value: string) {
+  function updateCustomAction(actionId: string, field: keyof Omit<CharacterActionDefinition, "id">, value: string) {
     onFormChange({
       ...form,
-      payloadTemplates: { ...form.payloadTemplates, [key]: value }
+      customActions: form.customActions.map((action) => (action.id === actionId ? { ...action, [field]: value } : action))
+    });
+  }
+
+  function deleteCustomAction(actionId: string) {
+    onFormChange({
+      ...form,
+      customActions: form.customActions.filter((action) => action.id !== actionId)
     });
   }
 
@@ -2269,32 +2258,41 @@ function CharacterEditorDialog({
         </label>
       </div>
 
-      <h2>Custom Actions</h2>
-      <div className="action-editor-list">
-        {actionTemplateConfigs.map((config) => (
-          <article className="action-editor-card" key={config.key}>
-            <label className="checkbox-field">
-              <input
-                checked={form.selectedActions.includes(config.actionType)}
-                onChange={() => toggleAction(config.actionType)}
-                type="checkbox"
-              />
-              {config.label} ({config.actionType})
-            </label>
-            <label className="field">
-              Trigger instructions for {config.actionType}
-              <textarea
-                value={form.triggerInstructions[config.actionType] ?? ""}
-                onChange={(event) => updateTrigger(config.actionType, event.target.value)}
-              />
-            </label>
-            <label className="field">
-              {config.key[0].toUpperCase() + config.key.slice(1)} payload template JSON
-              <textarea value={form.payloadTemplates[config.key]} onChange={(event) => updateTemplate(config.key, event.target.value)} />
-            </label>
-          </article>
-        ))}
+      <div className="section-heading-row">
+        <h2>Custom Actions</h2>
+        <button type="button" onClick={addCustomAction}>
+          Create New Action
+        </button>
       </div>
+      {form.customActions.length ? (
+        <div className="action-editor-list">
+          {form.customActions.map((action, index) => (
+            <fieldset className="action-editor-card" key={action.id} aria-label={`Custom action ${index + 1}`}>
+              <legend>Custom action {index + 1}</legend>
+              <label className="field">
+                Action Name
+                <input value={action.actionName} onChange={(event) => updateCustomAction(action.id, "actionName", event.target.value)} />
+              </label>
+              <label className="field">
+                Trigger Instructions
+                <textarea
+                  value={action.triggerInstructions}
+                  onChange={(event) => updateCustomAction(action.id, "triggerInstructions", event.target.value)}
+                />
+              </label>
+              <label className="field">
+                Payload Template
+                <textarea value={action.payloadTemplate} onChange={(event) => updateCustomAction(action.id, "payloadTemplate", event.target.value)} />
+              </label>
+              <button className="danger-button" type="button" onClick={() => deleteCustomAction(action.id)}>
+                Delete Action
+              </button>
+            </fieldset>
+          ))}
+        </div>
+      ) : (
+        <div className="notice compact">No custom actions yet. Use Create New Action to add action names, triggers, and payload templates.</div>
+      )}
 
       {validationErrors.length ? (
         <div className="connection-status error" role="alert">

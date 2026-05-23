@@ -1,8 +1,10 @@
-from typing import Any, Literal
+from typing import Any, TypeAlias
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-ActionType = Literal[
+ActionType: TypeAlias = str
+
+SUPPORTED_ACTION_TYPES: tuple[str, ...] = (
     "give_quest",
     "advance_quest",
     "complete_quest",
@@ -40,13 +42,18 @@ ActionType = Literal[
     "close_door",
     "unlock_door",
     "lock_door",
-]
+)
 
-SUPPORTED_ACTION_TYPES: tuple[str, ...] = ActionType.__args__
+
+def strip_required_action_type(value: str) -> str:
+    value = value.strip()
+    if not value:
+        raise ValueError("action type cannot be blank")
+    return value
 
 
 class ActionPayloadTemplate(BaseModel):
-    """Designer-authored payload template for one supported action type."""
+    """Designer-authored payload template for one machine-readable action type."""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -54,13 +61,18 @@ class ActionPayloadTemplate(BaseModel):
         ..., description="Stable template identifier unique within one character."
     )
     action_type: ActionType = Field(
-        ..., description="Supported action type this template prepares."
+        ..., description="Machine-readable action type this template prepares."
     )
     description: str = Field(..., description="Human-readable purpose for this payload template.")
     payload_template: dict[str, Any] = Field(
         ...,
         description="Designer-authored payload shape or default values for the action.",
     )
+
+    @field_validator("action_type")
+    @classmethod
+    def strip_action_type(cls, value: str) -> str:
+        return strip_required_action_type(value)
 
     @field_validator("template_id", "description")
     @classmethod
@@ -76,11 +88,16 @@ class CharacterAction(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    type: ActionType = Field(..., description="Supported game action type.")
+    type: ActionType = Field(..., description="Machine-readable game action type.")
     payload: dict[str, Any] = Field(
         default_factory=dict,
         description="Action-specific data for the consuming game or application.",
     )
+
+    @field_validator("type")
+    @classmethod
+    def strip_type(cls, value: str) -> str:
+        return strip_required_action_type(value)
 
 
 class CharacterActionRule(BaseModel):
@@ -88,12 +105,17 @@ class CharacterActionRule(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    type: ActionType = Field(..., description="Supported game action type.")
+    type: ActionType = Field(..., description="Machine-readable game action type.")
     enabled: bool = Field(..., description="Whether this character may use the action.")
     trigger_instructions: str = Field(
         ...,
         description="Natural-language conditions for when the action should happen.",
     )
+
+    @field_validator("type")
+    @classmethod
+    def strip_type(cls, value: str) -> str:
+        return strip_required_action_type(value)
 
     @field_validator("trigger_instructions")
     @classmethod

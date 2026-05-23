@@ -111,9 +111,26 @@ def test_create_character_request_rejects_duplicate_payload_template_ids() -> No
         CreateCharacterRequest(**payload)
 
 
-def test_create_character_request_rejects_invalid_payload_template_action_type() -> None:
+def test_create_character_request_accepts_custom_payload_template_action_type() -> None:
     payload = valid_character_payload()
+    payload["allowed_actions"].append("launch_missiles")
+    payload["action_rules"].append(
+        {
+            "type": "launch_missiles",
+            "enabled": True,
+            "trigger_instructions": "Launch missiles when the scenario explicitly permits it.",
+        }
+    )
     payload["payload_templates"][0]["action_type"] = "launch_missiles"
+
+    request = CreateCharacterRequest(**payload)
+
+    assert request.payload_templates[0].action_type == "launch_missiles"
+
+
+def test_create_character_request_rejects_blank_payload_template_action_type() -> None:
+    payload = valid_character_payload()
+    payload["payload_templates"][0]["action_type"] = "   "
 
     with pytest.raises(ValidationError):
         CreateCharacterRequest(**payload)
