@@ -28,7 +28,7 @@ import {
 } from "./appState";
 import "./styles.css";
 
-type ScreenId = "welcome" | "settings" | "deployment" | "characters" | "editor" | "packs" | "chat" | "json";
+type ScreenId = "welcome" | "settings" | "deployment" | "characters" | "packs" | "chat" | "json";
 
 declare global {
   interface Window {
@@ -89,6 +89,7 @@ type ActionTemplateConfig = {
 type CharacterEditorForm = {
   characterId: string;
   name: string;
+  titleStatus: string;
   description: string;
   personality: string;
   backstory: string;
@@ -751,8 +752,9 @@ async function runMockSetupCheck(form: SetupCheckForm): Promise<SetupCheckResult
 
 function createInitialEditorForm(character: Character): CharacterEditorForm {
   return {
-    characterId: "",
+    characterId: character.id,
     name: character.name,
+    titleStatus: character.status || character.archetype,
     description: character.description,
     personality: "sarcastic, brave, protective",
     backstory: "Former royal navy officer turned smuggler after refusing an immoral order.",
@@ -766,6 +768,27 @@ function createInitialEditorForm(character: Character): CharacterEditorForm {
       ActionTemplateKey,
       string
     >
+  };
+}
+
+function createBlankEditorForm(): CharacterEditorForm {
+  return {
+    ...createInitialEditorForm({
+      id: "",
+      name: "",
+      archetype: "",
+      status: "Draft profile",
+      description: "",
+      allowedActions: []
+    }),
+    characterId: "",
+    titleStatus: "Draft profile",
+    personality: "",
+    backstory: "",
+    speakingStyle: "",
+    goals: "",
+    worldContext: "",
+    rules: ""
   };
 }
 
@@ -2041,6 +2064,7 @@ function CharactersScreen({
     form: CharacterEditorForm;
     onFormChange: (form: CharacterEditorForm) => void;
     onSubmit: () => void;
+    onCancel: () => void;
     previewPayload: CharacterPayload | null;
     status: EditorStatus;
     validationErrors: string[];
@@ -2128,8 +2152,9 @@ function CharactersScreen({
       ) : null}
 
       {editingVisible ? (
-        <CharacterEditorScreen
+        <CharacterEditorDialog
           form={editor.form}
+          onCancel={editor.onCancel}
           onFormChange={editor.onFormChange}
           onSubmit={editor.onSubmit}
           previewPayload={editor.previewPayload}
@@ -2154,8 +2179,9 @@ function CharactersScreen({
   );
 }
 
-function CharacterEditorScreen({
+function CharacterEditorDialog({
   form,
+  onCancel,
   onFormChange,
   onSubmit,
   status,
@@ -2163,6 +2189,7 @@ function CharacterEditorScreen({
   previewPayload
 }: {
   form: CharacterEditorForm;
+  onCancel: () => void;
   onFormChange: (form: CharacterEditorForm) => void;
   onSubmit: () => void;
   status: EditorStatus;
@@ -2194,22 +2221,23 @@ function CharacterEditorScreen({
     });
   }
 
+  const dialogTitle = form.characterId ? `Edit ${form.name || "character"}` : "Create Character";
+
   return (
-    <section className="screen-card" aria-labelledby="editor-title">
+    <div className="modal-panel" role="dialog" aria-modal="true" aria-labelledby="editor-title">
       <p className="eyebrow">Create or edit profile</p>
-      <h1 id="editor-title">Create or Edit Character</h1>
+      <h1 id="editor-title">{dialogTitle}</h1>
       <p>
-        Build a complete CharacterForge profile, preview the exact API payload, then submit it with the TypeScript SDK.
-        Leave the character ID blank to create a new profile, or enter an existing ID to update that character.
+        Build a complete CharacterForge profile in this dialog. Character IDs stay hidden as backend or local implementation details.
       </p>
       <div className="editor-grid">
         <label className="field">
-          Existing character ID
-          <input value={form.characterId} onChange={(event) => updateField("characterId", event.target.value)} />
-        </label>
-        <label className="field">
           Character name
           <input value={form.name} onChange={(event) => updateField("name", event.target.value)} />
+        </label>
+        <label className="field">
+          Title/Status
+          <input value={form.titleStatus} onChange={(event) => updateField("titleStatus", event.target.value)} />
         </label>
         <label className="field field-wide">
           Description
@@ -2241,7 +2269,7 @@ function CharacterEditorScreen({
         </label>
       </div>
 
-      <h2>Allowed action types</h2>
+      <h2>Custom Actions</h2>
       <div className="action-editor-list">
         {actionTemplateConfigs.map((config) => (
           <article className="action-editor-card" key={config.key}>
@@ -2279,6 +2307,9 @@ function CharacterEditorScreen({
         {status.message}
       </div>
       <div className="button-row">
+        <button type="button" onClick={onCancel}>
+          Cancel
+        </button>
         <button type="button" onClick={onSubmit}>
           Submit character
         </button>
@@ -2287,7 +2318,7 @@ function CharacterEditorScreen({
       <pre aria-label="Exact JSON payload preview" className="json-preview">
         {formatJson(previewPayload ?? { error: "Fix validation issues to preview a submittable payload." })}
       </pre>
-    </section>
+    </div>
   );
 }
 
@@ -2883,15 +2914,20 @@ export default function App() {
   }
 
   function handleCreateCharacterFromCharactersPage() {
-    setEditorForm(createInitialEditorForm(mockCharacters[0]));
+    setEditorForm(createBlankEditorForm());
+    setEditorStatus({ state: "idle", message: "Ready to create a new character profile." });
     setCharactersEditorVisible(true);
-    setEditorStatus({ message: "Ready to create a new character profile.", state: "idle" });
   }
 
   function handleEditCharacterFromCharactersPage(character: Character) {
-    setEditorForm({ ...createInitialEditorForm(character), characterId: character.id });
+    setEditorForm(createInitialEditorForm(character));
+    setEditorStatus({ state: "idle", message: `Editing ${character.name}.` });
     setCharactersEditorVisible(true);
-    setEditorStatus({ message: `Editing ${character.name}.`, state: "idle" });
+  }
+
+  function handleCloseCharacterDialog() {
+    setCharactersEditorVisible(false);
+    setEditorStatus({ state: "idle", message: "Character dialog closed without saving." });
   }
 
   function handleRequestDeleteCharacter(character: Character) {
@@ -3069,6 +3105,7 @@ export default function App() {
               form: editorForm,
               onFormChange: setEditorForm,
               onSubmit: handleSubmitCharacter,
+              onCancel: handleCloseCharacterDialog,
               previewPayload: editorPayload,
               status: editorStatus,
               validationErrors: editorValidationErrors
@@ -3092,17 +3129,6 @@ export default function App() {
             onEditCharacter={handleEditCharacterFromCharactersPage}
             onRequestDelete={handleRequestDeleteCharacter}
             onTogglePackTools={() => setCharacterPackToolsVisible((visible) => !visible)}
-          />
-        );
-      case "editor":
-        return (
-          <CharacterEditorScreen
-            form={editorForm}
-            onFormChange={setEditorForm}
-            onSubmit={handleSubmitCharacter}
-            previewPayload={editorPayload}
-            status={editorStatus}
-            validationErrors={editorValidationErrors}
           />
         );
       case "packs":

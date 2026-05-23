@@ -192,7 +192,7 @@ describe("CharacterForge dashboard", () => {
     await user.click(screen.getByRole("button", { name: "Welcome" }));
     await user.click(screen.getByRole("button", { name: /open characters/i }));
     await user.click(screen.getByRole("button", { name: /create character/i }));
-    expect(screen.getByRole("heading", { name: /create or edit character/i })).toBeInTheDocument();
+    expect(screen.getByRole("dialog", { name: /create character/i })).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "Welcome" }));
     await user.click(screen.getByRole("button", { name: /open characters/i }));
@@ -332,8 +332,13 @@ describe("CharacterForge dashboard", () => {
     expect(within(miraCard).getByRole("button", { name: /delete captain mira voss/i })).toBeInTheDocument();
 
     await user.click(within(miraCard).getByRole("button", { name: /edit captain mira voss/i }));
-    expect(screen.getByRole("heading", { name: /create or edit character/i })).toBeInTheDocument();
-    expect(screen.getByLabelText(/character name/i)).toHaveValue("Captain Mira Voss");
+    const editDialog = screen.getByRole("dialog", { name: /edit captain mira voss/i });
+    expect(within(editDialog).getByLabelText(/character name/i)).toHaveValue("Captain Mira Voss");
+    expect(within(editDialog).getByLabelText(/title\/status/i)).toHaveValue("Ready for chat testing");
+    expect(within(editDialog).queryByLabelText(/existing character id/i)).not.toBeInTheDocument();
+    expect(within(editDialog).getByText(/custom actions/i)).toBeInTheDocument();
+    await user.click(within(editDialog).getByRole("button", { name: /cancel/i }));
+    expect(screen.queryByRole("dialog", { name: /edit captain mira voss/i })).not.toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: /open character folder \/ import-export/i }));
     expect(screen.getByRole("heading", { name: /character folder import-export/i })).toBeInTheDocument();
@@ -1328,7 +1333,7 @@ describe("CharacterForge dashboard", () => {
     expect(await screen.findByText(/created character profile/i)).toBeInTheDocument();
   });
 
-  it("validates editor input and updates existing characters when a character ID is provided", async () => {
+  it("validates create/edit character dialogs and closes without saving on cancel", async () => {
     const user = userEvent.setup();
     updateCharacterMock.mockResolvedValueOnce({ character_id: "char_mira_voss" });
 
@@ -1336,34 +1341,41 @@ describe("CharacterForge dashboard", () => {
 
     await user.click(screen.getByRole("button", { name: "Characters" }));
     await user.click(screen.getByRole("button", { name: /create character/i }));
-    await user.clear(screen.getByLabelText(/character name/i));
-    await user.click(screen.getByRole("button", { name: /submit character/i }));
-    expect(screen.getByText(/character name is required/i)).toBeInTheDocument();
+    const createDialog = screen.getByRole("dialog", { name: /create character/i });
+    expect(within(createDialog).queryByLabelText(/existing character id/i)).not.toBeInTheDocument();
+    expect(within(createDialog).getByLabelText(/title\/status/i)).toBeInTheDocument();
+    await user.clear(within(createDialog).getByLabelText(/character name/i));
+    await user.click(within(createDialog).getByRole("button", { name: /submit character/i }));
+    expect(within(createDialog).getByText(/character name is required/i)).toBeInTheDocument();
     expect(createCharacterMock).not.toHaveBeenCalled();
 
-    await user.type(screen.getByLabelText(/character name/i), "Captain Mira Voss");
+    await user.type(within(createDialog).getByLabelText(/character name/i), "Unsaved Captain");
+    await user.click(within(createDialog).getByRole("button", { name: /cancel/i }));
+    expect(screen.queryByRole("dialog", { name: /create character/i })).not.toBeInTheDocument();
+    expect(screen.queryByText("Unsaved Captain")).not.toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "Deployment" }));
     await user.type(screen.getByLabelText(/api base url/i), "https://api.example.test/dev");
     await user.click(screen.getByRole("button", { name: /save settings/i }));
 
     await user.click(screen.getByRole("button", { name: "Characters" }));
-    await user.click(screen.getByRole("button", { name: /create character/i }));
-    await user.clear(screen.getByLabelText(/existing character id/i));
-    await user.type(screen.getByLabelText(/existing character id/i), "char_mira_voss");
-    await user.click(screen.getByRole("checkbox", { name: /item actions/i }));
-    await user.type(screen.getByLabelText(/trigger instructions for give_item/i), "Give the compass after the player earns trust.");
-
-    await user.click(screen.getByRole("button", { name: /submit character/i }));
+    const miraCard = screen.getByRole("article", { name: /captain mira voss/i });
+    await user.click(within(miraCard).getByRole("button", { name: /edit captain mira voss/i }));
+    const editDialog = screen.getByRole("dialog", { name: /edit captain mira voss/i });
+    expect(within(editDialog).getByLabelText(/character name/i)).toHaveValue("Captain Mira Voss");
+    expect(within(editDialog).queryByLabelText(/existing character id/i)).not.toBeInTheDocument();
+    await user.click(within(editDialog).getByRole("checkbox", { name: /item actions/i }));
+    await user.type(within(editDialog).getByLabelText(/trigger instructions for give_item/i), "Give the compass after trust is earned.");
+    await user.click(within(editDialog).getByRole("button", { name: /submit character/i }));
 
     expect(updateCharacterMock).toHaveBeenCalledWith(
       { baseUrl: "https://api.example.test/dev", apiKey: undefined },
-      "char_mira_voss",
+      "char_mock_mira",
       expect.objectContaining({
         name: "Captain Mira Voss",
         allowed_actions: expect.arrayContaining(["give_item"]),
         action_rules: expect.arrayContaining([
-          { type: "give_item", enabled: true, trigger_instructions: "Give the compass after the player earns trust." }
+          { type: "give_item", enabled: true, trigger_instructions: "Give the compass after trust is earned." }
         ])
       })
     );
