@@ -46,10 +46,18 @@ def test_installer_signing_required_for_release_builds() -> None:
     assert "test_public_readme_does_not_normalize_smartscreen_bypass_for_release_builds" in release_tests
 
 
-@pytest.mark.xfail(reason=_pending_gate("updater real-or-disabled"))
 def test_updater_is_real_or_disabled_in_release_ui() -> None:
     """updater real-or-disabled: release UI must not expose placeholder update controls."""
-    pytest.fail("Replace this placeholder with an updater capability regression test.")
+    app_source = (ROOT / "apps" / "dashboard" / "src" / "App.tsx").read_text(encoding="utf-8")
+    app_tests = (ROOT / "apps" / "dashboard" / "src" / "App.test.tsx").read_text(encoding="utf-8")
+
+    assert "Check for updates" not in app_source
+    assert "Update Now" not in app_source
+    assert "Manual updates only" in app_source
+    assert "signed auto-update infrastructure is not configured" in app_source
+    assert "check_for_updates" not in app_source
+    assert "install_update" not in app_source
+    assert "keeps updater controls hidden" in app_tests
 
 
 @pytest.mark.xfail(reason=_pending_gate("typed Start/End confirmation"))

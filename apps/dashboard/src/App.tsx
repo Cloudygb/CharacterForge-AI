@@ -224,12 +224,6 @@ type UpdateSettings = {
   unsafeAutoUpdateEnabled: false;
 };
 
-type UpdateCheckResult = {
-  available: boolean;
-  version?: string;
-  notes?: string;
-};
-
 type AppConfig = {
   firstRunTutorialCompleted: boolean;
   firstRunTutorialSkipped: boolean;
@@ -805,31 +799,6 @@ async function saveAppConfig(config: AppConfig): Promise<AppConfig> {
   }
   window.localStorage.setItem(appConfigStorageKey, JSON.stringify(normalized));
   return normalized;
-}
-
-function normalizeUpdateCheckResult(result: unknown): UpdateCheckResult {
-  if (!result || typeof result !== "object") {
-    return { available: false };
-  }
-  const record = result as Record<string, unknown>;
-  return {
-    available: record.available === true,
-    version: typeof record.version === "string" ? record.version : undefined,
-    notes: typeof record.notes === "string" ? record.notes : undefined
-  };
-}
-
-async function checkForUpdates(): Promise<UpdateCheckResult> {
-  if (hasTauriInvoke()) {
-    return normalizeUpdateCheckResult(await window.__TAURI__!.core!.invoke("check_for_updates", {}));
-  }
-  return { available: false };
-}
-
-async function installUpdate(): Promise<void> {
-  if (hasTauriInvoke()) {
-    await window.__TAURI__!.core!.invoke("install_update", {});
-  }
 }
 
 async function runMockSetupCheck(form: SetupCheckForm): Promise<SetupCheckResult> {
@@ -1509,17 +1478,7 @@ function SummaryCard({ label, value }: { label: string; value: string }) {
   );
 }
 
-function SettingsScreen({
-  onCheckForUpdates,
-  onInstallUpdate,
-  updateCheckResult,
-  updateStatus
-}: {
-  onCheckForUpdates: () => void;
-  onInstallUpdate: () => void;
-  updateCheckResult: UpdateCheckResult | null;
-  updateStatus: ConnectionStatus;
-}) {
+function SettingsScreen() {
   return (
     <section className="screen-card" aria-labelledby="settings-title">
       <p className="eyebrow">Application preferences</p>
@@ -1530,29 +1489,20 @@ function SettingsScreen({
       </p>
       <section className="setup-safety-panel" aria-labelledby="updates-title">
         <p className="eyebrow">App updates</p>
-        <h2 id="updates-title">Check for Updates</h2>
+        <h2 id="updates-title">Manual updates only</h2>
         <p>
-          Check whether a signed CharacterForgeAI desktop update is available. In local preview, this safely reports that
-          no download is available.
+          Updates are manual for this build because signed auto-update infrastructure is not configured yet.
         </p>
-        <div className="button-row">
-          <button type="button" onClick={onCheckForUpdates} disabled={updateStatus.state === "loading"}>
-            Check for updates
-          </button>
-          {updateCheckResult?.available ? (
-            <button type="button" onClick={onInstallUpdate}>
-              Update Now
-            </button>
-          ) : null}
-        </div>
-        <div className={`connection-status ${updateStatus.state}`} role="status">
-          {updateStatus.message}
-          {updateCheckResult?.available ? (
-            <div>
-              {updateCheckResult.version ? <span> Version {updateCheckResult.version}.</span> : null}
-              {updateCheckResult.notes ? <span> {updateCheckResult.notes}</span> : null}
-            </div>
-          ) : null}
+        <div className="notice compact" role="status">
+          <strong>Signed updater disabled.</strong>
+          <p>
+            To update, download the signed installer from GitHub Releases, verify release-manifest.json or the
+            human-readable release-manifest.md against the downloaded installer, then run the new installer manually.
+          </p>
+          <p>
+            The in-app update buttons stay hidden until a Tauri updater v2 flow has signed manifests, a pinned public key,
+            endpoint configuration, error handling, and regression tests.
+          </p>
         </div>
       </section>
     </section>
@@ -3125,11 +3075,6 @@ export default function App() {
   });
   const [packExportState, setPackExportState] = useState<PackExportState | null>(null);
   const [appConfig, setAppConfig] = useState<AppConfig>(defaultAppConfig);
-  const [updateStatus, setUpdateStatus] = useState<ConnectionStatus>({
-    message: "Click Check for Updates to look for a desktop update.",
-    state: "idle"
-  });
-  const [updateCheckResult, setUpdateCheckResult] = useState<UpdateCheckResult | null>(null);
   const [tutorialStepIndex, setTutorialStepIndex] = useState(0);
   const [showTutorial, setShowTutorial] = useState(true);
   const [setupCheckResult, setSetupCheckResult] = useState<SetupCheckResult | null>(null);
@@ -3309,33 +3254,6 @@ export default function App() {
   function handleReopenTutorial() {
     setTutorialStepIndex(0);
     setShowTutorial(true);
-  }
-
-  async function handleCheckForUpdates() {
-    setUpdateCheckResult(null);
-    setUpdateStatus({ message: "Checking for updates...", state: "loading" });
-    try {
-      const result = await checkForUpdates();
-      setUpdateCheckResult(result);
-      if (result.available) {
-        setUpdateStatus({ message: "Update available.", state: "success" });
-      } else {
-        setUpdateStatus({ message: "You are up to date.", state: "success" });
-      }
-    } catch {
-      setUpdateCheckResult(null);
-      setUpdateStatus({ message: "Could not check for updates.", state: "error" });
-    }
-  }
-
-  async function handleInstallUpdate() {
-    setUpdateStatus({ message: "Starting update...", state: "loading" });
-    try {
-      await installUpdate();
-      setUpdateStatus({ message: "Update started.", state: "success" });
-    } catch {
-      setUpdateStatus({ message: "Could not start the update.", state: "error" });
-    }
   }
 
   function handleSaveSettings() {
@@ -3896,14 +3814,7 @@ export default function App() {
   function renderScreen() {
     switch (activeScreen) {
       case "settings":
-        return (
-          <SettingsScreen
-            onCheckForUpdates={() => void handleCheckForUpdates()}
-            onInstallUpdate={() => void handleInstallUpdate()}
-            updateCheckResult={updateCheckResult}
-            updateStatus={updateStatus}
-          />
-        );
+        return <SettingsScreen />;
       case "deployment":
         return (
           <DeploymentStartScreen
