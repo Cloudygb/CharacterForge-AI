@@ -26,7 +26,7 @@ CharacterForge AI is a desktop-first game AI platform for creating, testing, pac
 3. If Windows SmartScreen warns that the app is from an unknown publisher, choose **More info** and then **Run anyway** if you trust this release. The current release candidate is unsigned.
 4. Finish the installer wizard.
 5. Launch **CharacterForgeAI** from the Start Menu or Desktop shortcut.
-6. Walk through the first-run tutorial. It explains mock mode, AWS costs, credential safety, and the deployment flow before you connect to live AWS resources.
+6. Walk through the first-run tutorial. It explains AWS costs, credential safety, the Deployment page, character management, and chat before you connect to live AWS resources.
 
 The Windows desktop app installs locally. Installation by itself does **not** deploy AWS infrastructure, create CloudFormation stacks, call Amazon Bedrock, or store AWS credentials in the repository.
 
@@ -65,31 +65,31 @@ With CharacterForge AI, you can:
 - Connect game clients through curl examples, a TypeScript SDK, Unity/Unreal guides, or direct HTTP calls.
 - Deploy the backend runtime to AWS with a guided SAM/CloudFormation flow when you are ready.
 
-The app is designed to be safe by default: local demo and mock workflows are available before you configure live AWS credentials, and the desktop deployment controls show cost and credential warnings before running cloud commands.
+The app is designed to be safe by default: local starter workflows are available before you configure live AWS credentials, and the desktop deployment controls show cost and credential warnings before running cloud commands.
 
 ---
 
 ## Application screenshots
 
-### Welcome and first-run tutorial
+### Welcome
 
-![CharacterForgeAI welcome and first-run tutorial](docs/assets/readme/characterforge-dashboard-welcome.png)
+![CharacterForgeAI Welcome page with setup status and first-run tutorial](docs/assets/readme/characterforge-dashboard-welcome.png)
 
-### AWS setup and deployment readiness
+### Deployment
 
-![CharacterForgeAI setup and deployment readiness screen](docs/assets/readme/characterforge-dashboard-setup.png)
+![CharacterForgeAI Deployment page with API connection help and AWS readiness panels](docs/assets/readme/characterforge-dashboard-deployment.png)
 
-### Character dashboard
+### Characters
 
-![CharacterForgeAI character dashboard](docs/assets/readme/characterforge-dashboard-characters.png)
+![CharacterForgeAI Characters page with starter characters and local folder actions](docs/assets/readme/characterforge-dashboard-characters.png)
 
-### Character packs
+### Chat
 
-![CharacterForgeAI character packs screen](docs/assets/readme/characterforge-dashboard-packs.png)
+![CharacterForgeAI Chat page prompting the user to connect Deployment before chatting](docs/assets/readme/characterforge-dashboard-chat.png)
 
-### Chat test
+### Settings
 
-![CharacterForgeAI chat test screen](docs/assets/readme/characterforge-dashboard-chat.png)
+![CharacterForgeAI Settings page with app update controls](docs/assets/readme/characterforge-dashboard-settings.png)
 
 ---
 
@@ -107,15 +107,17 @@ CharacterForge AI deploys a small serverless runtime to AWS. API Gateway receive
 
 Use the Windows installer at the top of this README. After installation, launch **CharacterForgeAI** and complete or skip the first-run tutorial.
 
-### 2. Try the app in mock mode
+### 2. Explore locally before connecting AWS
 
-You can explore the dashboard without AWS:
+You can learn the desktop flow without AWS:
 
-1. Leave the API base URL blank.
-2. Use the character, character-pack, setup, and chat screens in mock/demo mode.
-3. Review the generated JSON payloads before connecting to any live backend.
+1. Leave the API Base URL blank.
+2. Use **Welcome** to review connection status and the first-run tutorial.
+3. Use **Characters** to create, edit, import/export, or delete local starter characters.
+4. Use **Chat** to see the connection-required empty state before a live API is configured.
+5. Use **Settings** for app-level actions such as update checks.
 
-Mock mode is useful for learning the workflow, preparing character data, and testing the UI without cloud costs.
+Local exploration is useful for learning the workflow, preparing character data, and testing UI behavior without cloud costs.
 
 ### 3. Prepare AWS only when you want a live backend
 
@@ -130,9 +132,9 @@ A live deployment requires:
 
 Do **not** commit AWS access keys, API keys, credential files, or generated secrets to this repository.
 
-### 4. Review the guided setup screen
+### 4. Review Deployment
 
-In the desktop app, open the setup/deployment area and confirm:
+In the desktop app, open **Deployment** and confirm:
 
 1. AWS region.
 2. Bedrock model ID.
@@ -142,11 +144,11 @@ In the desktop app, open the setup/deployment area and confirm:
 6. Cost and safety warnings.
 7. The stack name/environment you intend to deploy.
 
-Browser-only dashboard mode does not run real AWS deployment commands. Live Start/End deployment controls are intended for the trusted local desktop shell.
+Local preview does not run real AWS deployment commands. Live Start/End deployment controls are intended for the trusted packaged desktop app.
 
 ### 5. Deploy with Start, or deploy manually with SAM
 
-The desktop **Start** flow is designed around AWS SAM and CloudFormation. It previews deployment intent, avoids logging credential values, runs SAM/CloudFormation commands from the local machine, and polls stack status until the deployment reaches a final state.
+The desktop **Start** flow is designed around AWS SAM and CloudFormation. It checks readiness, avoids logging credential values, runs SAM/CloudFormation commands from the local machine, discovers stack outputs after launch, and polls stack status until the deployment reaches a final state.
 
 Manual equivalent:
 
@@ -173,12 +175,13 @@ The stack creates:
 
 After deployment:
 
-1. Copy the CloudFormation `ApiUrl` output.
-2. Retrieve the API Gateway API key value from AWS.
-3. In CharacterForgeAI, open Deployment.
-4. Paste the API base URL and API key into the local app's API connection fields.
-5. Test the connection.
-6. Create or import characters, then use the chat screen to test live responses.
+1. If Start launched the stack from the desktop app, review the discovered stack outputs in Deployment.
+2. If you deployed outside the app, copy the CloudFormation `ApiUrl` output or API Gateway invoke URL.
+3. Retrieve the API Gateway API key value from the stack output or API Gateway usage-plan key.
+4. In CharacterForgeAI, open **Deployment**.
+5. Paste the API Base URL and API Key into the local app's API connection fields.
+6. Test the connection.
+7. Create or import characters, then use **Chat** to test live responses.
 
 Keep the API key local. Do not paste real key values into Git commits, screenshots, bug reports, or shared logs.
 
@@ -230,6 +233,7 @@ If a deployment rolls back or deletion fails, inspect the CloudFormation events 
 
 ## More documentation
 
+- [Desktop quickstart](docs/desktop-quickstart.md)
 - [AWS deployment guide](docs/aws-deployment.md)
 - [Character packs](docs/character-packs.md)
 - [Game action bindings](docs/game-bindings.md)
