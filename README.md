@@ -23,7 +23,7 @@ CharacterForge AI is a desktop-first game AI platform for creating, testing, pac
 
 1. Download [`characterforgeai-installer.exe`](https://github.com/Cloudygb/CharacterForge-AI/releases/download/v0.1.0-rc2/characterforgeai-installer.exe).
 2. Open the downloaded installer.
-3. If Windows SmartScreen warns that the app is from an unknown publisher, choose **More info** and then **Run anyway** if you trust this release. The current release candidate is unsigned.
+3. Confirm Windows identifies the installer as a signed Windows installer from the documented expected publisher before continuing. If Windows cannot verify the publisher, stop and download the release again from the official release page.
 4. Finish the installer wizard.
 5. Launch **CharacterForgeAI** from the Start Menu or Desktop shortcut.
 6. Walk through the first-run tutorial. It explains AWS costs, credential safety, the Deployment page, character management, and chat before you connect to live AWS resources.

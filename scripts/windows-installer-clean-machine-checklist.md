@@ -29,7 +29,7 @@ Expected results:
 - `dist/characterforgeai-installer.exe` exists.
 - File name is exactly `characterforgeai-installer.exe`.
 - File size meets the script's minimum size threshold. If a release intentionally changes the expected size, rerun with `-ExpectedMinSizeMB <value>` and document why.
-- Signature status is reported. A signed release should show `Valid`; unsigned local builds may show `NotSigned` and should be treated as a release-readiness warning.
+- Signature status is reported. Release-mode verification must show `Valid`, match the expected publisher, and include a timestamp; unsigned local builds are allowed only in explicit development checks.
 - The script exits with code `0` unless an installer existence, name, size, or invalid-signature error is found.
 
 Optional JSON capture:

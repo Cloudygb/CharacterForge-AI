@@ -11,6 +11,8 @@ param(
     [int]$ExpectedMinSizeMB = 1,
     [Nullable[int]]$ExpectedMaxSizeMB,
     [string]$ExpectedInstallDir,
+    [string]$ExpectedPublisher,
+    [switch]$ReleaseMode,
     [switch]$SkipInstalledArtifacts,
     [switch]$Json
 )
@@ -111,6 +113,10 @@ if (-not $InstallerPath) {
     $InstallerPath = Get-DefaultInstallerPath
 }
 
+if ($ReleaseMode -and [string]::IsNullOrWhiteSpace($ExpectedPublisher)) {
+    throw "Release mode requires -ExpectedPublisher so signed installers are verified against the intended publisher."
+}
+
 $checks = New-Object System.Collections.ArrayList
 $installerSummary = $null
 $signatureSummary = $null
@@ -150,16 +156,41 @@ if (Test-Path -LiteralPath $InstallerPath -PathType Leaf) {
             status = $signature.Status.ToString()
             statusMessage = $signature.StatusMessage
             signerCertificateSubject = if ($signature.SignerCertificate) { $signature.SignerCertificate.Subject } else { $null }
+            timestampCertificateSubject = if ($signature.TimeStamperCertificate) { $signature.TimeStamperCertificate.Subject } else { $null }
         }
 
-        $signatureOk = $signature.Status -in @("Valid", "NotSigned", "Unknown")
-        $severity = if ($signature.Status -eq "Valid") { "info" } elseif ($signature.Status -eq "NotSigned") { "warning" } else { "error" }
-        Add-Check $checks "signature status" $signatureOk "Signature status: $($signature.Status)" $severity @{
-            status = $signatureSummary.status
-            statusMessage = $signatureSummary.statusMessage
+        if ($ReleaseMode) {
+            $releaseAllowedStatuses = @('Valid')
+            $statusIsValid = $signature.Status -in $releaseAllowedStatuses
+            Add-Check $checks "release signature status" $statusIsValid "Signature status must be Valid in release mode; found $($signature.Status). NotSigned and Unknown signatures are rejected." "error" @{
+                status = $signatureSummary.status
+                rejectedStatuses = @("NotSigned", "Unknown")
+            }
+
+            $actualPublisher = if ($signature.SignerCertificate) { [string]$signature.SignerCertificate.Subject } else { "" }
+            Add-Check $checks "signer publisher" ($actualPublisher -like "*$ExpectedPublisher*") "Signer publisher '$actualPublisher' does not match expected publisher '$ExpectedPublisher'." "error" @{
+                expected = $ExpectedPublisher
+                actual = $actualPublisher
+            }
+
+            $hasTimestamp = $null -ne $signature.TimeStamperCertificate
+            Add-Check $checks "timestamp signature" $hasTimestamp "Release installers must include a trusted timestamp signature." "error" @{
+                timestampCertificateSubject = $signatureSummary.timestampCertificateSubject
+            }
+        } else {
+            $signatureOk = $true
+            $severity = if ($signature.Status -eq "Valid") { "info" } else { "warning" }
+            Add-Check $checks "signature status" $signatureOk "Development-mode signature status: $($signature.Status). Use -ReleaseMode to require a valid signed, timestamped installer." $severity @{
+                status = $signatureSummary.status
+                statusMessage = $signatureSummary.statusMessage
+            }
         }
     } else {
-        Add-Check $checks "signature status" $true "Get-AuthenticodeSignature is not available on this host; signature status was not checked." "warning" @{}
+        if ($ReleaseMode) {
+            Add-Check $checks "release signature status" $false "Release mode requires Get-AuthenticodeSignature so unsigned, Unknown, or untrusted artifacts cannot pass verification." "error" @{}
+        } else {
+            Add-Check $checks "signature status" $true "Get-AuthenticodeSignature is not available on this host; signature status was not checked." "warning" @{}
+        }
     }
 } else {
     Add-Check $checks "installer exists" $false "Installer not found at $InstallerPath" "error" @{

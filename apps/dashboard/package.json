@@ -13,7 +13,7 @@
     "desktop:dev": "npm run tauri:dev",
     "desktop:build": "npm run tauri:build",
     "desktop:stage-installer": "node scripts/stage-windows-installer.mjs",
-    "desktop:release-installer": "npm run desktop:build && npm run desktop:stage-installer"
+    "desktop:release-installer": "powershell -NoProfile -ExecutionPolicy Bypass -File ../../scripts/build-windows-installer.ps1 -ReleaseMode -SignArtifacts"
   },
   "dependencies": {
     "@vitejs/plugin-react": "^5.1.1",

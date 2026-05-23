@@ -3,6 +3,7 @@
 param(
     [switch]$SkipNpmCi,
     [switch]$SignArtifacts,
+    [switch]$ReleaseMode,
     [string]$SigningConfigPath
 )
 
@@ -43,9 +44,9 @@ function Import-SigningConfig {
     }
 
     $config = Import-PowerShellDataFile -Path $Path
-    foreach ($requiredKey in @("SignToolPath", "TimestampUrl")) {
-        if (-not $config.ContainsKey($requiredKey) -or [string]::IsNullOrWhiteSpace([string]$config[$requiredKey])) {
-            throw "Signing configuration must define $requiredKey. Use scripts\code-signing.example.psd1 as the placeholder template."
+    foreach ($requiredKey in @("SignToolPath", "TimestampUrl", "ExpectedPublisher")) {
+        if (-not $config.ContainsKey($requiredKey) -or [string]::IsNullOrWhiteSpace([string]$config[$requiredKey]) -or ([string]$config[$requiredKey]) -like "<*") {
+            throw "Signing configuration must define a real $requiredKey. Use scripts\code-signing.example.psd1 as the placeholder template."
         }
     }
 
@@ -66,7 +67,8 @@ function Import-SigningConfig {
 function Invoke-Code-Signing {
     param(
         [Parameter(Mandatory = $true)][string]$ArtifactPath,
-        [Parameter(Mandatory = $true)][hashtable]$Config
+        [Parameter(Mandatory = $true)][hashtable]$Config,
+        [switch]$RequireVerification
     )
 
     if (-not (Test-Path $ArtifactPath -PathType Leaf)) {
@@ -110,8 +112,22 @@ function Invoke-Code-Signing {
         if ($signature.Status -ne "Valid") {
             throw "Signature verification failed for $ArtifactPath. Status: $($signature.Status)"
         }
+
+        $expectedPublisher = [string]$Config["ExpectedPublisher"]
+        $actualPublisher = if ($signature.SignerCertificate) { [string]$signature.SignerCertificate.Subject } else { "" }
+        if ($actualPublisher -notlike "*$expectedPublisher*") {
+            throw "Signer publisher mismatch for $ArtifactPath. Expected publisher '$expectedPublisher'; got '$actualPublisher'."
+        }
+
+        if (-not $signature.TimeStamperCertificate) {
+            throw "Timestamp signature is required for $ArtifactPath."
+        }
+
         Write-Host "Signature verified for $ArtifactPath"
     } else {
+        if ($RequireVerification) {
+            throw "Release signing verification requires Get-AuthenticodeSignature on this host."
+        }
         Write-Host "Get-AuthenticodeSignature is not available; skipped local signature verification for $ArtifactPath"
     }
 }
@@ -138,7 +154,14 @@ $DistDir = Join-Path $RepoRoot "dist"
 $InstallerOutput = Join-Path $DistDir "characterforgeai-installer.exe"
 
 if (-not $SigningConfigPath) {
+    if ($ReleaseMode) {
+        throw "Release mode requires a signing configuration path with certificate, timestamp URL, and expected publisher."
+    }
     $SigningConfigPath = Join-Path $ScriptDir "code-signing.example.psd1"
+}
+
+if ($ReleaseMode -and -not $SignArtifacts) {
+    throw "Release mode requires -SignArtifacts so unsigned installers cannot be staged as public releases."
 }
 
 if (-not (Test-Path $DashboardDir -PathType Container)) {
@@ -157,7 +180,7 @@ Assert-Command "cargo"
 
 $signingConfig = $null
 if ($SignArtifacts) {
-    Write-Step "Loading optional code-signing configuration"
+    Write-Step "Loading code-signing configuration"
     $signingConfig = Import-SigningConfig -Path $SigningConfigPath
 }
 
@@ -200,7 +223,7 @@ try {
 
 if ($SignArtifacts) {
     Write-Step "Signing CharacterForgeAI.exe"
-    Invoke-Code-Signing -ArtifactPath $AppExecutable -Config $signingConfig
+    Invoke-Code-Signing -ArtifactPath $AppExecutable -Config $signingConfig -RequireVerification:$ReleaseMode
 }
 
 Write-Step "Locating newest NSIS installer"
@@ -226,7 +249,12 @@ if (-not (Test-Path $InstallerOutput -PathType Leaf)) {
 
 if ($SignArtifacts) {
     Write-Step "Signing characterforgeai-installer.exe"
-    Invoke-Code-Signing -ArtifactPath $InstallerOutput -Config $signingConfig
+    Invoke-Code-Signing -ArtifactPath $InstallerOutput -Config $signingConfig -RequireVerification:$ReleaseMode
+}
+
+if ($ReleaseMode) {
+    Write-Step "Verifying signed release installer"
+    Invoke-Checked "powershell" "-NoProfile" "-ExecutionPolicy" "Bypass" "-File" (Join-Path $ScriptDir "verify-windows-installer.ps1") "-InstallerPath" $InstallerOutput "-SkipInstalledArtifacts" "-ReleaseMode" "-ExpectedPublisher" ([string]$signingConfig["ExpectedPublisher"])
 }
 
 $Staged = Get-Item $InstallerOutput

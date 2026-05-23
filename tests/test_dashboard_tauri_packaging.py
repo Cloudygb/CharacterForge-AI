@@ -20,7 +20,7 @@ def test_dashboard_package_exposes_web_and_tauri_commands() -> None:
     assert package["scripts"]["desktop:dev"] == "npm run tauri:dev"
     assert package["scripts"]["desktop:build"] == "npm run tauri:build"
     assert package["scripts"]["desktop:stage-installer"] == "node scripts/stage-windows-installer.mjs"
-    assert package["scripts"]["desktop:release-installer"] == "npm run desktop:build && npm run desktop:stage-installer"
+    assert package["scripts"]["desktop:release-installer"] == "powershell -NoProfile -ExecutionPolicy Bypass -File ../../scripts/build-windows-installer.ps1 -ReleaseMode -SignArtifacts"
     assert package["devDependencies"]["@tauri-apps/cli"].startswith("^2.")
 
 

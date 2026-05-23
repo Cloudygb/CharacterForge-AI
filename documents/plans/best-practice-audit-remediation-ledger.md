@@ -25,7 +25,7 @@ This ledger tracks remediation evidence for the internal CharacterForge AI best-
 | CF-AUDIT-3.1 | 3.1 CSP is disabled while privileged commands exist | P0 | Planned | Pending | Pending targeted regression and existing suite coverage | Pending implementation evidence |
 | CF-AUDIT-3.2 | 3.2 IPC command surface should be least-privileged | P1 | Planned | Pending | Pending targeted regression and existing suite coverage | Pending implementation evidence |
 | CF-AUDIT-3.3 | 3.3 Local deployment process trusts PATH and environment overrides | P1 | Planned | Pending | Pending targeted regression and existing suite coverage | Pending implementation evidence |
-| CF-AUDIT-4.1 | 4.1 Unsigned installer is release-blocking | P0 | Planned | Pending | Pending targeted regression and existing suite coverage | Pending implementation evidence |
+| CF-AUDIT-4.1 | 4.1 Unsigned installer is release-blocking | P0 | Implemented | Pending commit | `pytest tests/test_installer_release_verification.py -q`; `pytest tests/test_best_practice_audit_regressions.py -q`; PowerShell dev/release verifier smoke checks | Release-mode build requires signing config, certificate, timestamp URL, expected publisher, Authenticode verification, and signed installer verification; public SmartScreen bypass guidance removed. |
 | CF-AUDIT-4.2 | 4.2 Updater UI exists without secure updater implementation | P0 | Planned | Pending | Pending targeted regression and existing suite coverage | Pending implementation evidence |
 | CF-AUDIT-4.3 | 4.3 Prerequisite installers need stronger pinning and failure handling | P1 | Planned | Pending | Pending targeted regression and existing suite coverage | Pending implementation evidence |
 | CF-AUDIT-4.4 | 4.4 Installer scope, downgrade, and MSI/NSIS strategy need cleanup | P1 | Planned | Pending | Pending targeted regression and existing suite coverage | Pending implementation evidence |
@@ -97,3 +97,17 @@ Captured on branch `best-practice-audit-remediation` before feature remediation 
 | Placeholder behavior | Each gate is marked `xfail` with an `Audit gate pending remediation` reason so incomplete remediation cannot be mistaken for a passing audit gate. |
 | Step verification | `pytest tests/test_best_practice_audit_regressions.py -q` reports 11 xfailed placeholders. |
 | Safety scope | The regression index contains no secrets, live endpoints, credential values, or internal planning source artifacts. |
+
+## Step 4 Release Signing Gate
+
+| Evidence Item | Result |
+| --- | --- |
+| Audit coverage | CF-AUDIT-4.1 / P0 unsigned installer |
+| Release build gate | `scripts/build-windows-installer.ps1` accepts explicit `-ReleaseMode` and fails release mode unless `-SignArtifacts` and a signing config path are provided. |
+| Required signing fields | Signing config import requires a real certificate thumbprint or subject, timestamp URL, and expected publisher; placeholders remain only in `scripts/code-signing.example.psd1`. |
+| Signature verification | Release signing checks require `Get-AuthenticodeSignature`, `Valid` status, matching expected publisher, and a timestamp certificate before release staging can pass. |
+| Release verifier | `scripts/verify-windows-installer.ps1 -ReleaseMode -ExpectedPublisher ...` rejects unsigned, Unknown, untrusted, wrong-publisher, and untimestamped artifacts while development verification remains explicit and warning-only for local unsigned builds. |
+| Public docs cleanup | `README.md` no longer tells release users to bypass SmartScreen or run an unsigned unknown-publisher installer. |
+| Regression tests | `tests/test_installer_release_verification.py`; implemented central gate in `tests/test_best_practice_audit_regressions.py`; updated packaging/ledger tests. |
+| Verification summary | RED: `pytest tests/test_installer_release_verification.py -q` failed with 4 expected failures before implementation. GREEN: targeted release-signing/packaging/ledger/audit tests passed with 23 passed and 10 pending xfails. PowerShell verifier smoke: development mode returned 0 for an unsigned local dummy artifact; release mode returned non-zero and reported signature status, publisher, and timestamp failures. |
+| Safety scope | No signing certificate, private key, token, password, live credential, or internal planning source artifact was committed. |

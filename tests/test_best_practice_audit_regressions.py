@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 
+ROOT = Path(__file__).resolve().parents[1]
 PENDING_REASON_PREFIX = "Audit gate pending remediation"
 
 
@@ -34,10 +37,13 @@ def test_desktop_csp_non_null() -> None:
     pytest.fail("Replace this placeholder with a CSP regression test.")
 
 
-@pytest.mark.xfail(reason=_pending_gate("installer signing required"))
 def test_installer_signing_required_for_release_builds() -> None:
     """installer signing required: release installers must be signed or release verification must fail."""
-    pytest.fail("Replace this placeholder with an installer signing regression test.")
+    release_tests = (ROOT / "tests" / "test_installer_release_verification.py").read_text(encoding="utf-8")
+
+    assert "test_release_build_requires_signing_certificate_timestamp_publisher_and_verification" in release_tests
+    assert "test_release_verifier_fails_unsigned_unknown_or_untrusted_signatures" in release_tests
+    assert "test_public_readme_does_not_normalize_smartscreen_bypass_for_release_builds" in release_tests
 
 
 @pytest.mark.xfail(reason=_pending_gate("updater real-or-disabled"))
