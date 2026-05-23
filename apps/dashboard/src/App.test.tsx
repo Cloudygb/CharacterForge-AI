@@ -305,7 +305,7 @@ describe("CharacterForge dashboard", () => {
     expect(screen.getByRole("button", { name: /^open character folder$/i })).toBeInTheDocument();
     expect(screen.getByText("Captain Mira Voss")).toBeInTheDocument();
     expect(screen.getByText("Ember Archivist Thalen")).toBeInTheDocument();
-    expect(screen.getByText(/showing mock characters/i)).toBeInTheDocument();
+    expect(screen.getByText(/showing sample characters/i)).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "Chat" }));
     expect(screen.getByRole("heading", { name: /^chat$/i })).toBeInTheDocument();
@@ -321,7 +321,7 @@ describe("CharacterForge dashboard", () => {
 
     await user.click(screen.getByRole("button", { name: "Raw JSON Preview" }));
     expect(screen.getByRole("heading", { name: /raw json preview/i })).toBeInTheDocument();
-    expect(screen.getByText(/mockCharacters/i)).toBeInTheDocument();
+    expect(screen.getByText(/sampleCharacters/i)).toBeInTheDocument();
     expect(screen.getByText(/connectionStatus/i)).toBeInTheDocument();
   });
 
@@ -341,6 +341,52 @@ describe("CharacterForge dashboard", () => {
 
     await user.click(screen.getByRole("button", { name: /open deployment/i }));
     expect(screen.getByRole("heading", { name: /^deployment$/i })).toBeInTheDocument();
+  });
+
+  it("keeps disconnected normal app surfaces free of fake live data", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+
+    expect(screen.getByText(/no aws backend connected yet/i)).toBeInTheDocument();
+    expect(screen.queryByText(/mock mode is active/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/ready for chat testing/i)).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Deployment" }));
+    expect(screen.getByText(/api endpoint not configured/i)).toBeInTheDocument();
+    expect(screen.queryByText(/mock results only/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/mock credentials detected/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/model access simulated/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/mock resources available/i)).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Characters" }));
+    expect(screen.getByText(/showing sample characters/i)).toBeInTheDocument();
+    expect(screen.getAllByText(/sample character/i).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/delete captain mira voss/i).length).toBeGreaterThan(0);
+    expect(screen.queryByText(/showing mock characters/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/source: mock/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/sync: mock/i)).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Chat" }));
+    expect(screen.getByText(/connect your deployment before chatting with characters/i)).toBeInTheDocument();
+    expect(screen.queryByLabelText(/chat transcript/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/send a message to start the transcript/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/meet me at the eastern dock/i)).not.toBeInTheDocument();
+  });
+
+  it("does not turn the browser AWS setup wizard into fake detected deployment data", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+
+    await user.click(screen.getByRole("button", { name: "Deployment" }));
+    await user.click(screen.getByRole("button", { name: /load aws setup wizard/i }));
+
+    expect((await screen.findAllByText(/browser preview only — no aws profiles, stacks, or bedrock model access were checked/i)).length).toBeGreaterThan(0);
+    expect(screen.getByText(/no profiles checked/i)).toBeInTheDocument();
+    expect(screen.getByText(/no models checked/i)).toBeInTheDocument();
+    expect(screen.getByText(/stack was not queried/i)).toBeInTheDocument();
+    expect(screen.queryByText(/detected aws cli profiles/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/default, characterforge/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/model access check is simulated/i)).not.toBeInTheDocument();
   });
 
   it("selects a synced character from the API list before chatting", async () => {
@@ -430,7 +476,7 @@ describe("CharacterForge dashboard", () => {
     await user.click(within(miraCard).getByRole("button", { name: /edit captain mira voss/i }));
     const editDialog = screen.getByRole("dialog", { name: /edit captain mira voss/i });
     expect(within(editDialog).getByLabelText(/character name/i)).toHaveValue("Captain Mira Voss");
-    expect(within(editDialog).getByLabelText(/title\/status/i)).toHaveValue("Ready for chat testing");
+    expect(within(editDialog).getByLabelText(/title\/status/i)).toHaveValue("Sample character");
     expect(within(editDialog).queryByLabelText(/existing character id/i)).not.toBeInTheDocument();
     expect(within(editDialog).getByText(/custom actions/i)).toBeInTheDocument();
     await user.click(within(editDialog).getByRole("button", { name: /cancel/i }));
@@ -941,7 +987,7 @@ describe("CharacterForge dashboard", () => {
 
     await user.click(screen.getByRole("button", { name: "Deployment" }));
 
-    expect(screen.getByText(/mocked setup-check adapter/i)).toBeInTheDocument();
+    expect(screen.getByText(/browser preview mode it shows an honest setup checklist/i)).toBeInTheDocument();
     expect(screen.getByLabelText(/aws region/i)).toHaveValue("us-east-1");
     expect(screen.getByLabelText(/bedrock model/i)).toHaveValue("anthropic.claude-3-haiku-20240307-v1:0");
     expect(screen.getByText(/credential status/i)).toBeInTheDocument();
@@ -949,19 +995,19 @@ describe("CharacterForge dashboard", () => {
 
     await user.click(screen.getByRole("button", { name: /run readiness check/i }));
 
-    expect(await screen.findByText(/mock setup check complete/i)).toBeInTheDocument();
+    expect(await screen.findByText(/browser preview setup check complete/i)).toBeInTheDocument();
     expect(screen.getAllByText(/aws region/i).length).toBeGreaterThan(0);
     expect(screen.getByText("us-east-1")).toBeInTheDocument();
     expect(screen.getByText(/selected bedrock model/i)).toBeInTheDocument();
     expect(screen.getByText("anthropic.claude-3-haiku-20240307-v1:0")).toBeInTheDocument();
     expect(screen.getAllByText(/credential status/i).length).toBeGreaterThan(0);
-    expect(screen.getByText(/mock credentials detected/i)).toBeInTheDocument();
+    expect(screen.getByText(/browser preview only — credentials not checked/i)).toBeInTheDocument();
     expect(screen.getByText(/bedrock access status/i)).toBeInTheDocument();
-    expect(screen.getAllByText(/model access simulated as ready/i).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/bedrock access not checked/i).length).toBeGreaterThan(0);
     expect(screen.getByText(/existing stack status/i)).toBeInTheDocument();
     expect(screen.getByText(/no existing stack found/i)).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: /warnings/i })).toBeInTheDocument();
-    expect(screen.getAllByText(/mock results only/i).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/browser preview only/i).length).toBeGreaterThan(0);
     expect(screen.getAllByText(/confirm bedrock model access in the aws console/i).length).toBeGreaterThan(0);
     expect(listCharactersMock).not.toHaveBeenCalled();
     expect(createCharacterMock).not.toHaveBeenCalled();
@@ -977,7 +1023,7 @@ describe("CharacterForge dashboard", () => {
     await user.selectOptions(screen.getByLabelText(/bedrock model/i), "anthropic.claude-3-5-sonnet-20240620-v1:0");
     await user.click(screen.getByRole("button", { name: /run readiness check/i }));
 
-    expect(await screen.findByText(/mock setup check complete/i)).toBeInTheDocument();
+    expect(await screen.findByText(/browser preview setup check complete/i)).toBeInTheDocument();
     expect(screen.getByText("eu-west-1")).toBeInTheDocument();
     expect(screen.getAllByText(/verify that characterforge deployment templates target eu-west-1/i).length).toBeGreaterThan(0);
     expect(screen.getAllByText(/higher-capability models may cost more per request/i).length).toBeGreaterThan(0);
@@ -1606,14 +1652,14 @@ describe("CharacterForge dashboard", () => {
     expect(screen.queryByText(/real-session-token/i)).not.toBeInTheDocument();
   });
 
-  it("keeps mock mode active and does not call the SDK when no API base URL is set", async () => {
+  it("keeps the API disconnected and does not call the SDK when no API base URL is set", async () => {
     const user = userEvent.setup();
     render(<App />);
 
     await user.click(screen.getByRole("button", { name: "Deployment" }));
     await user.click(screen.getByRole("button", { name: /test connection/i }));
 
-    expect((await screen.findAllByText(/mock mode is active/i)).length).toBeGreaterThan(0);
+    expect((await screen.findAllByText(/no api base url configured yet/i)).length).toBeGreaterThan(0);
     expect(listCharactersMock).not.toHaveBeenCalled();
   });
 
