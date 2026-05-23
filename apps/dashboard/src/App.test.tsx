@@ -8,6 +8,7 @@ const listCharactersMock = vi.fn();
 const createCharacterMock = vi.fn();
 const updateCharacterMock = vi.fn();
 const deleteCharacterMock = vi.fn();
+const chatMock = vi.fn();
 
 vi.mock("@characterforge/characterforge-ai", () => ({
   CharacterForgeClient: vi.fn().mockImplementation(function CharacterForgeClientMock(
@@ -16,6 +17,7 @@ vi.mock("@characterforge/characterforge-ai", () => ({
       listCharacters: () => Promise<unknown>;
       updateCharacter: (characterId: string, payload: unknown) => Promise<unknown>;
       deleteCharacter: (characterId: string) => Promise<void>;
+      chat: (characterId: string, payload: unknown) => Promise<unknown>;
     },
     options: { apiKey?: string; baseUrl: string }
   ) {
@@ -23,6 +25,7 @@ vi.mock("@characterforge/characterforge-ai", () => ({
     this.listCharacters = () => listCharactersMock(options);
     this.updateCharacter = (characterId: string, payload: unknown) => updateCharacterMock(options, characterId, payload);
     this.deleteCharacter = (characterId: string) => deleteCharacterMock(options, characterId);
+    this.chat = (characterId: string, payload: unknown) => chatMock(options, characterId, payload);
   })
 }));
 
@@ -32,6 +35,7 @@ describe("CharacterForge dashboard", () => {
     createCharacterMock.mockReset();
     updateCharacterMock.mockReset();
     deleteCharacterMock.mockReset();
+    chatMock.mockReset();
     delete window.__TAURI__;
     window.localStorage.clear();
   });
@@ -305,8 +309,9 @@ describe("CharacterForge dashboard", () => {
 
     await user.click(screen.getByRole("button", { name: "Chat" }));
     expect(screen.getByRole("heading", { name: /^chat$/i })).toBeInTheDocument();
-    expect(screen.getByText(/meet me at the eastern dock/i)).toBeInTheDocument();
-    expect(screen.getByText(/give_quest/i)).toBeInTheDocument();
+    expect(screen.getByText(/connect your deployment before chatting with characters/i)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /open deployment/i })).toBeInTheDocument();
+    expect(screen.queryByText(/meet me at the eastern dock/i)).not.toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "Settings" }));
     expect(screen.getByRole("heading", { name: /settings/i })).toBeInTheDocument();
@@ -318,6 +323,93 @@ describe("CharacterForge dashboard", () => {
     expect(screen.getByRole("heading", { name: /raw json preview/i })).toBeInTheDocument();
     expect(screen.getByText(/mockCharacters/i)).toBeInTheDocument();
     expect(screen.getByText(/connectionStatus/i)).toBeInTheDocument();
+  });
+
+
+  it("shows a Chat empty state with a Deployment link when the API is disconnected", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+
+    await user.click(screen.getByRole("button", { name: "Chat" }));
+
+    expect(screen.getByRole("heading", { name: /^chat$/i })).toBeInTheDocument();
+    expect(screen.getByText(/connect your deployment before chatting with characters/i)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /open deployment/i })).toBeInTheDocument();
+    expect(screen.queryByText(/meet me at the eastern dock/i)).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/select character/i)).not.toBeInTheDocument();
+    expect(chatMock).not.toHaveBeenCalled();
+
+    await user.click(screen.getByRole("button", { name: /open deployment/i }));
+    expect(screen.getByRole("heading", { name: /^deployment$/i })).toBeInTheDocument();
+  });
+
+  it("selects a synced character from the API list before chatting", async () => {
+    const user = userEvent.setup();
+    listCharactersMock.mockResolvedValueOnce({
+      characters: [
+        { id: "char_api_arden", name: "Arden Vale", archetype: "API ranger", description: "Fetched from API.", allowed_actions: ["give_quest"] },
+        { id: "char_api_lyra", name: "Lyra Quill", archetype: "API bard", description: "Second API character.", allowed_actions: ["set_flag"] }
+      ]
+    });
+
+    render(<App />);
+    await user.click(screen.getByRole("button", { name: "Deployment" }));
+    await user.type(screen.getByLabelText(/api base url/i), "https://api.example.test/dev");
+    await user.click(screen.getByRole("button", { name: /test connection/i }));
+    await screen.findAllByText(/connected to characterforge api/i);
+
+    await user.click(screen.getByRole("button", { name: "Chat" }));
+    const selector = screen.getByLabelText(/select character/i);
+    expect(selector).toHaveValue("char_api_arden");
+    expect(screen.getAllByText(/loaded character: arden vale/i).length).toBeGreaterThan(0);
+
+    await user.selectOptions(selector, "char_api_lyra");
+    expect(screen.getAllByText(/loaded character: lyra quill/i).length).toBeGreaterThan(0);
+    expect(screen.getByText(/second api character/i)).toBeInTheDocument();
+  });
+
+  it("maps chat requests to the selected character and displays response payloads", async () => {
+    const user = userEvent.setup();
+    listCharactersMock.mockResolvedValueOnce({
+      characters: [{ id: "char_api_arden", name: "Arden Vale", archetype: "API ranger", description: "Fetched from API.", allowed_actions: ["give_quest", "set_flag"] }]
+    });
+    chatMock.mockResolvedValueOnce({
+      message: "The warded gate opens.",
+      emotion: "focused",
+      actions: [
+        { type: "give_quest", payload: { quest_id: "harbor-001", title: "Find the Harbor Key" } },
+        { type: "set_flag", payload: { flag: "gate_open", value: true } }
+      ],
+      token_usage: { input_tokens: 12, output_tokens: 24 }
+    });
+
+    render(<App />);
+    await user.click(screen.getByRole("button", { name: "Deployment" }));
+    await user.type(screen.getByLabelText(/api base url/i), "https://api.example.test/dev");
+    await user.click(screen.getByRole("button", { name: /test connection/i }));
+    await screen.findAllByText(/connected to characterforge api/i);
+
+    await user.click(screen.getByRole("button", { name: "Chat" }));
+    await user.type(screen.getByLabelText(/player message/i), "Open the old gate");
+    await user.click(screen.getByRole("button", { name: /send chat/i }));
+
+    await waitFor(() => expect(chatMock).toHaveBeenCalledWith(
+      { baseUrl: "https://api.example.test/dev", apiKey: undefined },
+      "char_api_arden",
+      expect.objectContaining({
+        message: "Open the old gate",
+        player_id: "dashboard-player",
+        session_id: "dashboard-chat-char_api_arden",
+        context: expect.objectContaining({ character_name: "Arden Vale", source: "api", sync_status: "api_synced" })
+      })
+    ));
+    expect(await screen.findByText(/open the old gate/i)).toBeInTheDocument();
+    expect(screen.getAllByText(/the warded gate opens/i).length).toBeGreaterThan(0);
+    expect(screen.getByText(/returned payloads and actions/i)).toBeInTheDocument();
+    expect(screen.getAllByText(/give_quest/i).length).toBeGreaterThan(0);
+    expect(screen.getByText(/harbor-001/i)).toBeInTheDocument();
+    expect(screen.getByText(/gate_open/i)).toBeInTheDocument();
+    expect(screen.getByText(/input_tokens/i)).toBeInTheDocument();
   });
 
   it("merges character editing, pack tools, and delete confirmation into the Characters page", async () => {
@@ -794,6 +886,52 @@ describe("CharacterForge dashboard", () => {
     expect(within(pendingCard).getByText(/source: local folder/i)).toBeInTheDocument();
     expect(within(pendingCard).getByText(/sync: not synced yet/i)).toBeInTheDocument();
     expect(screen.getByText(/pending local changes: 2 character files are not synced yet/i)).toBeInTheDocument();
+  });
+
+
+  it("excludes conflicted or pending local characters from Chat selection until they sync", async () => {
+    const user = userEvent.setup();
+    const invoke = vi.fn().mockImplementation((command: string) => {
+      if (command === "get_app_config") {
+        return Promise.resolve({ firstRunTutorialCompleted: true, firstRunTutorialSkipped: false });
+      }
+      if (command === "get_character_folder") {
+        return Promise.resolve({ path: "C:\\Users\\Evan\\AppData\\Roaming\\CharacterForgeAI\\characters", browserMode: false });
+      }
+      if (command === "open_character_folder") {
+        return Promise.resolve({ path: "C:\\Users\\Evan\\AppData\\Roaming\\CharacterForgeAI\\characters", opened: true, browserMode: false });
+      }
+      if (command === "scan_character_folder") {
+        return Promise.resolve({
+          folderPath: "C:\\Users\\Evan\\AppData\\Roaming\\CharacterForgeAI\\characters",
+          characters: [
+            { id: "char_api_warden", name: "Warden Cloud", archetype: "Local duplicate", description: "Local pending duplicate.", status: "Draft", syncStatus: "api_pending", source: "local" },
+            { id: "char_local_pending", name: "Pending Piper", archetype: "Local bard", description: "Waiting for API sync.", status: "Draft", syncStatus: "api_pending", source: "local" }
+          ],
+          invalidFiles: []
+        });
+      }
+      return Promise.reject(new Error(`unexpected command ${command}`));
+    });
+    window.__TAURI__ = { core: { invoke } };
+    listCharactersMock.mockResolvedValueOnce({
+      characters: [{ id: "char_api_warden", name: "Warden Cloud", archetype: "API sentinel", description: "Cloud copy." }]
+    });
+
+    render(<App />);
+    await user.click(screen.getByRole("button", { name: "Deployment" }));
+    await user.type(screen.getByLabelText(/api base url/i), "https://api.example.test/dev");
+    await user.click(screen.getByRole("button", { name: /test connection/i }));
+    await screen.findAllByText(/connected to characterforge api/i);
+    await user.click(screen.getByRole("button", { name: "Characters" }));
+    await user.click(screen.getByRole("button", { name: /^open character folder$/i }));
+    await screen.findByText(/conflict: warden cloud exists in both api and local folder with pending local changes/i);
+
+    await user.click(screen.getByRole("button", { name: "Chat" }));
+    expect(screen.getByText(/no synced characters are ready for chat yet/i)).toBeInTheDocument();
+    expect(screen.queryByLabelText(/select character/i)).not.toBeInTheDocument();
+    expect(screen.queryByRole("option", { name: /warden cloud/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("option", { name: /pending piper/i })).not.toBeInTheDocument();
   });
 
 

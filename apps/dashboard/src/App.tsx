@@ -1,7 +1,7 @@
 import JSZip from "jszip";
 import { useEffect, useMemo, useState } from "react";
 
-import { CharacterForgeClient, type CharacterSummary } from "@characterforge/characterforge-ai";
+import { CharacterForgeClient, type CharacterSummary, type ChatResponse } from "@characterforge/characterforge-ai";
 
 import {
   createBrowserDryRunDeploymentAdapter,
@@ -87,13 +87,18 @@ type CharacterFolderStatus = {
 
 type ChatAction = {
   type: string;
-  payload: Record<string, string | number | boolean>;
+  payload?: unknown;
 };
 
 type ChatMessage = {
   speaker: string;
   text: string;
   actions?: ChatAction[];
+};
+
+type ChatTranscriptMessage = ChatMessage & {
+  id: string;
+  emotion?: string | null;
 };
 
 type ConnectionStatus = {
@@ -2759,28 +2764,173 @@ function CharacterPacksScreen({
   );
 }
 
-function ChatTestScreen() {
+function ChatScreen({
+  apiConnected,
+  characters,
+  onOpenDeployment,
+  settings
+}: {
+  apiConnected: boolean;
+  characters: Character[];
+  onOpenDeployment: () => void;
+  settings: ApiSettings;
+}) {
+  const syncedCharacters = characters.filter(
+    (character) => character.syncStatus === "api_synced" && (character.source === "api" || character.source === "api_local")
+  );
+  const syncedCharacterKey = syncedCharacters.map((character) => `${character.id}:${character.name}:${character.syncStatus ?? ""}:${character.source ?? ""}`).join("|");
+  const [selectedCharacterId, setSelectedCharacterId] = useState("");
+  const [messageDraft, setMessageDraft] = useState("");
+  const [transcript, setTranscript] = useState<ChatTranscriptMessage[]>([]);
+  const [lastResponse, setLastResponse] = useState<ChatResponse | null>(null);
+  const [chatStatus, setChatStatus] = useState<ConnectionStatus>({ message: "Select a synced character to begin.", state: "idle" });
+
+  useEffect(() => {
+    if (!apiConnected || !syncedCharacters.length) {
+      setSelectedCharacterId("");
+      setTranscript([]);
+      setLastResponse(null);
+      return;
+    }
+    if (!selectedCharacterId || !syncedCharacters.some((character) => character.id === selectedCharacterId)) {
+      setSelectedCharacterId(syncedCharacters[0].id);
+      setTranscript([]);
+      setLastResponse(null);
+      setChatStatus({ message: `Loaded character: ${syncedCharacters[0].name}.`, state: "success" });
+    }
+  }, [apiConnected, selectedCharacterId, syncedCharacterKey]);
+
+  const selectedCharacter = syncedCharacters.find((character) => character.id === selectedCharacterId) ?? syncedCharacters[0];
+
+  async function handleSendChat() {
+    if (!apiConnected || !selectedCharacter || !messageDraft.trim()) {
+      return;
+    }
+    const outgoingText = messageDraft.trim();
+    setMessageDraft("");
+    setTranscript((messages) => [...messages, { id: `player-${Date.now()}`, speaker: "Player", text: outgoingText }]);
+    setChatStatus({ message: `Sending chat to ${selectedCharacter.name}...`, state: "loading" });
+    try {
+      const client = new CharacterForgeClient({ baseUrl: settings.apiBaseUrl, apiKey: settings.apiKey || undefined });
+      const response = await client.chat(selectedCharacter.id, {
+        context: {
+          allowed_actions: selectedCharacter.allowedActions,
+          character_name: selectedCharacter.name,
+          source: selectedCharacter.source ?? "api",
+          sync_status: selectedCharacter.syncStatus ?? "api_synced"
+        },
+        message: outgoingText,
+        player_id: "dashboard-player",
+        session_id: `dashboard-chat-${selectedCharacter.id}`
+      });
+      setLastResponse(response);
+      setTranscript((messages) => [
+        ...messages,
+        {
+          actions: response.actions?.map((action) => ({ type: action.type, payload: action.payload })),
+          emotion: response.emotion,
+          id: `character-${Date.now()}`,
+          speaker: selectedCharacter.name,
+          text: response.message
+        }
+      ]);
+      setChatStatus({ message: `Chat response loaded for ${selectedCharacter.name}.`, state: "success" });
+    } catch (error) {
+      setChatStatus({ message: error instanceof Error ? `Chat failed: ${error.message}` : "Chat failed.", state: "error" });
+    }
+  }
+
+  if (!apiConnected) {
+    return (
+      <section className="screen-card" aria-labelledby="chat-title">
+        <p className="eyebrow">Live character chat</p>
+        <h1 id="chat-title">Chat</h1>
+        <div className="notice empty-state">
+          <strong>Connect your deployment before chatting with characters.</strong>
+          <p>Chat uses the live CharacterForge API and synced characters. Go to Deployment, enter the API details, and test the connection first.</p>
+          <button onClick={onOpenDeployment} type="button">Open Deployment</button>
+        </div>
+      </section>
+    );
+  }
+
+  if (!syncedCharacters.length) {
+    return (
+      <section className="screen-card" aria-labelledby="chat-title">
+        <p className="eyebrow">Live character chat</p>
+        <h1 id="chat-title">Chat</h1>
+        <div className="notice empty-state">
+          <strong>No synced characters are ready for Chat yet.</strong>
+          <p>Create or sync a character from the Characters page, then return here to chat with the live API.</p>
+        </div>
+      </section>
+    );
+  }
+
   return (
     <section className="screen-card" aria-labelledby="chat-title">
-      <p className="eyebrow">Dialogue sandbox</p>
+      <p className="eyebrow">Live character chat</p>
       <h1 id="chat-title">Chat</h1>
-      <div className="notice compact">Chat remains mock-only in this step; API chat wiring comes after connection setup.</div>
-      <div className="chat-window">
-        {mockChatMessages.map((message) => (
-          <article className="chat-message" key={`${message.speaker}-${message.text}`}>
+      <div className={`notice compact ${chatStatus.state === "error" ? "danger" : ""}`}>{chatStatus.message}</div>
+      <label className="field">
+        <span>Select Character</span>
+        <select
+          aria-label="Select Character"
+          onChange={(event) => {
+            const nextCharacter = syncedCharacters.find((character) => character.id === event.target.value);
+            setSelectedCharacterId(event.target.value);
+            setTranscript([]);
+            setLastResponse(null);
+            if (nextCharacter) {
+              setChatStatus({ message: `Loaded character: ${nextCharacter.name}.`, state: "success" });
+            }
+          }}
+          value={selectedCharacter?.id ?? ""}
+        >
+          {syncedCharacters.map((character) => (
+            <option key={character.id} value={character.id}>{character.name}</option>
+          ))}
+        </select>
+      </label>
+      {selectedCharacter ? (
+        <div className="notice compact">
+          <strong>Loaded character: {selectedCharacter.name}</strong>
+          <p>{selectedCharacter.description}</p>
+          <p>Allowed actions: {selectedCharacter.allowedActions.length ? selectedCharacter.allowedActions.join(", ") : "None configured"}</p>
+        </div>
+      ) : null}
+      <form
+        className="editor-form"
+        onSubmit={(event) => {
+          event.preventDefault();
+          void handleSendChat();
+        }}
+      >
+        <label className="field">
+          <span>Player Message</span>
+          <textarea
+            aria-label="Player Message"
+            onChange={(event) => setMessageDraft(event.target.value)}
+            placeholder="Ask the selected character something..."
+            rows={3}
+            value={messageDraft}
+          />
+        </label>
+        <button disabled={!messageDraft.trim() || chatStatus.state === "loading"} type="submit">Send Chat</button>
+      </form>
+      <div className="chat-window" aria-label="Chat transcript">
+        {transcript.length ? transcript.map((message) => (
+          <article className="chat-message" key={message.id}>
             <strong>{message.speaker}</strong>
             <p>{message.text}</p>
-            {message.actions ? (
-              <div className="action-panel">
-                <span>Returned actions</span>
-                {message.actions.map((action) => (
-                  <code key={action.type}>{action.type}</code>
-                ))}
-              </div>
-            ) : null}
+            {message.emotion ? <span className="status-pill">Emotion: {message.emotion}</span> : null}
           </article>
-        ))}
+        )) : <p className="muted">Send a message to start the transcript.</p>}
       </div>
+      <section className="action-panel" aria-labelledby="chat-payload-title">
+        <h2 id="chat-payload-title">Returned payloads and actions</h2>
+        {lastResponse ? <pre className="json-preview">{formatJson(lastResponse)}</pre> : <p>No payload returned yet.</p>}
+      </section>
     </section>
   );
 }
@@ -3657,7 +3807,7 @@ export default function App() {
           />
         );
       case "chat":
-        return <ChatTestScreen />;
+        return <ChatScreen apiConnected={apiConnected} characters={activeCharacters} onOpenDeployment={() => setActiveScreen("deployment")} settings={settings} />;
       case "json":
         return (
           <RawJsonPreviewScreen
