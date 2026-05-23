@@ -49,6 +49,31 @@ type Character = {
   allowedActions: string[];
 };
 
+type CharacterFolderInfo = {
+  path: string;
+  browserMode?: boolean;
+};
+
+type CharacterFolderOpenResult = CharacterFolderInfo & {
+  opened: boolean;
+};
+
+type CharacterFolderScanIssue = {
+  path: string;
+  error: string;
+};
+
+type CharacterFolderScanResult = {
+  folderPath: string;
+  characters: Character[];
+  invalidFiles: CharacterFolderScanIssue[];
+};
+
+type CharacterFolderStatus = {
+  message: string;
+  state: "idle" | "loading" | "success" | "error";
+};
+
 type ChatAction = {
   type: string;
   payload: Record<string, string | number | boolean>;
@@ -156,6 +181,11 @@ type PackExportState = {
   fileName: string;
   objectUrl: string;
   preview: CharacterPackManifest;
+  savedPath?: string;
+};
+
+type CharacterPackExportResult = {
+  path: string;
 };
 
 type TutorialAction = {
@@ -229,6 +259,7 @@ type AwsSetupWizardResult = {
 const settingsStorageKey = "characterforge.dashboard.settings";
 const appConfigStorageKey = "characterforge.dashboard.appConfig";
 const localCharacterIndexStorageKey = "characterforge.dashboard.localCharacterIndex";
+const browserCharacterFolderPath = "%APPDATA%\\CharacterForgeAI\\characters";
 
 const defaultUpdateSettings: UpdateSettings = {
   channel: "stable",
@@ -286,6 +317,82 @@ function createDeploymentAdapter() {
 
 function hasTauriInvoke() {
   return typeof window !== "undefined" && Boolean(window.__TAURI__?.core?.invoke);
+}
+
+function isSafeCharacterFolderPath(path: string) {
+  const trimmed = path.trim();
+  if (!trimmed || trimmed.includes("\0") || trimmed.includes("..")) {
+    return false;
+  }
+  const normalized = trimmed.replace(/\\/g, "/").toLowerCase();
+  if (normalized.startsWith("http:") || normalized.startsWith("https:") || normalized.startsWith("file:")) {
+    return false;
+  }
+  return normalized.includes("/characterforgeai/characters") || normalized === "%appdata%/characterforgeai/characters";
+}
+
+function normalizeFolderCharacter(rawCharacter: Partial<Character> & { allowed_actions?: string[] }, index: number): Character {
+  const name = typeof rawCharacter.name === "string" && rawCharacter.name.trim() ? rawCharacter.name.trim() : `Local Character ${index + 1}`;
+  return {
+    id:
+      typeof rawCharacter.id === "string" && rawCharacter.id.trim()
+        ? rawCharacter.id.trim()
+        : `local-folder-${name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || index + 1}`,
+    name,
+    archetype:
+      typeof rawCharacter.archetype === "string" && rawCharacter.archetype.trim()
+        ? rawCharacter.archetype.trim()
+        : "Local character file",
+    status:
+      typeof rawCharacter.status === "string" && rawCharacter.status.trim()
+        ? rawCharacter.status.trim()
+        : "Loaded from local character folder",
+    description:
+      typeof rawCharacter.description === "string" && rawCharacter.description.trim()
+        ? rawCharacter.description.trim()
+        : "Imported from the configured CharacterForgeAI character folder.",
+    allowedActions: Array.isArray(rawCharacter.allowedActions)
+      ? rawCharacter.allowedActions.filter((action): action is string => typeof action === "string")
+      : Array.isArray(rawCharacter.allowed_actions)
+        ? rawCharacter.allowed_actions.filter((action): action is string => typeof action === "string")
+        : []
+  };
+}
+
+async function getCharacterFolder(): Promise<CharacterFolderInfo> {
+  if (hasTauriInvoke()) {
+    return (await window.__TAURI__!.core!.invoke("get_character_folder", {})) as CharacterFolderInfo;
+  }
+  return { path: browserCharacterFolderPath, browserMode: true };
+}
+
+async function openCharacterFolder(): Promise<CharacterFolderOpenResult> {
+  if (hasTauriInvoke()) {
+    return (await window.__TAURI__!.core!.invoke("open_character_folder", {})) as CharacterFolderOpenResult;
+  }
+  return { path: browserCharacterFolderPath, opened: false, browserMode: true };
+}
+
+async function scanCharacterFolder(): Promise<CharacterFolderScanResult> {
+  if (hasTauriInvoke()) {
+    const result = (await window.__TAURI__!.core!.invoke("scan_character_folder", {})) as CharacterFolderScanResult;
+    return {
+      folderPath: result.folderPath,
+      characters: (result.characters ?? []).map((character, index) => normalizeFolderCharacter(character, index)),
+      invalidFiles: result.invalidFiles ?? []
+    };
+  }
+  return { folderPath: browserCharacterFolderPath, characters: [], invalidFiles: [] };
+}
+
+async function saveCharacterPackExport(fileName: string, pack: CharacterPackManifest): Promise<CharacterPackExportResult | null> {
+  if (!hasTauriInvoke()) {
+    return null;
+  }
+  return (await window.__TAURI__!.core!.invoke("save_character_pack_export", {
+    fileName,
+    contents: formatJson(pack)
+  })) as CharacterPackExportResult;
 }
 
 function setupRequestPayload(form: SetupCheckForm) {
@@ -2064,13 +2171,16 @@ function CharactersScreen({
   editor,
   mode,
   packTools,
+  characterFolder,
+  folderScanIssues,
+  folderStatus,
   pendingDelete,
   onCancelDelete,
   onConfirmDelete,
   onCreateCharacter,
   onEditCharacter,
   onRequestDelete,
-  onTogglePackTools
+  onOpenCharacterFolder
 }: {
   characters: Character[];
   deleteStatus: EditorStatus;
@@ -2096,13 +2206,16 @@ function CharactersScreen({
     status: PackStatus;
     visible: boolean;
   };
+  characterFolder: CharacterFolderInfo;
+  folderScanIssues: CharacterFolderScanIssue[];
+  folderStatus: CharacterFolderStatus;
   pendingDelete: Character | null;
   onCancelDelete: () => void;
   onConfirmDelete: () => void;
   onCreateCharacter: () => void;
   onEditCharacter: (character: Character) => void;
   onRequestDelete: (character: Character) => void;
-  onTogglePackTools: () => void;
+  onOpenCharacterFolder: () => void;
 }) {
   return (
     <section className="screen-card" aria-labelledby="characters-title">
@@ -2113,13 +2226,33 @@ function CharactersScreen({
         <button onClick={onCreateCharacter} type="button">
           Create Character
         </button>
-        <button onClick={onTogglePackTools} type="button">
-          Open Character Folder / Import-Export
+        <button onClick={onOpenCharacterFolder} type="button">
+          Open Character Folder
         </button>
       </div>
       <div className="notice compact">
-        {mode === "api" ? "Showing API characters loaded through the TypeScript SDK." : "Showing mock characters because no API URL is set."}
+        {mode === "api"
+          ? "Showing API characters loaded through the TypeScript SDK."
+          : characters.some((character) => character.status === "Loaded from local character folder" || character.status === "local file")
+            ? "Showing characters loaded from the local CharacterForgeAI folder."
+            : "Showing mock characters because no API URL is set."}
       </div>
+      <div className={`connection-status ${folderStatus.state}`} role={folderStatus.state === "error" ? "alert" : "status"}>
+        {folderStatus.message}
+      </div>
+      <p className="helper-text">Import/export location: {characterFolder.path}</p>
+      {folderScanIssues.length ? (
+        <div className="notice compact" role="status">
+          <strong>Local scan warnings:</strong>
+          <ul>
+            {folderScanIssues.map((issue) => (
+              <li key={`${issue.path}-${issue.error}`}>
+                {issue.path}: {issue.error}
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
       <div className={`connection-status ${deleteStatus.state}`} role={deleteStatus.state === "error" ? "alert" : "status"}>
         {deleteStatus.message}
       </div>
@@ -2462,6 +2595,9 @@ function CharacterPacksScreen({
                 Download {exportState.fileName}
               </a>
             ) : null}
+            {exportState?.savedPath ? (
+              <span className="status-pill">Saved to {exportState.savedPath}</span>
+            ) : null}
           </div>
           <h2>Pack preview JSON</h2>
           <pre aria-label="Pack preview JSON" className="json-preview">
@@ -2579,6 +2715,13 @@ export default function App() {
   });
   const [charactersEditorVisible, setCharactersEditorVisible] = useState(false);
   const [characterPackToolsVisible, setCharacterPackToolsVisible] = useState(false);
+  const [characterFolder, setCharacterFolder] = useState<CharacterFolderInfo>({ path: browserCharacterFolderPath, browserMode: !hasTauriInvoke() });
+  const [folderCharacters, setFolderCharacters] = useState<Character[]>([]);
+  const [folderScanIssues, setFolderScanIssues] = useState<CharacterFolderScanIssue[]>([]);
+  const [characterFolderStatus, setCharacterFolderStatus] = useState<CharacterFolderStatus>({
+    message: "Open the default CharacterForgeAI folder to import/export local character files.",
+    state: "idle"
+  });
   const [pendingDeleteCharacter, setPendingDeleteCharacter] = useState<Character | null>(null);
   const [deletedCharacterIds, setDeletedCharacterIds] = useState<string[]>(() => loadLocalDeletedCharacterIds());
   const [characterDeleteStatus, setCharacterDeleteStatus] = useState<EditorStatus>({
@@ -2625,9 +2768,12 @@ export default function App() {
 
   const apiMode = Boolean(settings.apiBaseUrl.trim());
   const apiConnected = apiMode && connectionStatus.state === "success";
-  const sourceCharacters = apiConnected ? apiCharacters : mockCharacters;
+  const localSourceCharacters = folderCharacters.length ? folderCharacters : mockCharacters;
+  const sourceCharacters = apiConnected
+    ? [...apiCharacters, ...folderCharacters.filter((folderCharacter) => !apiCharacters.some((apiCharacter) => apiCharacter.id === folderCharacter.id))]
+    : localSourceCharacters;
   const activeCharacters = sourceCharacters.filter((character) => !deletedCharacterIds.includes(character.id));
-  const sharedStateCharacters = apiConnected ? apiCharacters.filter((character) => !deletedCharacterIds.includes(character.id)) : activeCharacters;
+  const sharedStateCharacters = activeCharacters;
   const deploymentConfig = useMemo(
     () =>
       buildDeploymentConfig({
@@ -2648,13 +2794,16 @@ export default function App() {
           state: connectionStatus.state
         }),
         characterFolder: {
-          message: loadedPack
-            ? loadedPack.errors.length
-              ? `Loaded ${loadedPack.manifest.name} with ${loadedPack.errors.length} local validation issue(s).`
-              : `Loaded ${loadedPack.manifest.name} character pack for local review.`
-            : "No local character folder or pack has been loaded yet.",
-          path: loadedPack ? loadedPack.manifest.slug : undefined,
-          state: loadedPack ? (loadedPack.errors.length ? "error" : "ready") : "not_configured"
+          message:
+            characterFolderStatus.state === "success"
+              ? characterFolderStatus.message
+              : loadedPack
+                ? loadedPack.errors.length
+                  ? `Loaded ${loadedPack.manifest.name} with ${loadedPack.errors.length} local validation issue(s).`
+                  : `Loaded ${loadedPack.manifest.name} character pack for local review.`
+                : "No local character folder or pack has been loaded yet.",
+          path: characterFolder.path || (loadedPack ? loadedPack.manifest.slug : undefined),
+          state: characterFolderStatus.state === "success" || loadedPack ? (loadedPack?.errors.length ? "error" : "ready") : "not_configured"
         },
         characters: sharedStateCharacters.map((character) =>
           toCharacterRecord({
@@ -2687,7 +2836,10 @@ export default function App() {
       deploymentStartResult?.finalStackStatus,
       deploymentStatus.message,
       deploymentStatus.state,
-      loadedPack
+      loadedPack,
+      characterFolder.path,
+      characterFolderStatus.message,
+      characterFolderStatus.state
     ]
   );
   const dashboardReadiness = useMemo(() => getDashboardReadiness(sharedDashboardState), [sharedDashboardState]);
@@ -3039,6 +3191,59 @@ export default function App() {
     }
   }
 
+  async function handleOpenCharacterFolder() {
+    setCharacterFolderStatus({ message: "Opening and scanning the local CharacterForgeAI character folder...", state: "loading" });
+    try {
+      const folder = await getCharacterFolder();
+      if (!isSafeCharacterFolderPath(folder.path)) {
+        setCharacterFolder(folder);
+        setFolderCharacters([]);
+        setFolderScanIssues([]);
+        setCharacterFolderStatus({ message: "Failed: character folder path must stay under CharacterForgeAI app data.", state: "error" });
+        return;
+      }
+
+      const opened = await openCharacterFolder();
+      if (!isSafeCharacterFolderPath(opened.path)) {
+        setCharacterFolder(opened);
+        setFolderCharacters([]);
+        setFolderScanIssues([]);
+        setCharacterFolderStatus({ message: "Failed: character folder path must stay under CharacterForgeAI app data.", state: "error" });
+        return;
+      }
+
+      const scan = await scanCharacterFolder();
+      if (!isSafeCharacterFolderPath(scan.folderPath)) {
+        setCharacterFolder(opened);
+        setFolderCharacters([]);
+        setFolderScanIssues([]);
+        setCharacterFolderStatus({ message: "Failed: character folder path must stay under CharacterForgeAI app data.", state: "error" });
+        return;
+      }
+
+      setCharacterFolder({ path: scan.folderPath, browserMode: folder.browserMode || opened.browserMode });
+      setFolderCharacters(scan.characters);
+      setFolderScanIssues(scan.invalidFiles);
+      setCharacterFolderStatus({
+        message: folder.browserMode
+          ? "Browser mode: character folder access is mocked."
+          : `Opened character folder and loaded ${scan.characters.length} local character file${scan.characters.length === 1 ? "" : "s"}.`,
+        state: "success"
+      });
+      if (!scan.characters.length && folder.browserMode) {
+        setCharacterDeleteStatus({ message: "No local character files were found in the browser mock folder.", state: "idle" });
+      }
+      setCharacterPackToolsVisible(true);
+    } catch (error) {
+      setFolderCharacters([]);
+      setFolderScanIssues([]);
+      setCharacterFolderStatus({
+        message: error instanceof Error ? `Failed: ${error.message}` : "Failed: could not open the character folder.",
+        state: "error"
+      });
+    }
+  }
+
   async function handlePackFileLoad(files: FileList | null) {
     if (!files?.length) {
       return;
@@ -3097,7 +3302,7 @@ export default function App() {
     }
   }
 
-  function handleExportPackCharacters() {
+  async function handleExportPackCharacters() {
     if (!loadedPack || loadedPack.errors.length || !selectedPackCharacterIds.length) {
       setPackStatus({ message: "Select valid pack characters before exporting.", state: "error" });
       return;
@@ -3108,11 +3313,22 @@ export default function App() {
     const exportPack = buildExportPack(loadedPack, selectedPackCharacterIds);
     const fileName = `${exportPack.slug}.json`;
     const objectUrl = downloadJsonFile(exportPack);
-    setPackExportState({ fileName, objectUrl, preview: exportPack });
-    setPackStatus({
-      message: `Prepared local export for ${selectedPackCharacterIds.length} selected character${selectedPackCharacterIds.length === 1 ? "" : "s"}.`,
-      state: "success"
-    });
+    try {
+      const savedExport = await saveCharacterPackExport(fileName, exportPack);
+      setPackExportState({ fileName, objectUrl, preview: exportPack, savedPath: savedExport?.path });
+      setPackStatus({
+        message: savedExport
+          ? `Saved local export for ${selectedPackCharacterIds.length} selected character${selectedPackCharacterIds.length === 1 ? "" : "s"} to ${savedExport.path}.`
+          : `Prepared local export for ${selectedPackCharacterIds.length} selected character${selectedPackCharacterIds.length === 1 ? "" : "s"}. Save it into ${characterFolder.path}.`,
+        state: "success"
+      });
+    } catch (error) {
+      setPackExportState({ fileName, objectUrl, preview: exportPack });
+      setPackStatus({
+        message: error instanceof Error ? `Prepared browser download, but folder export failed: ${error.message}` : "Prepared browser download, but folder export failed.",
+        state: "error"
+      });
+    }
   }
 
   function renderScreen() {
@@ -3177,6 +3393,9 @@ export default function App() {
               validationErrors: editorValidationErrors
             }}
             mode={apiConnected ? "api" : "mock"}
+            characterFolder={characterFolder}
+            folderScanIssues={folderScanIssues}
+            folderStatus={characterFolderStatus}
             packTools={{
               exportState: packExportState,
               loadedPack,
@@ -3194,7 +3413,7 @@ export default function App() {
             onCreateCharacter={handleCreateCharacterFromCharactersPage}
             onEditCharacter={handleEditCharacterFromCharactersPage}
             onRequestDelete={handleRequestDeleteCharacter}
-            onTogglePackTools={() => setCharacterPackToolsVisible((visible) => !visible)}
+            onOpenCharacterFolder={() => void handleOpenCharacterFolder()}
           />
         );
       case "packs":

@@ -200,7 +200,7 @@ describe("CharacterForge dashboard", () => {
 
     await user.click(screen.getByRole("button", { name: "Welcome" }));
     await user.click(screen.getByRole("button", { name: /open characters/i }));
-    await user.click(screen.getByRole("button", { name: /open character folder \/ import-export/i }));
+    await user.click(screen.getByRole("button", { name: /^open character folder$/i }));
     expect(screen.getByRole("heading", { name: /character folder import-export/i })).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "Welcome" }));
@@ -298,7 +298,7 @@ describe("CharacterForge dashboard", () => {
     await user.click(screen.getByRole("button", { name: "Characters" }));
     expect(screen.getByRole("heading", { name: /characters/i })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /create character/i })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /open character folder \/ import-export/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^open character folder$/i })).toBeInTheDocument();
     expect(screen.getByText("Captain Mira Voss")).toBeInTheDocument();
     expect(screen.getByText("Ember Archivist Thalen")).toBeInTheDocument();
     expect(screen.getByText(/showing mock characters/i)).toBeInTheDocument();
@@ -327,7 +327,7 @@ describe("CharacterForge dashboard", () => {
     await user.click(screen.getByRole("button", { name: "Characters" }));
 
     expect(screen.getByRole("button", { name: /create character/i })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /open character folder \/ import-export/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^open character folder$/i })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Character Editor" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Character Packs" })).not.toBeInTheDocument();
 
@@ -344,7 +344,7 @@ describe("CharacterForge dashboard", () => {
     await user.click(within(editDialog).getByRole("button", { name: /cancel/i }));
     expect(screen.queryByRole("dialog", { name: /edit captain mira voss/i })).not.toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: /open character folder \/ import-export/i }));
+    await user.click(screen.getByRole("button", { name: /^open character folder$/i }));
     expect(screen.getByRole("heading", { name: /character folder import-export/i })).toBeInTheDocument();
     expect(screen.getByLabelText(/load pack json, folder, or zip/i)).toBeInTheDocument();
 
@@ -363,6 +363,94 @@ describe("CharacterForge dashboard", () => {
     });
     expect(listCharactersMock).not.toHaveBeenCalled();
     expect(createCharacterMock).not.toHaveBeenCalled();
+  });
+
+  it("opens the desktop character folder and loads scanned local character files", async () => {
+    const user = userEvent.setup();
+    const invoke = vi.fn().mockImplementation((command: string) => {
+      if (command === "get_app_config") {
+        return Promise.resolve({ firstRunTutorialCompleted: true, firstRunTutorialSkipped: false });
+      }
+      if (command === "get_character_folder") {
+        return Promise.resolve({
+          path: "C:\\Users\\Evan\\AppData\\Roaming\\CharacterForgeAI\\characters",
+          browserMode: false
+        });
+      }
+      if (command === "open_character_folder") {
+        return Promise.resolve({
+          path: "C:\\Users\\Evan\\AppData\\Roaming\\CharacterForgeAI\\characters",
+          opened: true,
+          browserMode: false
+        });
+      }
+      if (command === "scan_character_folder") {
+        return Promise.resolve({
+          folderPath: "C:\\Users\\Evan\\AppData\\Roaming\\CharacterForgeAI\\characters",
+          characters: [
+            {
+              id: "char_folder_sera",
+              name: "Sera Folderborn",
+              archetype: "Local folder mage",
+              description: "Loaded from a local character file.",
+              status: "local file"
+            }
+          ],
+          invalidFiles: [{ path: "broken-character.json", error: "missing name" }]
+        });
+      }
+      return Promise.reject(new Error(`unexpected command ${command}`));
+    });
+    window.__TAURI__ = { core: { invoke } };
+
+    render(<App />);
+    await user.click(screen.getByRole("button", { name: "Characters" }));
+    await user.click(screen.getByRole("button", { name: /^open character folder$/i }));
+
+    expect(await screen.findByText(/opened character folder/i)).toBeInTheDocument();
+    expect(screen.getByText(/C:\\Users\\Evan\\AppData\\Roaming\\CharacterForgeAI\\characters/i)).toBeInTheDocument();
+    expect(screen.getByRole("article", { name: /sera folderborn/i })).toBeInTheDocument();
+    expect(screen.getByText(/showing characters loaded from the local characterforgeai folder/i)).toBeInTheDocument();
+    expect(screen.getAllByText((_, node) => node?.textContent === "broken-character.json: missing name").length).toBeGreaterThan(0);
+    expect(invoke).toHaveBeenCalledWith("get_character_folder", {});
+    expect(invoke).toHaveBeenCalledWith("open_character_folder", {});
+    expect(invoke).toHaveBeenCalledWith("scan_character_folder", {});
+  });
+
+  it("uses a safe browser-mode character folder mock when Tauri is unavailable", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+
+    await user.click(screen.getByRole("button", { name: "Characters" }));
+    await user.click(screen.getByRole("button", { name: /^open character folder$/i }));
+
+    expect(screen.getByText(/browser mode: character folder access is mocked/i)).toBeInTheDocument();
+    expect(screen.getByText(/%APPDATA%\\CharacterForgeAI\\characters/i)).toBeInTheDocument();
+    expect(screen.getByText(/no local character files were found in the browser mock folder/i)).toBeInTheDocument();
+    expect(listCharactersMock).not.toHaveBeenCalled();
+  });
+
+  it("rejects unsafe desktop character folder paths before opening or scanning", async () => {
+    const user = userEvent.setup();
+    const invoke = vi.fn().mockImplementation((command: string) => {
+      if (command === "get_app_config") {
+        return Promise.resolve({ firstRunTutorialCompleted: true, firstRunTutorialSkipped: false });
+      }
+      if (command === "get_character_folder") {
+        return Promise.resolve({ path: "C:\\Users\\Evan\\Desktop\\..\\Secrets", browserMode: false });
+      }
+      return Promise.reject(new Error(`unexpected command ${command}`));
+    });
+    window.__TAURI__ = { core: { invoke } };
+
+    render(<App />);
+    await user.click(screen.getByRole("button", { name: "Characters" }));
+    await user.click(screen.getByRole("button", { name: /^open character folder$/i }));
+
+    expect(await screen.findByText(/failed: character folder path must stay under characterforgeai app data/i)).toBeInTheDocument();
+    expect(invoke).toHaveBeenCalledWith("get_character_folder", {});
+    expect(invoke).not.toHaveBeenCalledWith("open_character_folder", {});
+    expect(invoke).not.toHaveBeenCalledWith("scan_character_folder", {});
   });
 
   it("deletes an API character only after backend success and shows sync status", async () => {
@@ -1654,7 +1742,7 @@ describe("CharacterForge dashboard", () => {
     await user.type(screen.getByLabelText(/api base url/i), "https://api.example.test/dev");
     await user.click(screen.getByRole("button", { name: /save settings/i }));
     await user.click(screen.getByRole("button", { name: "Characters" }));
-    await user.click(screen.getByRole("button", { name: /open character folder \/ import-export/i }));
+    await user.click(screen.getByRole("button", { name: /^open character folder$/i }));
 
     const fileInput = screen.getByLabelText(/load pack json, folder, or zip/i);
     fireEvent.change(fileInput, {
@@ -1696,7 +1784,7 @@ describe("CharacterForge dashboard", () => {
     render(<App />);
 
     await user.click(screen.getByRole("button", { name: "Characters" }));
-    await user.click(screen.getByRole("button", { name: /open character folder \/ import-export/i }));
+    await user.click(screen.getByRole("button", { name: /^open character folder$/i }));
     fireEvent.change(screen.getByLabelText(/load pack json, folder, or zip/i), {
       target: { files: [new File([JSON.stringify({ name: "Broken Pack" })], "broken-pack.json", { type: "application/json" })] }
     });

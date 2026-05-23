@@ -5,6 +5,7 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::BTreeMap;
+use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -22,6 +23,53 @@ const REQUIRED_DEPLOYMENT_RESOURCE_RELATIVE_PATHS: &[&str] = &[
     "deployment/schemas/game-binding.schema.json",
     "deployment/LICENSE",
 ];
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CharacterFolderInfo {
+    pub path: String,
+    pub browser_mode: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CharacterFolderOpenResult {
+    pub path: String,
+    pub opened: bool,
+    pub browser_mode: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LocalCharacterSummary {
+    pub id: String,
+    pub name: String,
+    pub archetype: String,
+    pub status: String,
+    pub description: String,
+    pub allowed_actions: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CharacterFolderScanIssue {
+    pub path: String,
+    pub error: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CharacterFolderScanResult {
+    pub folder_path: String,
+    pub characters: Vec<LocalCharacterSummary>,
+    pub invalid_files: Vec<CharacterFolderScanIssue>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CharacterPackExportResult {
+    pub path: String,
+}
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -214,6 +262,204 @@ impl Default for AppConfig {
             update_settings: UpdateSettings::default(),
         }
     }
+}
+
+fn default_character_folder_path() -> Result<PathBuf, String> {
+    let base = env::var_os("APPDATA")
+        .map(PathBuf::from)
+        .or_else(|| env::var_os("XDG_DATA_HOME").map(PathBuf::from))
+        .or_else(|| {
+            env::var_os("HOME").map(|home| PathBuf::from(home).join(".local").join("share"))
+        })
+        .ok_or_else(|| {
+            "Could not resolve a safe app data directory for CharacterForgeAI.".to_string()
+        })?;
+    Ok(base.join("CharacterForgeAI").join("characters"))
+}
+
+fn is_safe_character_folder_path(path: &Path) -> bool {
+    let components: Vec<String> = path
+        .components()
+        .map(|component| component.as_os_str().to_string_lossy().to_ascii_lowercase())
+        .collect();
+    if components
+        .iter()
+        .any(|component| component == ".." || component.contains('\0'))
+    {
+        return false;
+    }
+    components
+        .windows(2)
+        .any(|window| window[0] == "characterforgeai" && window[1] == "characters")
+}
+
+fn ensure_character_folder() -> Result<PathBuf, String> {
+    let folder = default_character_folder_path()?;
+    if !is_safe_character_folder_path(&folder) {
+        return Err("Character folder path must stay under CharacterForgeAI app data.".to_string());
+    }
+    fs::create_dir_all(&folder)
+        .map_err(|error| format!("Could not create character folder: {error}"))?;
+    Ok(folder)
+}
+
+fn json_string(value: &Value, keys: &[&str]) -> Option<String> {
+    keys.iter()
+        .find_map(|key| value.get(*key).and_then(Value::as_str))
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned)
+}
+
+fn json_string_array(value: &Value, keys: &[&str]) -> Vec<String> {
+    keys.iter()
+        .find_map(|key| value.get(*key).and_then(Value::as_array))
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(Value::as_str)
+                .map(str::trim)
+                .filter(|item| !item.is_empty())
+                .map(ToOwned::to_owned)
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+fn local_character_from_value(
+    value: &Value,
+    fallback_id: &str,
+) -> Result<LocalCharacterSummary, String> {
+    let name = json_string(value, &["name"]).ok_or_else(|| "missing name".to_string())?;
+    Ok(LocalCharacterSummary {
+        id: json_string(value, &["id", "character_id", "characterId"])
+            .unwrap_or_else(|| fallback_id.to_string()),
+        name,
+        archetype: json_string(value, &["archetype", "titleStatus", "status_title"])
+            .unwrap_or_else(|| "Local character file".to_string()),
+        status: "Loaded from local character folder".to_string(),
+        description: json_string(value, &["description"]).unwrap_or_else(|| {
+            "Imported from the configured CharacterForgeAI character folder.".to_string()
+        }),
+        allowed_actions: json_string_array(value, &["allowedActions", "allowed_actions"]),
+    })
+}
+
+fn safe_export_file_name(file_name: &str) -> Result<String, String> {
+    if file_name.contains("..") || file_name.contains('/') || file_name.contains('\\') {
+        return Err("Export file name must be a simple .json file name.".to_string());
+    }
+    let candidate = Path::new(file_name)
+        .file_name()
+        .and_then(|name| name.to_str())
+        .ok_or_else(|| "Export file name is required.".to_string())?;
+    if !candidate.ends_with(".json") {
+        return Err("Export file name must be a simple .json file name.".to_string());
+    }
+    let sanitized: String = candidate
+        .chars()
+        .filter(|character| {
+            character.is_ascii_alphanumeric() || matches!(character, '-' | '_' | '.')
+        })
+        .collect();
+    if sanitized.is_empty() || sanitized != candidate {
+        return Err("Export file name contains unsupported characters.".to_string());
+    }
+    Ok(sanitized)
+}
+
+fn scan_character_folder_path(folder: &Path) -> Result<CharacterFolderScanResult, String> {
+    if !is_safe_character_folder_path(folder) {
+        return Err("Character folder path must stay under CharacterForgeAI app data.".to_string());
+    }
+    let mut characters = Vec::new();
+    let mut invalid_files = Vec::new();
+    for entry in
+        fs::read_dir(folder).map_err(|error| format!("Could not read character folder: {error}"))?
+    {
+        let entry = entry.map_err(|error| format!("Could not inspect character file: {error}"))?;
+        let path = entry.path();
+        if !path.is_file()
+            || path.extension().and_then(|extension| extension.to_str()) != Some("json")
+        {
+            continue;
+        }
+        let relative_path = path
+            .file_name()
+            .map(|name| name.to_string_lossy().to_string())
+            .unwrap_or_else(|| path.display().to_string());
+        match fs::read_to_string(&path)
+            .map_err(|error| error.to_string())
+            .and_then(|contents| {
+                serde_json::from_str::<Value>(&contents).map_err(|error| error.to_string())
+            })
+            .and_then(|value| {
+                local_character_from_value(
+                    &value,
+                    path.file_stem()
+                        .and_then(|name| name.to_str())
+                        .unwrap_or("local-character"),
+                )
+            }) {
+            Ok(character) => characters.push(character),
+            Err(error) => invalid_files.push(CharacterFolderScanIssue {
+                path: relative_path,
+                error,
+            }),
+        }
+    }
+    Ok(CharacterFolderScanResult {
+        folder_path: folder.display().to_string(),
+        characters,
+        invalid_files,
+    })
+}
+
+#[tauri::command]
+fn get_character_folder() -> Result<CharacterFolderInfo, String> {
+    let folder = ensure_character_folder()?;
+    Ok(CharacterFolderInfo {
+        path: folder.display().to_string(),
+        browser_mode: false,
+    })
+}
+
+#[tauri::command]
+fn open_character_folder() -> Result<CharacterFolderOpenResult, String> {
+    let folder = ensure_character_folder()?;
+    #[cfg(target_os = "windows")]
+    let status = Command::new("explorer").arg(&folder).status();
+    #[cfg(target_os = "macos")]
+    let status = Command::new("open").arg(&folder).status();
+    #[cfg(all(unix, not(target_os = "macos")))]
+    let status = Command::new("xdg-open").arg(&folder).status();
+
+    Ok(CharacterFolderOpenResult {
+        path: folder.display().to_string(),
+        opened: status.map(|status| status.success()).unwrap_or(false),
+        browser_mode: false,
+    })
+}
+
+#[tauri::command]
+fn scan_character_folder() -> Result<CharacterFolderScanResult, String> {
+    let folder = ensure_character_folder()?;
+    scan_character_folder_path(&folder)
+}
+
+#[tauri::command]
+fn save_character_pack_export(
+    file_name: String,
+    contents: String,
+) -> Result<CharacterPackExportResult, String> {
+    let folder = ensure_character_folder()?;
+    let file_name = safe_export_file_name(&file_name)?;
+    let export_path = folder.join(file_name);
+    fs::write(&export_path, contents)
+        .map_err(|error| format!("Could not write character export: {error}"))?;
+    Ok(CharacterPackExportResult {
+        path: export_path.display().to_string(),
+    })
 }
 
 fn app_config_file_from_dir(base_dir: &Path) -> PathBuf {
@@ -2383,6 +2629,57 @@ mod tests {
 
         let _ = fs::remove_dir_all(root);
     }
+    #[test]
+    fn character_folder_safety_requires_characterforge_app_data() {
+        let safe = PathBuf::from("/tmp/AppData/Roaming/CharacterForgeAI/characters");
+        let unsafe_parent = PathBuf::from("/tmp/AppData/Roaming/CharacterForgeAI/../Secrets");
+        let unsafe_desktop = PathBuf::from("/tmp/Desktop/characters");
+
+        assert!(is_safe_character_folder_path(&safe));
+        assert!(!is_safe_character_folder_path(&unsafe_parent));
+        assert!(!is_safe_character_folder_path(&unsafe_desktop));
+    }
+
+    #[test]
+    fn safe_export_file_names_stay_inside_character_folder() {
+        assert_eq!(
+            safe_export_file_name("export-pack.json").unwrap(),
+            "export-pack.json"
+        );
+        assert!(safe_export_file_name("../secret.json").is_err());
+        assert!(safe_export_file_name("nested/export.json").is_err());
+        assert!(safe_export_file_name("export.txt").is_err());
+    }
+
+    #[test]
+    fn scans_only_valid_local_character_json_files() {
+        let root =
+            env::temp_dir().join(format!("characterforge-folder-test-{}", std::process::id()));
+        let folder = root.join("CharacterForgeAI").join("characters");
+        fs::create_dir_all(&folder).unwrap();
+        fs::write(
+            folder.join("sera.json"),
+            r#"{"id":"sera","name":"Sera Folderborn","description":"From disk.","allowed_actions":["wave"]}"#,
+        )
+        .unwrap();
+        fs::write(folder.join("broken.json"), r#"{"description":"No name"}"#).unwrap();
+        fs::write(folder.join("notes.txt"), "ignore me").unwrap();
+
+        let scan = scan_character_folder_path(&folder).unwrap();
+
+        assert_eq!(scan.characters.len(), 1);
+        assert_eq!(scan.characters[0].name, "Sera Folderborn");
+        assert_eq!(
+            scan.characters[0].status,
+            "Loaded from local character folder"
+        );
+        assert_eq!(scan.characters[0].allowed_actions, vec!["wave".to_string()]);
+        assert_eq!(scan.invalid_files.len(), 1);
+        assert_eq!(scan.invalid_files[0].path, "broken.json");
+        assert!(scan.invalid_files[0].error.contains("missing name"));
+
+        let _ = fs::remove_dir_all(root);
+    }
 }
 
 pub fn run() {
@@ -2391,6 +2688,10 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             get_app_config,
             save_app_config,
+            get_character_folder,
+            open_character_folder,
+            scan_character_folder,
+            save_character_pack_export,
             check_for_updates,
             install_update,
             check_setup_readiness,
