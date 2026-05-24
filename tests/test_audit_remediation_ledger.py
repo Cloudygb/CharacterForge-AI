@@ -19,6 +19,7 @@ EXPECTED_AUDIT_GATES = [
     "prerequisite helper exit-code handling",
     "prerequisite installer metadata pinning",
     "installer scope and format",
+    "uninstall data cleanup",
     "OpenAPI auth responses",
     "no API key persistence",
     "docs direct-key warning",
@@ -138,7 +139,7 @@ def test_best_practice_audit_regression_index_lists_all_major_audit_gates() -> N
     for gate in EXPECTED_AUDIT_GATES:
         assert gate in content
 
-    implemented_gate_count = 8  # CSP non-null; IPC least privilege; installer signing required; updater real-or-disabled; downgrades blocked; prerequisite helper exit-code handling; prerequisite installer metadata pinning; installer scope and format
+    implemented_gate_count = 9  # CSP non-null; IPC least privilege; installer signing required; updater real-or-disabled; downgrades blocked; prerequisite helper exit-code handling; prerequisite installer metadata pinning; installer scope and format; uninstall data cleanup
     pending_or_implemented = content.count("@pytest.mark.xfail") + content.count("@pytest.mark.skip")
     assert pending_or_implemented >= len(EXPECTED_AUDIT_GATES) - implemented_gate_count
     assert "test_installer_release_verification.py" in content
@@ -182,6 +183,21 @@ def test_step_12_evidence_records_installer_scope_and_format_policy() -> None:
     assert "NSIS-only" in content
     assert "MSI release target removed" in content
     assert "clean-machine checklist" in content
+    assert "pytest tests/test_dashboard_tauri_packaging.py -q" in content
+    assert "No secrets" in content
+
+
+def test_step_13_evidence_records_uninstall_data_cleanup_policy() -> None:
+    assert LEDGER_PATH.exists(), f"Missing audit remediation ledger at {LEDGER_PATH.relative_to(REPO_ROOT)}"
+    content = LEDGER_PATH.read_text(encoding="utf-8")
+
+    assert "## Step 13 Uninstall Local Data Cleanup" in content
+    assert "CF-AUDIT-4.5" in content
+    assert "%APPDATA%\\CharacterForgeAI" in content
+    assert "config/cache" in content
+    assert "characters" in content
+    assert "preserved by default" in content
+    assert "export or copy" in content
     assert "pytest tests/test_dashboard_tauri_packaging.py -q" in content
     assert "No secrets" in content
 

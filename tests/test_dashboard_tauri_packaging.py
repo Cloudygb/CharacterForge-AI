@@ -199,6 +199,31 @@ def test_custom_nsis_installer_hook_defines_the_intended_page_flow() -> None:
     assert "execshell \"open\" \"$instdir\\${cfai_exe_name}\"" in normalized
 
 
+def test_uninstaller_cleanup_targets_actual_appdata_paths_and_preserves_characters_by_default() -> None:
+    hook = (TAURI / "installer" / "characterforgeai.nsh").read_text(encoding="utf-8")
+    normalized = hook.lower()
+    rust_source = (TAURI / "src" / "lib.rs").read_text(encoding="utf-8")
+
+    assert 'base.join("CharacterForgeAI").join("characters")' in rust_source
+    assert 'base_dir.join("CharacterForgeAI").join("config.json")' in rust_source
+    assert '!define CFAI_APP_DATA_DIR "$APPDATA\\CharacterForgeAI"' in hook
+    assert '!define CFAI_CONFIG_FILE "${CFAI_APP_DATA_DIR}\\config.json"' in hook
+    assert '!define CFAI_CACHE_DIR "${CFAI_APP_DATA_DIR}\\cache"' in hook
+    assert '!define CFAI_CHARACTER_DIR "${CFAI_APP_DATA_DIR}\\characters"' in hook
+    assert "uninstpage custom un.cfai_createuninstalldatacleanuppage un.cfai_leaveuninstalldatacleanuppage" in normalized
+    assert "preserve character files" in normalized
+    assert "export or copy" in normalized
+    assert "remove local config/cache" in normalized
+    assert "remove user-authored character files" in normalized
+    assert "strcpy $cfai_removelocalconfigcache \"0\"" in normalized
+    assert "strcpy $cfai_removeusercharacters \"0\"" in normalized
+    assert 'delete "${cfai_config_file}"' in normalized
+    assert 'rmdir /r "${cfai_cache_dir}"' in normalized
+    assert 'rmdir /r "${cfai_character_dir}"' in normalized
+    assert normalized.find('rmdir /r "${cfai_character_dir}"') > normalized.find("$cfai_removeusercharacters")
+    assert 'rmdir /r "${cfai_app_data_dir}"' not in normalized
+
+
 def test_tauri_bundles_deployment_resources_for_packaged_start_end_flows() -> None:
     config = read_json(TAURI / "tauri.conf.json")
     resources = config["bundle"]["resources"]

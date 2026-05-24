@@ -117,6 +117,20 @@ def test_installer_scope_and_format_is_implemented() -> None:
     assert '"perMachine"' not in tauri_config
 
 
+def test_uninstall_data_cleanup_is_opt_in_and_targets_real_appdata_paths() -> None:
+    """uninstall data cleanup: uninstaller must target real app data and preserve characters by default."""
+    packaging_tests = (ROOT / "tests" / "test_dashboard_tauri_packaging.py").read_text(encoding="utf-8")
+    nsis_hook = (ROOT / "apps" / "dashboard" / "src-tauri" / "installer" / "characterforgeai.nsh").read_text(encoding="utf-8")
+
+    assert "test_uninstaller_cleanup_targets_actual_appdata_paths_and_preserves_characters_by_default" in packaging_tests
+    assert '$APPDATA\\CharacterForgeAI' in nsis_hook
+    assert '${CFAI_APP_DATA_DIR}\\config.json' in nsis_hook
+    assert '${CFAI_APP_DATA_DIR}\\cache' in nsis_hook
+    assert '${CFAI_APP_DATA_DIR}\\characters' in nsis_hook
+    assert 'StrCpy $CFAI_RemoveLocalConfigCache "0"' in nsis_hook
+    assert 'StrCpy $CFAI_RemoveUserCharacters "0"' in nsis_hook
+
+
 @pytest.mark.xfail(reason=_pending_gate("OpenAPI auth responses"))
 def test_openapi_documents_auth_error_and_rate_limit_responses() -> None:
     """OpenAPI auth responses: API contract must document 401, 403, 429, and retry metadata."""

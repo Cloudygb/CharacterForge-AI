@@ -13,6 +13,10 @@
 !define CFAI_EXE_NAME "CharacterForgeAI.exe"
 !define CFAI_LOG_DIR "$TEMP\CharacterForgeAI"
 !define CFAI_START_MENU_DIR "$SMPROGRAMS\CharacterForgeAI"
+!define CFAI_APP_DATA_DIR "$APPDATA\CharacterForgeAI"
+!define CFAI_CONFIG_FILE "${CFAI_APP_DATA_DIR}\config.json"
+!define CFAI_CACHE_DIR "${CFAI_APP_DATA_DIR}\cache"
+!define CFAI_CHARACTER_DIR "${CFAI_APP_DATA_DIR}\characters"
 !define CFAI_DEPENDENCY_MESSAGE "CharacterForgeAI can check your computer for required tools before the app is installed. This helps confirm WebView2, AWS CLI v2, AWS SAM CLI, and Docker Desktop guidance are ready for local deployment workflows."
 !define CFAI_INSTALL_MESSAGE "CharacterForgeAI can help install WebView2 Runtime, AWS CLI v2, and AWS SAM CLI from official HTTPS sources. Docker Desktop is shown as guided-install messaging so you can choose the right Windows setup option."
 
@@ -29,6 +33,10 @@ Var CFAI_LaunchNowCheckbox
 Var CFAI_PrerequisiteHelperExitCode
 Var CFAI_PrerequisiteRequiredFailures
 Var CFAI_PrerequisiteWarnings
+Var CFAI_RemoveLocalConfigCache
+Var CFAI_RemoveUserCharacters
+Var CFAI_RemoveLocalConfigCacheCheckbox
+Var CFAI_RemoveUserCharactersCheckbox
 
 ; The requested wizard order is declared here instead of relying on modal
 ; MessageBox prompts:
@@ -52,6 +60,7 @@ Page directory
 Page custom CFAI_CreateShortcutOptionsPage CFAI_LeaveShortcutOptionsPage
 Page instfiles
 Page custom CFAI_CreateFinishPage CFAI_LeaveFinishPage
+UninstPage custom un.CFAI_CreateUninstallDataCleanupPage un.CFAI_LeaveUninstallDataCleanupPage
 
 !macro CFAI_ExtractInstallerHelpers
   InitPluginsDir
@@ -259,7 +268,7 @@ Function CFAI_CreateShortcutOptionsPage
 
   ${NSD_CreateLabel} 0 0 100% 24u "Shortcut options"
   Pop $0
-  ${NSD_CreateLabel} 0 32u 100% 36u "Choose which Windows shortcuts CharacterForgeAI should create. The installer runs elevated so shortcuts are created in the all-users locations."
+  ${NSD_CreateLabel} 0 32u 100% 36u "Choose which Windows shortcuts CharacterForgeAI should create for the current Windows user."
   Pop $0
   ${NSD_CreateCheckbox} 0 78u 100% 12u "Desktop shortcut"
   Pop $CFAI_DesktopShortcutCheckbox
@@ -323,6 +332,63 @@ Function CFAI_LeaveFinishPage
   ${EndIf}
 FunctionEnd
 
+Function un.CFAI_CreateUninstallDataCleanupPage
+  StrCpy $CFAI_RemoveLocalConfigCache "0"
+  StrCpy $CFAI_RemoveUserCharacters "0"
+
+  nsDialogs::Create 1018
+  Pop $0
+  ${If} $0 == error
+    Abort
+  ${EndIf}
+
+  ${NSD_CreateLabel} 0 0 100% 24u "Local data cleanup"
+  Pop $0
+  ${NSD_CreateLabel} 0 30u 100% 72u "By default, uninstall removes the app only to preserve character files under ${CFAI_CHARACTER_DIR}.$\r$\n$\r$\nIf character files exist, export or copy them before choosing removal. Config and cache live under ${CFAI_APP_DATA_DIR}."
+  Pop $0
+  ${NSD_CreateCheckbox} 0 116u 100% 12u "Remove local config/cache from ${CFAI_APP_DATA_DIR}"
+  Pop $CFAI_RemoveLocalConfigCacheCheckbox
+  ${NSD_CreateCheckbox} 0 138u 100% 24u "Remove user-authored character files from ${CFAI_CHARACTER_DIR}; I have exported or copied anything I want to keep"
+  Pop $CFAI_RemoveUserCharactersCheckbox
+
+  nsDialogs::Show
+FunctionEnd
+
+Function un.CFAI_LeaveUninstallDataCleanupPage
+  ${NSD_GetState} $CFAI_RemoveLocalConfigCacheCheckbox $0
+  ${If} $0 == ${BST_CHECKED}
+    StrCpy $CFAI_RemoveLocalConfigCache "1"
+  ${Else}
+    StrCpy $CFAI_RemoveLocalConfigCache "0"
+  ${EndIf}
+
+  ${NSD_GetState} $CFAI_RemoveUserCharactersCheckbox $0
+  ${If} $0 == ${BST_CHECKED}
+    StrCpy $CFAI_RemoveUserCharacters "1"
+  ${Else}
+    StrCpy $CFAI_RemoveUserCharacters "0"
+  ${EndIf}
+FunctionEnd
+
+!macro CFAI_ApplyUninstallDataChoices
+  ${If} $CFAI_RemoveLocalConfigCache == "1"
+    DetailPrint "Removing CharacterForgeAI local config/cache from ${CFAI_APP_DATA_DIR}."
+    Delete "${CFAI_CONFIG_FILE}"
+    RMDir /r "${CFAI_CACHE_DIR}"
+  ${Else}
+    DetailPrint "Keeping CharacterForgeAI config/cache under ${CFAI_APP_DATA_DIR}."
+  ${EndIf}
+
+  ${If} $CFAI_RemoveUserCharacters == "1"
+    DetailPrint "Removing user-authored character files from ${CFAI_CHARACTER_DIR}."
+    RMDir /r "${CFAI_CHARACTER_DIR}"
+  ${Else}
+    DetailPrint "Keeping user-authored character files under ${CFAI_CHARACTER_DIR}."
+  ${EndIf}
+
+  RMDir "${CFAI_APP_DATA_DIR}"
+!macroend
+
 !macro NSIS_HOOK_PREINSTALL
   DetailPrint "The CharacterForgeAI page-level installer flow is active."
   DetailPrint "Directory, shortcut, progress, and finish choices are collected before files are installed."
@@ -339,5 +405,6 @@ FunctionEnd
 !macroend
 
 !macro NSIS_HOOK_POSTUNINSTALL
+  !insertmacro CFAI_ApplyUninstallDataChoices
   DetailPrint "CharacterForgeAI has been removed."
 !macroend
