@@ -255,7 +255,7 @@ def test_step_16_evidence_records_authorization_regression_tests() -> None:
     assert "service tokens" in content
     assert "game/environment" in content
     assert "pytest tests/test_authorization.py -q" in content
-    assert "2 xfailed" in content
+    assert "0 xfailed" in content
     assert "No secrets" in content
 
 
@@ -330,6 +330,22 @@ def test_step_20_evidence_records_character_authorization_enforcement() -> None:
     assert "403" in content
     assert "404" in content
     assert "pytest tests/test_authorization.py tests/test_character_handlers.py -q" in content
+    assert "No secrets" in content
+
+
+def test_step_21_evidence_records_chat_session_authorization_enforcement() -> None:
+    assert LEDGER_PATH.exists(), f"Missing audit remediation ledger at {LEDGER_PATH.relative_to(REPO_ROOT)}"
+    content = LEDGER_PATH.read_text(encoding="utf-8")
+
+    assert "## Step 21 Chat and Session Authorization Enforcement" in content
+    assert "CF-AUDIT-1.2" in content
+    assert "sessions:read" in content
+    assert "sessions:write" in content
+    assert "tenant/game/environment" in content
+    assert "player_id" in content
+    assert "session history" in content
+    assert "chat state" in content
+    assert "pytest tests/test_chat_handler.py tests/test_session_handlers.py tests/test_authorization.py -q" in content
     assert "No secrets" in content
 
 

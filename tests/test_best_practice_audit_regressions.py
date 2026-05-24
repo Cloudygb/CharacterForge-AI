@@ -41,10 +41,16 @@ def test_object_auth_prevents_cross_character_or_session_access() -> None:
     character_handlers = (ROOT / "tests" / "test_character_handlers.py").read_text(encoding="utf-8")
     character_model = (ROOT / "src" / "characterforge" / "models" / "character.py").read_text(encoding="utf-8")
     chat_model = (ROOT / "src" / "characterforge" / "models" / "chat.py").read_text(encoding="utf-8")
+    chat_handlers = (ROOT / "tests" / "test_chat_handler.py").read_text(encoding="utf-8")
+    session_handlers = (ROOT / "tests" / "test_session_handlers.py").read_text(encoding="utf-8")
 
     assert "test_one_tenant_cannot_read_another_tenants_character" in authorization_tests
     assert "test_one_tenant_cannot_read_another_tenants_session_history" in authorization_tests
     assert "test_service_tokens_are_scoped_by_game_and_environment_for_runtime_writes" in authorization_tests
+    assert "test_chat_with_character_hides_cross_tenant_character" in chat_handlers
+    assert "test_chat_with_character_hides_existing_session_owned_by_another_principal" in chat_handlers
+    assert "test_get_session_history_hides_cross_tenant_session_messages" in session_handlers
+    assert "test_clear_session_history_hides_and_preserves_cross_environment_session" in session_handlers
     assert "test_in_memory_character_store_persists_ownership_and_audit_metadata" in character_store_tests
     assert "test_in_memory_session_store_persists_ownership_and_audit_metadata" in session_store_tests
     assert "test_character_profile_backfills_legacy_dev_ownership_metadata" in character_store_tests

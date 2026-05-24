@@ -4,12 +4,30 @@ from typing import Any
 from characterforge.handlers.sessions import clear_session_history, get_session_history
 from characterforge.models.action import CharacterAction
 from characterforge.services.session_store import InMemorySessionStore
+from characterforge.security.principal import Principal
 
 
 def response_body(response: dict[str, Any]) -> Any:
     if response["body"] == "":
         return ""
     return json.loads(response["body"])
+
+
+def principal(
+    *,
+    tenant_id: str = "tenant-alpha",
+    game_id: str = "game-skyships",
+    environment_id: str = "prod",
+    user_id: str | None = "player-456",
+    scopes: set[str] | None = None,
+) -> Principal:
+    return Principal(
+        tenant_id=tenant_id,
+        game_id=game_id,
+        environment_id=environment_id,
+        user_id=user_id,
+        scopes=frozenset(scopes or {"sessions:read", "sessions:write"}),
+    )
 
 
 def test_get_session_history_returns_serialized_messages_in_chronological_order() -> None:
@@ -87,3 +105,62 @@ def test_clear_session_history_returns_zero_for_missing_session() -> None:
 
     assert response["statusCode"] == 200
     assert body == {"cleared_count": 0}
+
+
+def test_get_session_history_requires_session_read_scope() -> None:
+    store = InMemorySessionStore()
+    owner = principal(scopes={"sessions:write"})
+    store.save_player_message("session-123", "char-mira", "player-456", "Private", principal=owner)
+
+    response = get_session_history("session-123", store, principal=owner)
+    body = response_body(response)
+
+    assert response["statusCode"] == 403
+    assert body["error"]["code"] == "forbidden"
+
+
+def test_get_session_history_hides_cross_tenant_session_messages() -> None:
+    store = InMemorySessionStore()
+    owner = principal(tenant_id="tenant-alpha")
+    caller = principal(tenant_id="tenant-beta")
+    store.save_player_message("session-123", "char-mira", "player-456", "Private", principal=owner)
+
+    response = get_session_history("session-123", store, principal=caller)
+
+    assert response["statusCode"] == 404
+
+
+def test_get_session_history_requires_matching_player_for_user_principal() -> None:
+    store = InMemorySessionStore()
+    owner = principal(user_id="player-456")
+    caller = principal(user_id="player-999")
+    store.save_player_message("session-123", "char-mira", "player-456", "Private", principal=owner)
+
+    response = get_session_history("session-123", store, principal=caller)
+
+    assert response["statusCode"] == 404
+
+
+def test_clear_session_history_requires_session_write_scope() -> None:
+    store = InMemorySessionStore()
+    owner = principal(scopes={"sessions:read"})
+    store.save_player_message("session-123", "char-mira", "player-456", "Private", principal=owner)
+
+    response = clear_session_history("session-123", store, principal=owner)
+    body = response_body(response)
+
+    assert response["statusCode"] == 403
+    assert body["error"]["code"] == "forbidden"
+    assert len(store.get_recent_history("session-123")) == 1
+
+
+def test_clear_session_history_hides_and_preserves_cross_environment_session() -> None:
+    store = InMemorySessionStore()
+    owner = principal(environment_id="prod")
+    caller = principal(environment_id="staging")
+    store.save_player_message("session-123", "char-mira", "player-456", "Private", principal=owner)
+
+    response = clear_session_history("session-123", store, principal=caller)
+
+    assert response["statusCode"] == 404
+    assert len(store.get_recent_history("session-123")) == 1

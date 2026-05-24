@@ -266,8 +266,8 @@ Captured on branch `best-practice-audit-remediation` before feature remediation 
 | Service scope covered | Tests assert service tokens are scoped by game/environment and cannot use a staging service principal against production character runtime writes. |
 | Test-token boundary | Synthetic unsigned JWT-shaped tokens are used only for future test-mode handler validation; production validation must reject unsigned tokens unless a test-only mode explicitly enables them. |
 | Central audit index | `tests/test_best_practice_audit_regressions.py` now points the `auth required` and `object auth` gates at the concrete authorization regression tests instead of placeholder failures. |
-| Verification summary | `pytest tests/test_authorization.py -q` returned 2 xfailed after Step 20 made read-only character writes and cross-tenant character reads pass; central audit regression tests, ledger tests, and full Python suite pass with remaining session/chat xfails visible. Final verification commands are recorded in the relevant task summaries. |
-| Deferred risk | Handler and infrastructure enforcement remain intentionally deferred to later auth implementation steps; this step only commits the regression tests that should turn green when enforcement lands. |
+| Verification summary | `pytest tests/test_authorization.py -q` returned 0 xfailed after Step 21 made session history and runtime service-token scope enforcement pass; central audit regression tests, ledger tests, and full Python suite pass with remaining non-auth audit xfails visible. Final verification commands are recorded in the relevant task summaries. |
+| Deferred risk | Remaining authorization work is outside the session/chat object-authorization scope of Step 21; non-auth audit gates remain tracked separately. |
 | Safety scope | No secrets, credential values, API keys, live endpoints, generated release artifacts, or internal planning source artifacts were committed. |
 
 ## Step 17 JWT Authorizer Infrastructure
@@ -323,4 +323,18 @@ Captured on branch `best-practice-audit-remediation` before feature remediation 
 | Regression tests | `tests/test_character_handlers.py` covers list/get/create/update/delete scope checks and ownership checks; `tests/test_authorization.py` now passes read-only character write and cross-tenant character read cases. |
 | Verification summary | `pytest tests/test_authorization.py tests/test_character_handlers.py -q`, central audit regression tests, ledger tests, existing character tests, and the full Python suite pass after implementation. Final verification commands are recorded in the Step 20 task summary. |
 | Deferred risk | Step 20 protects character routes only; chat/session object authorization remains deferred to the session/chat authorization step. |
+| Safety scope | No secrets, credential values, API keys, live endpoints, generated release artifacts, or internal planning source artifacts were committed. |
+
+## Step 21 Chat and Session Authorization Enforcement
+
+| Evidence Item | Result |
+| --- | --- |
+| Audit coverage | CF-AUDIT-1.2 / broken object-level authorization risk for chat state and session history. |
+| RED tests | `pytest tests/test_chat_handler.py tests/test_session_handlers.py tests/test_authorization.py::test_one_tenant_cannot_read_another_tenants_session_history tests/test_authorization.py::test_service_tokens_are_scoped_by_game_and_environment_for_runtime_writes tests/test_best_practice_audit_regressions.py::test_object_auth_prevents_cross_character_or_session_access tests/test_audit_remediation_ledger.py::test_step_21_evidence_records_chat_session_authorization_enforcement -q` failed before chat/session handlers enforced scopes, ownership, and player/session constraints. |
+| Scope enforcement | Chat requires `characters:read`, `sessions:read`, and `sessions:write`; session history reads require `sessions:read`; session clears require `sessions:write`; missing operation scope returns `403 forbidden`. |
+| Ownership enforcement | Chat only uses characters and existing session history whose persisted ownership fields match the caller tenant/game/environment; session history and clears hide records outside the caller tenant/game/environment. |
+| Player/session constraints | User-principal chat requests require the payload `player_id` to match the caller identity, and existing session messages must match the requested `character_id` and `player_id` before new chat state is appended. |
+| Existence hiding | Cross-tenant, cross-game, cross-environment, or wrong-player session history/chat state attempts return `404 not_found` so unauthorized callers cannot confirm session existence. |
+| Regression tests | `tests/test_chat_handler.py`, `tests/test_session_handlers.py`, and `tests/test_authorization.py` cover chat character ownership, session history ownership, runtime service-token game/environment scoping, `player_id` constraints, and read/write scope checks. |
+| Verification summary | `pytest tests/test_chat_handler.py tests/test_session_handlers.py tests/test_authorization.py -q`, central audit regression tests, ledger tests, and full Python suite pass after implementation. Final verification commands are recorded in the Step 21 task summary. |
 | Safety scope | No secrets, credential values, API keys, live endpoints, generated release artifacts, or internal planning source artifacts were committed. |

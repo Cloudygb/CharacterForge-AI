@@ -152,7 +152,7 @@ def create_session_for_token(token: str, character_id: str, *, session_id: str =
             path_parameters={"character_id": character_id},
             body={
                 "session_id": session_id,
-                "player_id": "player-1",
+                "player_id": "user-designer",
                 "message": "I can help recover the sky map.",
             },
             token=token,
@@ -222,7 +222,6 @@ def test_one_tenant_cannot_read_another_tenants_character() -> None:
     assert response["statusCode"] in {403, 404}
 
 
-@pytest.mark.xfail(reason=AUTH_PENDING_REASON, strict=True)
 def test_one_tenant_cannot_read_another_tenants_session_history() -> None:
     from characterforge import app
 
@@ -245,7 +244,6 @@ def test_one_tenant_cannot_read_another_tenants_session_history() -> None:
     assert response["statusCode"] in {403, 404}
 
 
-@pytest.mark.xfail(reason=AUTH_PENDING_REASON, strict=True)
 def test_service_tokens_are_scoped_by_game_and_environment_for_runtime_writes() -> None:
     from characterforge import app
 
@@ -265,7 +263,8 @@ def test_service_tokens_are_scoped_by_game_and_environment_for_runtime_writes() 
         environment_id="staging",
         scopes=["characters:read", "sessions:write", "sessions:read"],
     )
-    character_id = create_character_for_token(production_service_token, name="Production Captain")
+    designer_token = bearer_token(tenant_id="tenant-alpha", game_id="game-skyships", environment_id="prod")
+    character_id = create_character_for_token(designer_token, name="Production Captain")
 
     response = app.handler(
         api_event(
