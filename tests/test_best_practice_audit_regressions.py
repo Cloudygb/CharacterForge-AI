@@ -131,6 +131,17 @@ def test_uninstall_data_cleanup_is_opt_in_and_targets_real_appdata_paths() -> No
     assert 'StrCpy $CFAI_RemoveUserCharacters "0"' in nsis_hook
 
 
+def test_supply_chain_sbom_and_provenance_artifacts_are_generated_for_release_builds() -> None:
+    """supply-chain artifacts: release builds must attach SBOM and provenance evidence."""
+    sbom_tests = (ROOT / "tests" / "test_release_sbom.py").read_text(encoding="utf-8")
+    build_script = (ROOT / "scripts" / "build-windows-installer.ps1").read_text(encoding="utf-8")
+
+    assert "test_sbom_generator_writes_cyclonedx_for_npm_rust_and_python_components" in sbom_tests
+    assert "test_release_build_fails_if_sbom_or_provenance_artifacts_are_missing" in sbom_tests
+    assert "generate-sbom.mjs" in build_script
+    assert "release-provenance.json" in build_script
+
+
 @pytest.mark.xfail(reason=_pending_gate("OpenAPI auth responses"))
 def test_openapi_documents_auth_error_and_rate_limit_responses() -> None:
     """OpenAPI auth responses: API contract must document 401, 403, 429, and retry metadata."""

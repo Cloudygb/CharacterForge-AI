@@ -20,6 +20,7 @@ EXPECTED_AUDIT_GATES = [
     "prerequisite installer metadata pinning",
     "installer scope and format",
     "uninstall data cleanup",
+    "supply-chain artifacts",
     "OpenAPI auth responses",
     "no API key persistence",
     "docs direct-key warning",
@@ -139,7 +140,7 @@ def test_best_practice_audit_regression_index_lists_all_major_audit_gates() -> N
     for gate in EXPECTED_AUDIT_GATES:
         assert gate in content
 
-    implemented_gate_count = 9  # CSP non-null; IPC least privilege; installer signing required; updater real-or-disabled; downgrades blocked; prerequisite helper exit-code handling; prerequisite installer metadata pinning; installer scope and format; uninstall data cleanup
+    implemented_gate_count = 10  # CSP non-null; IPC least privilege; installer signing required; updater real-or-disabled; downgrades blocked; prerequisite helper exit-code handling; prerequisite installer metadata pinning; installer scope and format; uninstall data cleanup; supply-chain artifacts
     pending_or_implemented = content.count("@pytest.mark.xfail") + content.count("@pytest.mark.skip")
     assert pending_or_implemented >= len(EXPECTED_AUDIT_GATES) - implemented_gate_count
     assert "test_installer_release_verification.py" in content
@@ -199,6 +200,22 @@ def test_step_13_evidence_records_uninstall_data_cleanup_policy() -> None:
     assert "preserved by default" in content
     assert "export or copy" in content
     assert "pytest tests/test_dashboard_tauri_packaging.py -q" in content
+    assert "No secrets" in content
+
+
+def test_step_14_evidence_records_sbom_and_provenance_artifacts() -> None:
+    assert LEDGER_PATH.exists(), f"Missing audit remediation ledger at {LEDGER_PATH.relative_to(REPO_ROOT)}"
+    content = LEDGER_PATH.read_text(encoding="utf-8")
+
+    assert "## Step 14 SBOM and Provenance Artifacts" in content
+    assert "CF-AUDIT-4.6" in content
+    assert "CycloneDX" in content
+    assert "npm" in content
+    assert "Rust" in content
+    assert "Python" in content
+    assert "release-provenance.json" in content
+    assert "release-sbom" in content
+    assert "pytest tests/test_release_sbom.py -q" in content
     assert "No secrets" in content
 
 

@@ -23,6 +23,14 @@ function Assert-Command {
     }
 }
 
+function Assert-ReleaseArtifact {
+    param([Parameter(Mandatory = $true)][string]$Path)
+
+    if (-not (Test-Path $Path -PathType Leaf)) {
+        throw "Missing release artifact: $Path"
+    }
+}
+
 function Invoke-Checked {
     param(
         [Parameter(Mandatory = $true)][string]$FilePath,
@@ -154,6 +162,11 @@ $DistDir = Join-Path $RepoRoot "dist"
 $InstallerOutput = Join-Path $DistDir "characterforgeai-installer.exe"
 $ReleaseManifestJson = Join-Path $DistDir "release-manifest.json"
 $ReleaseManifestMarkdown = Join-Path $DistDir "release-manifest.md"
+$ReleaseSbomDir = Join-Path $DistDir "release-sbom"
+$NpmSbomJson = Join-Path $ReleaseSbomDir "characterforgeai-npm.cdx.json"
+$RustSbomJson = Join-Path $ReleaseSbomDir "characterforgeai-rust.cdx.json"
+$PythonSbomJson = Join-Path $ReleaseSbomDir "characterforgeai-python.cdx.json"
+$ReleaseProvenanceJson = Join-Path $ReleaseSbomDir "release-provenance.json"
 $InstallerVerificationJson = Join-Path $DistDir "installer-verification.json"
 $DashboardPackageJson = Join-Path $DashboardDir "package.json"
 
@@ -278,6 +291,13 @@ if ($ReleaseMode) {
     Write-Step "Generating release manifest from signed artifact"
     $package = Get-Content -LiteralPath $DashboardPackageJson -Raw | ConvertFrom-Json
     Invoke-Checked "node" (Join-Path $ScriptDir "generate-release-manifest.mjs") "--artifact" $InstallerOutput "--version" ([string]$package.version) "--signature-json" $InstallerVerificationJson "--output" $ReleaseManifestJson "--markdown-output" $ReleaseManifestMarkdown
+
+    Write-Step "Generating SBOM and release provenance artifacts"
+    Invoke-Checked "node" (Join-Path $ScriptDir "generate-sbom.mjs") "--output-dir" $ReleaseSbomDir
+    Assert-ReleaseArtifact $NpmSbomJson
+    Assert-ReleaseArtifact $RustSbomJson
+    Assert-ReleaseArtifact $PythonSbomJson
+    Assert-ReleaseArtifact $ReleaseProvenanceJson
 }
 
 $Staged = Get-Item $InstallerOutput
