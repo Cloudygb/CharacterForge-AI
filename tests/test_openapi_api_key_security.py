@@ -16,21 +16,27 @@ def iter_operations(spec: dict):
                 yield operation
 
 
-def test_openapi_defines_x_api_key_security_scheme() -> None:
+def test_openapi_defines_bearer_identity_and_x_api_key_metering_schemes() -> None:
     spec = load_openapi()
 
     security_schemes = spec["components"]["securitySchemes"]
-    assert security_schemes["ApiKeyAuth"] == {
+    assert security_schemes["BearerAuth"] == {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "JWT",
+        "description": "Cognito/OIDC JWT bearer token used for caller identity and authorization.",
+    }
+    assert security_schemes["ApiKeyMetering"] == {
         "type": "apiKey",
         "in": "header",
         "name": "x-api-key",
-        "description": "API Gateway API key for deployed CharacterForge API requests.",
+        "description": "Optional API Gateway API key for usage-plan metering, throttling, and quotas only; not caller identity or authorization.",
     }
 
 
-def test_openapi_requires_api_key_for_all_documented_operations() -> None:
+def test_openapi_requires_bearer_auth_for_all_documented_operations() -> None:
     spec = load_openapi()
 
-    assert spec["security"] == [{"ApiKeyAuth": []}]
+    assert spec["security"] == [{"BearerAuth": []}]
     for operation in iter_operations(spec):
-        assert operation.get("security", spec["security"]) == [{"ApiKeyAuth": []}]
+        assert operation.get("security", spec["security"]) == [{"BearerAuth": []}]

@@ -16,11 +16,17 @@ def _pending_gate(gate: str) -> str:
 def test_auth_required_for_production_api_routes() -> None:
     """auth required: production API routes must reject unauthenticated calls."""
     authorization_tests = (ROOT / "tests" / "test_authorization.py").read_text(encoding="utf-8")
+    authorizer_tests = (ROOT / "tests" / "test_api_authorizer_infrastructure.py").read_text(
+        encoding="utf-8"
+    )
 
     assert "test_unauthenticated_production_requests_are_rejected" in authorization_tests
     assert "test_invalid_bearer_tokens_are_rejected" in authorization_tests
     assert "test_read_only_tokens_cannot_write_characters" in authorization_tests
     assert "Audit gate pending remediation: production authorization enforcement" in authorization_tests
+    assert "test_sam_template_configures_cognito_authorizer_and_keeps_api_key_metering_only" in authorizer_tests
+    assert "test_openapi_documents_bearer_jwt_auth_as_identity_and_api_key_as_metering_only" in authorizer_tests
+    assert "Cognito/OIDC JWT bearer token" in authorizer_tests
 
 
 def test_object_auth_prevents_cross_character_or_session_access() -> None:

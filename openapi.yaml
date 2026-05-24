@@ -9,9 +9,9 @@ info:
     validated machine-readable game actions, and preserving session history.
 
     The implemented MVP is exposed through AWS Lambda and API Gateway. Deployed
-    routes require an API Gateway API key passed in the `x-api-key` header.
-    API keys provide basic usage control, throttling, and quota enforcement; they
-    are not user identity or fine-grained authorization.
+    routes require Cognito/OIDC JWT bearer tokens in the `Authorization` header
+    for caller identity and authorization. API keys are optional usage-plan metering only
+    for throttling and quotas; they are not caller identity or fine-grained authorization.
   license:
     name: PolyForm Noncommercial License 1.0.0
 servers:
@@ -37,7 +37,7 @@ tags:
   - name: Sessions
     description: Read and clear saved chat session history.
 security:
-  - ApiKeyAuth: []
+  - BearerAuth: []
 paths:
   /characters:
     post:
@@ -342,11 +342,16 @@ paths:
           $ref: '#/components/responses/InternalServerError'
 components:
   securitySchemes:
-    ApiKeyAuth:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Cognito/OIDC JWT bearer token used for caller identity and authorization.
+    ApiKeyMetering:
       type: apiKey
       in: header
       name: x-api-key
-      description: API Gateway API key for deployed CharacterForge API requests.
+      description: Optional API Gateway API key for usage-plan metering, throttling, and quotas only; not caller identity or authorization.
   parameters:
     CharacterId:
       name: character_id

@@ -259,6 +259,28 @@ def test_step_16_evidence_records_authorization_regression_tests() -> None:
     assert "No secrets" in content
 
 
+def test_step_17_evidence_records_jwt_authorizer_infrastructure() -> None:
+    assert LEDGER_PATH.exists(), f"Missing audit remediation ledger at {LEDGER_PATH.relative_to(REPO_ROOT)}"
+    content = LEDGER_PATH.read_text(encoding="utf-8")
+
+    assert "## Step 17 JWT Authorizer Infrastructure" in content
+    assert "CF-AUDIT-1.1" in content
+    assert "infra/template.yaml" in content
+    assert "openapi.yaml" in content
+    assert "AuthorizationMode" in content
+    assert "local development only" in content
+    assert "CognitoUserPoolArn" in content
+    assert "JwtIssuer" in content
+    assert "JwtAudience" in content
+    assert "BearerAuth" in content
+    assert "API keys" in content
+    assert "metering only" in content
+    assert "pytest tests/test_api_authorizer_infrastructure.py -q" in content
+    assert "SAM/CloudFormation validation" in content
+    assert "OpenAPI validation" in content
+    assert "No secrets" in content
+
+
 def test_audit_remediation_ledger_does_not_commit_source_audit_or_secrets() -> None:
     assert LEDGER_PATH.exists(), f"Missing audit remediation ledger at {LEDGER_PATH.relative_to(REPO_ROOT)}"
     content = LEDGER_PATH.read_text(encoding="utf-8")

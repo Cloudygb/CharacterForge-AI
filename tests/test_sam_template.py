@@ -16,6 +16,8 @@ def _construct_intrinsic(loader: CloudFormationLoader, node: yaml.Node) -> dict[
     intrinsic_name = {
         "Ref": "Ref",
         "Sub": "Fn::Sub",
+        "Equals": "Fn::Equals",
+        "If": "Fn::If",
     }.get(tag_name, tag_name)
 
     if isinstance(node, yaml.ScalarNode):
@@ -99,6 +101,7 @@ def test_sam_template_defines_api_key_usage_plan_and_safe_output() -> None:
     assert api_key["Type"] == "AWS::ApiGateway::ApiKey"
     assert api_key["Properties"]["Enabled"] is True
     assert api_key["Properties"]["Name"] == {"Fn::Sub": "CharacterForge-${EnvironmentName}-api-key"}
+    assert "metering" in api_key["Properties"]["Description"].lower()
 
     usage_plan = resources["CharacterForgeUsagePlan"]
     assert usage_plan["Type"] == "AWS::ApiGateway::UsagePlan"

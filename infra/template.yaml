@@ -30,6 +30,34 @@ Parameters:
     MaxValue: 100
     Description: Maximum number of recent session messages to load for prompt context.
 
+  AuthorizationMode:
+    Type: String
+    Default: cognito
+    AllowedValues:
+      - cognito
+      - local
+    Description: >
+      Select cognito for deployed environments that validate bearer tokens at the edge.
+      Select local for local development only; local mode is not for deployed environments.
+
+  CognitoUserPoolArn:
+    Type: String
+    Default: ''
+    Description: Cognito user pool ARN used by the API Gateway JWT authorizer when AuthorizationMode is cognito.
+
+  JwtIssuer:
+    Type: String
+    Default: ''
+    Description: Expected OIDC/Cognito issuer URL recorded for JWT-authorizer configuration and release evidence.
+
+  JwtAudience:
+    Type: String
+    Default: ''
+    Description: Expected JWT audience or Cognito app client ID recorded for JWT-authorizer configuration and release evidence.
+
+Conditions:
+  UseCognitoAuthorizer: !Equals [!Ref AuthorizationMode, cognito]
+
 Globals:
   Function:
     Runtime: python3.12
@@ -64,6 +92,13 @@ Resources:
         AllowMethods: "'GET,POST,PUT,DELETE,OPTIONS'"
         AllowHeaders: "'Content-Type,Authorization,x-api-key'"
         AllowOrigin: "'*'"
+      Auth:
+        DefaultAuthorizer: CharacterForgeJwtAuthorizer
+        Authorizers:
+          CharacterForgeJwtAuthorizer:
+            UserPoolArn: !Ref CognitoUserPoolArn
+            Identity:
+              Header: Authorization
 
   CharacterForgeFunction:
     Type: AWS::Serverless::Function
@@ -78,6 +113,7 @@ Resources:
           CHARACTERFORGE_BEDROCK_MODEL_ID: !Ref BedrockModelId
           CHARACTERFORGE_BEDROCK_REGION: !Ref BedrockRegion
           CHARACTERFORGE_RECENT_HISTORY_LIMIT: !Ref RecentHistoryLimit
+          CHARACTERFORGE_AUTH_LOCAL_DEV_MODE: !If [UseCognitoAuthorizer, 'false', 'true']
       Policies:
         # CRUD access is scoped to the two DynamoDB tables owned by this stack.
         - DynamoDBCrudPolicy:
@@ -165,14 +201,14 @@ Resources:
     Type: AWS::ApiGateway::ApiKey
     Properties:
       Name: !Sub CharacterForge-${EnvironmentName}-api-key
-      Description: API key for deployed CharacterForge API requests.
+      Description: API key for optional usage-plan metering, throttling, and quotas only; not caller identity.
       Enabled: true
 
   CharacterForgeUsagePlan:
     Type: AWS::ApiGateway::UsagePlan
     Properties:
       UsagePlanName: !Sub CharacterForge-${EnvironmentName}-usage-plan
-      Description: Usage plan for deployed CharacterForge API key access.
+      Description: Usage plan for optional deployed API-key metering, throttling, and quotas.
       ApiStages:
         - ApiId: !Ref CharacterForgeApi
           Stage: !Ref EnvironmentName
