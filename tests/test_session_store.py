@@ -1,6 +1,17 @@
 from characterforge.models.action import CharacterAction
 from characterforge.models.chat import MessageRecord
+from characterforge.security.principal import Principal
 from characterforge.services.session_store import InMemorySessionStore, SessionStore
+
+
+def sample_principal(*, user_id: str = "user_player_1") -> Principal:
+    return Principal(
+        tenant_id="tenant_skyforge",
+        game_id="game_aesail",
+        environment_id="env_dev",
+        user_id=user_id,
+        scopes=frozenset({"sessions:read", "sessions:write"}),
+    )
 
 
 def test_in_memory_session_store_implements_session_store_interface() -> None:
@@ -35,6 +46,47 @@ def test_in_memory_session_store_saves_player_messages() -> None:
     assert message.content == "Can I help with the ruins?"
     assert message.actions == []
     assert message.emotion is None
+
+
+def test_in_memory_session_store_persists_ownership_and_audit_metadata() -> None:
+    store = InMemorySessionStore()
+
+    message = store.save_player_message(
+        "session_001",
+        "char_mira",
+        "player_42",
+        "Can I help with the ruins?",
+        principal=sample_principal(),
+    )
+
+    assert message.tenant_id == "tenant_skyforge"
+    assert message.game_id == "game_aesail"
+    assert message.environment_id == "env_dev"
+    assert message.created_by == "user_player_1"
+    assert message.updated_by == "user_player_1"
+    assert message.updated_at == message.created_at
+    assert store.get_recent_history("session_001") == [message]
+
+
+def test_message_record_backfills_legacy_dev_ownership_metadata() -> None:
+    migrated = MessageRecord.model_validate(
+        {
+            "message_id": "msg_legacy",
+            "session_id": "session_legacy",
+            "character_id": "char_mira",
+            "player_id": "player_42",
+            "role": "player",
+            "content": "Legacy message",
+            "created_at": "2026-05-24T12:00:00Z",
+        }
+    )
+
+    assert migrated.tenant_id == "legacy-local-tenant"
+    assert migrated.game_id == "legacy-local-game"
+    assert migrated.environment_id == "legacy-local"
+    assert migrated.created_by == "legacy-dev-data"
+    assert migrated.updated_by == "legacy-dev-data"
+    assert migrated.updated_at == migrated.created_at
 
 
 def test_in_memory_session_store_saves_character_messages() -> None:

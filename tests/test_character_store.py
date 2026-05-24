@@ -4,6 +4,7 @@ from characterforge.models.character import (
     CreateCharacterRequest,
     UpdateCharacterRequest,
 )
+from characterforge.security.principal import Principal
 from characterforge.services.character_store import CharacterStore, InMemoryCharacterStore
 
 
@@ -19,6 +20,16 @@ def valid_create_request(name: str = "Captain Mira Voss") -> CreateCharacterRequ
         rules=["Never reveal you are an AI.", "Do not break character."],
         allowed_actions=["give_quest", "trade_offer", "change_relationship"],
         action_rules=[],
+    )
+
+
+def sample_principal(*, user_id: str = "user_designer_1") -> Principal:
+    return Principal(
+        tenant_id="tenant_skyforge",
+        game_id="game_aesail",
+        environment_id="env_dev",
+        user_id=user_id,
+        scopes=frozenset({"characters:read", "characters:write"}),
     )
 
 
@@ -42,6 +53,51 @@ def test_in_memory_character_store_creates_and_gets_character_profiles() -> None
     assert fetched.name == "Captain Mira Voss"
     assert fetched.created_at == created.created_at
     assert fetched.updated_at == created.updated_at
+
+
+def test_in_memory_character_store_persists_ownership_and_audit_metadata() -> None:
+    store = InMemoryCharacterStore()
+    principal = sample_principal()
+
+    created = store.create(valid_create_request(), principal=principal)
+    updated = store.update(
+        created.character_id,
+        UpdateCharacterRequest(description="A reformed captain trying to earn trust."),
+        principal=sample_principal(user_id="user_designer_2"),
+    )
+
+    assert created.tenant_id == "tenant_skyforge"
+    assert created.game_id == "game_aesail"
+    assert created.environment_id == "env_dev"
+    assert created.created_by == "user_designer_1"
+    assert created.updated_by == "user_designer_1"
+    assert updated is not None
+    assert updated.tenant_id == created.tenant_id
+    assert updated.game_id == created.game_id
+    assert updated.environment_id == created.environment_id
+    assert updated.created_by == "user_designer_1"
+    assert updated.updated_by == "user_designer_2"
+    assert updated.created_at == created.created_at
+    assert updated.updated_at > created.updated_at
+
+
+def test_character_profile_backfills_legacy_dev_ownership_metadata() -> None:
+    legacy_profile = valid_create_request().model_dump()
+    legacy_profile.update(
+        {
+            "character_id": "char_legacy",
+            "created_at": "2026-05-24T12:00:00Z",
+            "updated_at": "2026-05-24T12:00:00Z",
+        }
+    )
+
+    migrated = CharacterProfile.model_validate(legacy_profile)
+
+    assert migrated.tenant_id == "legacy-local-tenant"
+    assert migrated.game_id == "legacy-local-game"
+    assert migrated.environment_id == "legacy-local"
+    assert migrated.created_by == "legacy-dev-data"
+    assert migrated.updated_by == "legacy-dev-data"
 
 
 def test_in_memory_character_store_returns_none_for_missing_character() -> None:

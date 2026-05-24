@@ -301,6 +301,23 @@ def test_step_18_evidence_records_request_principal_extraction() -> None:
     assert "No secrets" in content
 
 
+def test_step_19_evidence_records_ownership_metadata_models() -> None:
+    assert LEDGER_PATH.exists(), f"Missing audit remediation ledger at {LEDGER_PATH.relative_to(REPO_ROOT)}"
+    content = LEDGER_PATH.read_text(encoding="utf-8")
+
+    assert "## Step 19 Ownership Metadata for Records" in content
+    assert "CF-AUDIT-1.2" in content
+    assert "tenant_id" in content
+    assert "game_id" in content
+    assert "environment_id" in content
+    assert "created_by" in content
+    assert "updated_by" in content
+    assert "audit timestamps" in content
+    assert "legacy dev data" in content
+    assert "pytest tests/test_character_store.py tests/test_session_store.py -q" in content
+    assert "No secrets" in content
+
+
 def test_audit_remediation_ledger_does_not_commit_source_audit_or_secrets() -> None:
     assert LEDGER_PATH.exists(), f"Missing audit remediation ledger at {LEDGER_PATH.relative_to(REPO_ROOT)}"
     content = LEDGER_PATH.read_text(encoding="utf-8")

@@ -36,13 +36,24 @@ def test_auth_required_for_production_api_routes() -> None:
 def test_object_auth_prevents_cross_character_or_session_access() -> None:
     """object auth: callers must not access another principal's character/session data."""
     authorization_tests = (ROOT / "tests" / "test_authorization.py").read_text(encoding="utf-8")
+    character_store_tests = (ROOT / "tests" / "test_character_store.py").read_text(encoding="utf-8")
+    session_store_tests = (ROOT / "tests" / "test_session_store.py").read_text(encoding="utf-8")
+    character_model = (ROOT / "src" / "characterforge" / "models" / "character.py").read_text(encoding="utf-8")
+    chat_model = (ROOT / "src" / "characterforge" / "models" / "chat.py").read_text(encoding="utf-8")
 
     assert "test_one_tenant_cannot_read_another_tenants_character" in authorization_tests
     assert "test_one_tenant_cannot_read_another_tenants_session_history" in authorization_tests
     assert "test_service_tokens_are_scoped_by_game_and_environment_for_runtime_writes" in authorization_tests
-    assert "tenant_id" in authorization_tests
-    assert "game_id" in authorization_tests
-    assert "environment_id" in authorization_tests
+    assert "test_in_memory_character_store_persists_ownership_and_audit_metadata" in character_store_tests
+    assert "test_in_memory_session_store_persists_ownership_and_audit_metadata" in session_store_tests
+    assert "test_character_profile_backfills_legacy_dev_ownership_metadata" in character_store_tests
+    assert "test_message_record_backfills_legacy_dev_ownership_metadata" in session_store_tests
+    for source in (character_model, chat_model):
+        assert "tenant_id" in source
+        assert "game_id" in source
+        assert "environment_id" in source
+        assert "created_by" in source
+        assert "updated_by" in source
 
 
 @pytest.mark.xfail(reason=_pending_gate("no wildcard production CORS"))

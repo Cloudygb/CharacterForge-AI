@@ -16,13 +16,12 @@ _JSON_HEADERS = {"Content-Type": "application/json"}
 
 def create_character(payload: JsonDict, store: CharacterStore, *, principal: Principal | None = None) -> JsonDict:
     """Create a character profile from an API payload."""
-    del principal
     try:
         request = CreateCharacterRequest.model_validate(payload)
     except ValidationError as error:
         return _validation_error_response(error)
 
-    profile = store.create(request)
+    profile = store.create(request, principal=principal)
     return _json_response(201, profile.model_dump(mode="json"))
 
 
@@ -50,13 +49,12 @@ def update_character(
     principal: Principal | None = None,
 ) -> JsonDict:
     """Update an existing character profile from an API payload."""
-    del principal
     try:
         request = UpdateCharacterRequest.model_validate(payload)
     except ValidationError as error:
         return _validation_error_response(error)
 
-    profile = store.update(character_id, request)
+    profile = store.update(character_id, request, principal=principal)
     if profile is None:
         return _not_found_response(character_id)
     return _json_response(200, profile.model_dump(mode="json"))

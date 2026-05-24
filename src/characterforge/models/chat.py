@@ -4,6 +4,7 @@ from typing import Any, Literal, Self
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from characterforge.models.action import CharacterAction
+from characterforge.models.ownership import backfill_legacy_ownership, validate_owned_string
 
 MessageRole = Literal["system", "player", "assistant"]
 
@@ -111,9 +112,15 @@ class MessageRecord(BaseModel):
     session_id: str = Field(..., description="Conversation or gameplay session identifier.")
     character_id: str = Field(..., description="Character associated with the message.")
     player_id: str = Field(..., description="Player associated with the message.")
+    tenant_id: str = Field(..., description="Tenant that owns this session record.")
+    game_id: str = Field(..., description="Game/project that owns this session record.")
+    environment_id: str = Field(..., description="Deployment environment for this session record.")
+    created_by: str = Field(..., description="Principal subject that created this session record.")
+    updated_by: str = Field(..., description="Principal subject that last updated this session record.")
     role: MessageRole = Field(..., description="Who produced the message.")
     content: str = Field(..., description="Message text stored for session memory.")
     created_at: datetime = Field(..., description="When this message was created.")
+    updated_at: datetime = Field(..., description="When this message was last updated.")
     actions: list[CharacterAction] = Field(
         default_factory=list,
         description="Actions emitted with this message, if any.",
@@ -124,13 +131,26 @@ class MessageRecord(BaseModel):
         description="Optional LLM token accounting for assistant messages.",
     )
 
-    @field_validator("message_id", "session_id", "character_id", "player_id", "content")
+    @model_validator(mode="before")
+    @classmethod
+    def backfill_legacy_dev_ownership(cls, data: Any) -> Any:
+        return backfill_legacy_ownership(data, include_updated_at=True)
+
+    @field_validator(
+        "message_id",
+        "session_id",
+        "character_id",
+        "player_id",
+        "tenant_id",
+        "game_id",
+        "environment_id",
+        "created_by",
+        "updated_by",
+        "content",
+    )
     @classmethod
     def strip_required_string(cls, value: str) -> str:
-        value = value.strip()
-        if not value:
-            raise ValueError("field cannot be blank")
-        return value
+        return validate_owned_string(value)
 
     @field_validator("emotion")
     @classmethod

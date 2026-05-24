@@ -7,6 +7,13 @@ from uuid import uuid4
 
 from characterforge.models.action import CharacterAction
 from characterforge.models.chat import MessageRecord
+from characterforge.models.ownership import (
+    LEGACY_ACTOR_ID,
+    LEGACY_ENVIRONMENT_ID,
+    LEGACY_GAME_ID,
+    LEGACY_TENANT_ID,
+)
+from characterforge.security.principal import Principal
 
 
 class SessionStore(Protocol):
@@ -18,6 +25,8 @@ class SessionStore(Protocol):
         character_id: str,
         player_id: str,
         content: str,
+        *,
+        principal: Principal | None = None,
     ) -> MessageRecord:
         """Persist a player-authored message in a chat session."""
 
@@ -30,6 +39,7 @@ class SessionStore(Protocol):
         *,
         emotion: str | None = None,
         actions: Sequence[CharacterAction] | None = None,
+        principal: Principal | None = None,
     ) -> MessageRecord:
         """Persist a character-authored assistant message in a chat session."""
 
@@ -57,6 +67,8 @@ class InMemorySessionStore:
         character_id: str,
         player_id: str,
         content: str,
+        *,
+        principal: Principal | None = None,
     ) -> MessageRecord:
         return self._save_message(
             session_id=session_id,
@@ -64,6 +76,7 @@ class InMemorySessionStore:
             player_id=player_id,
             role="player",
             content=content,
+            principal=principal,
         )
 
     def save_character_message(
@@ -75,6 +88,7 @@ class InMemorySessionStore:
         *,
         emotion: str | None = None,
         actions: Sequence[CharacterAction] | None = None,
+        principal: Principal | None = None,
     ) -> MessageRecord:
         return self._save_message(
             session_id=session_id,
@@ -84,6 +98,7 @@ class InMemorySessionStore:
             content=content,
             emotion=emotion,
             actions=list(actions or []),
+            principal=principal,
         )
 
     def get_recent_history(
@@ -111,7 +126,9 @@ class InMemorySessionStore:
         content: str,
         emotion: str | None = None,
         actions: list[CharacterAction] | None = None,
+        principal: Principal | None = None,
     ) -> MessageRecord:
+        created_at = _utc_now()
         message = MessageRecord(
             message_id=f"msg_{uuid4().hex}",
             session_id=session_id,
@@ -119,9 +136,11 @@ class InMemorySessionStore:
             player_id=player_id,
             role=role,
             content=content,
-            created_at=_utc_now(),
+            created_at=created_at,
+            updated_at=created_at,
             actions=actions or [],
             emotion=emotion,
+            **_ownership_metadata(principal),
         )
         self._messages_by_session.setdefault(session_id, []).append(message)
         return _copy_message(message)
@@ -129,6 +148,25 @@ class InMemorySessionStore:
 
 def _utc_now() -> datetime:
     return datetime.now(UTC)
+
+
+def _ownership_metadata(principal: Principal | None) -> dict[str, str]:
+    if principal is None:
+        return {
+            "tenant_id": LEGACY_TENANT_ID,
+            "game_id": LEGACY_GAME_ID,
+            "environment_id": LEGACY_ENVIRONMENT_ID,
+            "created_by": LEGACY_ACTOR_ID,
+            "updated_by": LEGACY_ACTOR_ID,
+        }
+    actor = principal.subject
+    return {
+        "tenant_id": principal.tenant_id,
+        "game_id": principal.game_id,
+        "environment_id": principal.environment_id,
+        "created_by": actor,
+        "updated_by": actor,
+    }
 
 
 def _copy_message(message: MessageRecord) -> MessageRecord:

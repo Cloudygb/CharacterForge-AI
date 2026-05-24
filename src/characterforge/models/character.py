@@ -1,9 +1,10 @@
 from datetime import datetime
-from typing import Self
+from typing import Any, Self
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from characterforge.models.action import ActionPayloadTemplate, CharacterActionRule
+from characterforge.models.ownership import backfill_legacy_ownership, validate_owned_string
 
 
 class CharacterBase(BaseModel):
@@ -120,16 +121,23 @@ class CharacterProfile(CharacterBase):
     """Complete persisted character profile."""
 
     character_id: str = Field(..., description="Stable unique character identifier.")
+    tenant_id: str = Field(..., description="Tenant that owns this character.")
+    game_id: str = Field(..., description="Game/project that owns this character.")
+    environment_id: str = Field(..., description="Deployment environment for this character.")
+    created_by: str = Field(..., description="Principal subject that created this character.")
+    updated_by: str = Field(..., description="Principal subject that last updated this character.")
     created_at: datetime = Field(..., description="When the character was created.")
     updated_at: datetime = Field(..., description="When the character was last updated.")
 
-    @field_validator("character_id")
+    @model_validator(mode="before")
+    @classmethod
+    def backfill_legacy_dev_ownership(cls, data: Any) -> Any:
+        return backfill_legacy_ownership(data)
+
+    @field_validator("character_id", "tenant_id", "game_id", "environment_id", "created_by", "updated_by")
     @classmethod
     def strip_character_id(cls, value: str) -> str:
-        value = value.strip()
-        if not value:
-            raise ValueError("character_id cannot be blank")
-        return value
+        return validate_owned_string(value)
 
 
 class CharacterSummary(BaseModel):
@@ -138,15 +146,31 @@ class CharacterSummary(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     character_id: str
+    tenant_id: str
+    game_id: str
+    environment_id: str
+    created_by: str
+    updated_by: str
     name: str
     description: str
     created_at: datetime
     updated_at: datetime
 
-    @field_validator("character_id", "name", "description")
+    @model_validator(mode="before")
+    @classmethod
+    def backfill_legacy_dev_ownership(cls, data: Any) -> Any:
+        return backfill_legacy_ownership(data)
+
+    @field_validator(
+        "character_id",
+        "tenant_id",
+        "game_id",
+        "environment_id",
+        "created_by",
+        "updated_by",
+        "name",
+        "description",
+    )
     @classmethod
     def strip_summary_string(cls, value: str) -> str:
-        value = value.strip()
-        if not value:
-            raise ValueError("field cannot be blank")
-        return value
+        return validate_owned_string(value)

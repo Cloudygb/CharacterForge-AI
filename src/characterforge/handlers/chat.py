@@ -35,7 +35,6 @@ def chat_with_character(
     principal: Principal | None = None,
 ) -> JsonDict:
     """Run one character chat turn and persist the resulting conversation."""
-    del principal
     try:
         chat_request = ChatRequest.model_validate(payload)
     except ValidationError as error:
@@ -62,6 +61,7 @@ def chat_with_character(
         chat_request.character_id,
         chat_request.player_id,
         chat_request.message,
+        principal=principal,
     )
     session_store.save_character_message(
         chat_request.session_id,
@@ -70,6 +70,7 @@ def chat_with_character(
         chat_response.message,
         emotion=chat_response.emotion,
         actions=chat_response.actions,
+        principal=principal,
     )
 
     return _json_response(200, chat_response.model_dump(mode="json"))

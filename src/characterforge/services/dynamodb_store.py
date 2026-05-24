@@ -17,6 +17,13 @@ from characterforge.models.character import (
     UpdateCharacterRequest,
 )
 from characterforge.models.chat import MessageRecord
+from characterforge.models.ownership import (
+    LEGACY_ACTOR_ID,
+    LEGACY_ENVIRONMENT_ID,
+    LEGACY_GAME_ID,
+    LEGACY_TENANT_ID,
+)
+from characterforge.security.principal import Principal
 
 
 class DynamoDBCharacterStore:
@@ -32,12 +39,13 @@ class DynamoDBCharacterStore:
         dynamodb = dynamodb_resource or boto3.resource("dynamodb", region_name=region_name)
         self._table = dynamodb.Table(table_name)
 
-    def create(self, request: CreateCharacterRequest) -> CharacterProfile:
+    def create(self, request: CreateCharacterRequest, *, principal: Principal | None = None) -> CharacterProfile:
         now = _utc_now()
         profile = CharacterProfile(
             character_id=f"char_{uuid4().hex}",
             created_at=now,
             updated_at=now,
+            **_ownership_metadata(principal),
             **request.model_dump(),
         )
         self._table.put_item(Item=_to_dynamodb_item(profile))
@@ -62,6 +70,11 @@ class DynamoDBCharacterStore:
         return [
             CharacterSummary(
                 character_id=profile.character_id,
+                tenant_id=profile.tenant_id,
+                game_id=profile.game_id,
+                environment_id=profile.environment_id,
+                created_by=profile.created_by,
+                updated_by=profile.updated_by,
                 name=profile.name,
                 description=profile.description,
                 created_at=profile.created_at,
@@ -74,13 +87,18 @@ class DynamoDBCharacterStore:
         self,
         character_id: str,
         request: UpdateCharacterRequest,
+        *,
+        principal: Principal | None = None,
     ) -> CharacterProfile | None:
         existing = self.get(character_id)
         if existing is None:
             return None
 
         update_data = request.model_dump(exclude_none=True)
-        updated = existing.model_copy(update={**update_data, "updated_at": _utc_now()}, deep=True)
+        updated = existing.model_copy(
+            update={**update_data, "updated_at": _utc_now(), "updated_by": _audit_actor(principal)},
+            deep=True,
+        )
         self._table.put_item(Item=_to_dynamodb_item(updated))
         return updated.model_copy(deep=True)
 
@@ -111,6 +129,8 @@ class DynamoDBSessionStore:
         character_id: str,
         player_id: str,
         content: str,
+        *,
+        principal: Principal | None = None,
     ) -> MessageRecord:
         return self._save_message(
             session_id=session_id,
@@ -118,6 +138,7 @@ class DynamoDBSessionStore:
             player_id=player_id,
             role="player",
             content=content,
+            principal=principal,
         )
 
     def save_character_message(
@@ -129,6 +150,7 @@ class DynamoDBSessionStore:
         *,
         emotion: str | None = None,
         actions: Sequence[CharacterAction] | None = None,
+        principal: Principal | None = None,
     ) -> MessageRecord:
         return self._save_message(
             session_id=session_id,
@@ -138,6 +160,7 @@ class DynamoDBSessionStore:
             content=content,
             emotion=emotion,
             actions=list(actions or []),
+            principal=principal,
         )
 
     def get_recent_history(
@@ -199,6 +222,7 @@ class DynamoDBSessionStore:
         content: str,
         emotion: str | None = None,
         actions: list[CharacterAction] | None = None,
+        principal: Principal | None = None,
     ) -> MessageRecord:
         created_at = _utc_now()
         message_id = f"msg_{uuid4().hex}"
@@ -210,8 +234,10 @@ class DynamoDBSessionStore:
             role=role,
             content=content,
             created_at=created_at,
+            updated_at=created_at,
             actions=actions or [],
             emotion=emotion,
+            **_ownership_metadata(principal),
         )
         item = _to_dynamodb_item(message)
         item["created_at_message_id"] = _message_sort_key(created_at, message_id)
@@ -225,6 +251,29 @@ def _utc_now() -> datetime:
 
 def _message_sort_key(created_at: datetime, message_id: str) -> str:
     return f"{_format_datetime(created_at)}#{message_id}"
+
+
+def _ownership_metadata(principal: Principal | None) -> dict[str, str]:
+    if principal is None:
+        return {
+            "tenant_id": LEGACY_TENANT_ID,
+            "game_id": LEGACY_GAME_ID,
+            "environment_id": LEGACY_ENVIRONMENT_ID,
+            "created_by": LEGACY_ACTOR_ID,
+            "updated_by": LEGACY_ACTOR_ID,
+        }
+    actor = principal.subject
+    return {
+        "tenant_id": principal.tenant_id,
+        "game_id": principal.game_id,
+        "environment_id": principal.environment_id,
+        "created_by": actor,
+        "updated_by": actor,
+    }
+
+
+def _audit_actor(principal: Principal | None) -> str:
+    return principal.subject if principal is not None else LEGACY_ACTOR_ID
 
 
 def _to_dynamodb_item(model: Any) -> dict[str, Any]:

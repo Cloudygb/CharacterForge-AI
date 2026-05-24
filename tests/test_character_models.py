@@ -280,11 +280,16 @@ def test_character_profile_rejects_blank_character_id() -> None:
         )
 
 
-def test_character_summary_contains_listing_fields_only() -> None:
+def test_character_summary_contains_listing_and_ownership_fields() -> None:
     now = datetime(2026, 5, 18, 20, 0, tzinfo=UTC)
 
     summary = CharacterSummary(
         character_id="char_mira_voss",
+        tenant_id="tenant_skyforge",
+        game_id="game_aesail",
+        environment_id="env_dev",
+        created_by="user_designer_1",
+        updated_by="user_designer_2",
         name="Captain Mira Voss",
         description="A rogue airship captain with a dangerous reputation.",
         created_at=now,
@@ -293,6 +298,11 @@ def test_character_summary_contains_listing_fields_only() -> None:
 
     assert summary.model_dump() == {
         "character_id": "char_mira_voss",
+        "tenant_id": "tenant_skyforge",
+        "game_id": "game_aesail",
+        "environment_id": "env_dev",
+        "created_by": "user_designer_1",
+        "updated_by": "user_designer_2",
         "name": "Captain Mira Voss",
         "description": "A rogue airship captain with a dangerous reputation.",
         "created_at": now,
