@@ -141,7 +141,7 @@ def test_best_practice_audit_regression_index_lists_all_major_audit_gates() -> N
     for gate in EXPECTED_AUDIT_GATES:
         assert gate in content
 
-    implemented_gate_count = 11  # CSP non-null; IPC least privilege; installer signing required; updater real-or-disabled; downgrades blocked; prerequisite helper exit-code handling; prerequisite installer metadata pinning; installer scope and format; uninstall data cleanup; supply-chain artifacts; identity model documented
+    implemented_gate_count = 13  # CSP non-null; auth/object authorization regression tests; IPC least privilege; installer signing required; updater real-or-disabled; downgrades blocked; prerequisite helper exit-code handling; prerequisite installer metadata pinning; installer scope and format; uninstall data cleanup; supply-chain artifacts; identity model documented
     pending_or_implemented = content.count("@pytest.mark.xfail") + content.count("@pytest.mark.skip")
     assert pending_or_implemented >= len(EXPECTED_AUDIT_GATES) - implemented_gate_count
     assert "test_installer_release_verification.py" in content
@@ -236,6 +236,26 @@ def test_step_15_evidence_records_production_identity_model() -> None:
     assert "API keys are metering only" in content
     assert "OWASP API1/API2/API5" in content
     assert "pytest tests/test_identity_model_documentation.py -q" in content
+    assert "No secrets" in content
+
+
+def test_step_16_evidence_records_authorization_regression_tests() -> None:
+    assert LEDGER_PATH.exists(), f"Missing audit remediation ledger at {LEDGER_PATH.relative_to(REPO_ROOT)}"
+    content = LEDGER_PATH.read_text(encoding="utf-8")
+
+    assert "## Step 16 Authorization Regression Tests" in content
+    assert "CF-AUDIT-1.1" in content
+    assert "CF-AUDIT-1.2" in content
+    assert "tests/test_authorization.py" in content
+    assert "unauthenticated requests" in content
+    assert "invalid bearer tokens" in content
+    assert "read-only tokens" in content
+    assert "cross-tenant character" in content
+    assert "cross-tenant session" in content
+    assert "service tokens" in content
+    assert "game/environment" in content
+    assert "pytest tests/test_authorization.py -q" in content
+    assert "6 xfailed" in content
     assert "No secrets" in content
 
 
