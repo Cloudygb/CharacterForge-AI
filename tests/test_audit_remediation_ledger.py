@@ -255,7 +255,7 @@ def test_step_16_evidence_records_authorization_regression_tests() -> None:
     assert "service tokens" in content
     assert "game/environment" in content
     assert "pytest tests/test_authorization.py -q" in content
-    assert "4 xfailed" in content
+    assert "2 xfailed" in content
     assert "No secrets" in content
 
 
@@ -315,6 +315,21 @@ def test_step_19_evidence_records_ownership_metadata_models() -> None:
     assert "audit timestamps" in content
     assert "legacy dev data" in content
     assert "pytest tests/test_character_store.py tests/test_session_store.py -q" in content
+    assert "No secrets" in content
+
+
+def test_step_20_evidence_records_character_authorization_enforcement() -> None:
+    assert LEDGER_PATH.exists(), f"Missing audit remediation ledger at {LEDGER_PATH.relative_to(REPO_ROOT)}"
+    content = LEDGER_PATH.read_text(encoding="utf-8")
+
+    assert "## Step 20 Character Authorization Enforcement" in content
+    assert "CF-AUDIT-1.2" in content
+    assert "characters:read" in content
+    assert "characters:write" in content
+    assert "tenant/game/environment" in content
+    assert "403" in content
+    assert "404" in content
+    assert "pytest tests/test_authorization.py tests/test_character_handlers.py -q" in content
     assert "No secrets" in content
 
 

@@ -75,6 +75,20 @@ def reset_app_dependencies(monkeypatch: pytest.MonkeyPatch):
     reset()
 
 
+def _claims_from_bearer_token(token: str | None) -> dict[str, Any] | None:
+    if token is None or not token.startswith("Bearer "):
+        return None
+    parts = token.removeprefix("Bearer ").split(".")
+    if len(parts) != 3:
+        return None
+    try:
+        payload = parts[1] + "=" * (-len(parts[1]) % 4)
+        claims = json.loads(base64.urlsafe_b64decode(payload.encode("ascii")))
+    except (ValueError, TypeError):
+        return None
+    return claims if isinstance(claims, dict) else None
+
+
 def api_event(
     method: str,
     path: str,
@@ -85,10 +99,13 @@ def api_event(
     token: str | None = None,
 ) -> dict[str, Any]:
     headers = {"Authorization": token} if token is not None else {}
+    request_context: dict[str, Any] = {"http": {"method": method, "path": path}}
+    if claims := _claims_from_bearer_token(token):
+        request_context["authorizer"] = {"jwt": {"claims": claims, "scopes": claims.get("scopes", [])}}
     return {
         "version": "2.0",
         "rawPath": path,
-        "requestContext": {"http": {"method": method, "path": path}},
+        "requestContext": request_context,
         "pathParameters": dict(path_parameters or {}),
         "queryStringParameters": dict(query or {}),
         "headers": headers,
@@ -113,6 +130,7 @@ def character_payload(name: str = "Captain Mira Voss") -> dict[str, Any]:
         "goals": ["protect her crew", "find the lost sky map"],
         "world_context": "A floating archipelago where skyships connect isolated city-states.",
         "rules": ["Never reveal you are an AI.", "Do not break character."],
+        "allowed_actions": ["give_quest"],
     }
 
 
@@ -170,7 +188,6 @@ def test_invalid_bearer_tokens_are_rejected() -> None:
     assert response_body(response)["error"]["code"] == "unauthorized"
 
 
-@pytest.mark.xfail(reason=AUTH_PENDING_REASON, strict=True)
 def test_read_only_tokens_cannot_write_characters() -> None:
     from characterforge import app
 
@@ -185,7 +202,6 @@ def test_read_only_tokens_cannot_write_characters() -> None:
     assert response_body(response)["error"]["code"] == "forbidden"
 
 
-@pytest.mark.xfail(reason=AUTH_PENDING_REASON, strict=True)
 def test_one_tenant_cannot_read_another_tenants_character() -> None:
     from characterforge import app
 

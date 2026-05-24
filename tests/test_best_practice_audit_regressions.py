@@ -38,6 +38,7 @@ def test_object_auth_prevents_cross_character_or_session_access() -> None:
     authorization_tests = (ROOT / "tests" / "test_authorization.py").read_text(encoding="utf-8")
     character_store_tests = (ROOT / "tests" / "test_character_store.py").read_text(encoding="utf-8")
     session_store_tests = (ROOT / "tests" / "test_session_store.py").read_text(encoding="utf-8")
+    character_handlers = (ROOT / "tests" / "test_character_handlers.py").read_text(encoding="utf-8")
     character_model = (ROOT / "src" / "characterforge" / "models" / "character.py").read_text(encoding="utf-8")
     chat_model = (ROOT / "src" / "characterforge" / "models" / "chat.py").read_text(encoding="utf-8")
 

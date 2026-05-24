@@ -8,6 +8,7 @@ from characterforge.handlers.characters import (
     list_characters,
     update_character,
 )
+from characterforge.security.principal import Principal
 from characterforge.services.character_store import InMemoryCharacterStore
 
 
@@ -24,6 +25,23 @@ def valid_character_payload(name: str = "Captain Mira Voss") -> dict[str, Any]:
         "allowed_actions": ["give_quest", "trade_offer", "change_relationship"],
         "action_rules": [],
     }
+
+
+def principal(
+    *,
+    tenant_id: str = "tenant-alpha",
+    game_id: str = "game-skyships",
+    environment_id: str = "prod",
+    scopes: set[str] | None = None,
+    user_id: str = "user-designer",
+) -> Principal:
+    return Principal(
+        tenant_id=tenant_id,
+        game_id=game_id,
+        environment_id=environment_id,
+        user_id=user_id,
+        scopes=frozenset(scopes or {"characters:read", "characters:write"}),
+    )
 
 
 def response_body(response: dict[str, Any]) -> Any:
@@ -154,3 +172,88 @@ def test_update_character_returns_validation_error_for_invalid_payload() -> None
     assert response["statusCode"] == 400
     assert body["error"]["code"] == "validation_error"
     assert "at least one field" in body["error"]["message"]
+
+
+def test_create_character_requires_write_scope_when_principal_is_present() -> None:
+    store = InMemoryCharacterStore()
+
+    response = create_character(
+        valid_character_payload(),
+        store,
+        principal=principal(scopes={"characters:read"}),
+    )
+    body = response_body(response)
+
+    assert response["statusCode"] == 403
+    assert body["error"]["code"] == "forbidden"
+    assert store.list() == []
+
+
+def test_list_characters_requires_read_scope_and_filters_to_owned_characters() -> None:
+    store = InMemoryCharacterStore()
+    alpha = principal(tenant_id="tenant-alpha")
+    beta = principal(tenant_id="tenant-beta", user_id="user-beta")
+    alpha_character = response_body(create_character(valid_character_payload(name="Alpha Captain"), store, principal=alpha))
+    create_character(valid_character_payload(name="Beta Captain"), store, principal=beta)
+
+    forbidden = list_characters(store, principal=principal(scopes={"characters:write"}))
+    response = list_characters(store, principal=alpha)
+    body = response_body(response)
+
+    assert forbidden["statusCode"] == 403
+    assert response["statusCode"] == 200
+    assert [item["character_id"] for item in body["characters"]] == [alpha_character["character_id"]]
+    assert [item["tenant_id"] for item in body["characters"]] == ["tenant-alpha"]
+
+
+def test_get_character_hides_cross_tenant_character_existence() -> None:
+    store = InMemoryCharacterStore()
+    alpha = principal(tenant_id="tenant-alpha")
+    beta = principal(tenant_id="tenant-beta", user_id="user-beta")
+    alpha_character = response_body(create_character(valid_character_payload(), store, principal=alpha))
+
+    response = get_character(alpha_character["character_id"], store, principal=beta)
+    body = response_body(response)
+
+    assert response["statusCode"] == 404
+    assert body["error"]["code"] == "not_found"
+
+
+def test_update_character_requires_write_scope_and_matching_ownership() -> None:
+    store = InMemoryCharacterStore()
+    alpha = principal(tenant_id="tenant-alpha")
+    beta = principal(tenant_id="tenant-beta", user_id="user-beta")
+    alpha_character = response_body(create_character(valid_character_payload(), store, principal=alpha))
+
+    read_only = update_character(
+        alpha_character["character_id"],
+        {"description": "Read-only callers cannot update."},
+        store,
+        principal=principal(scopes={"characters:read"}),
+    )
+    cross_tenant = update_character(
+        alpha_character["character_id"],
+        {"description": "Cross-tenant callers cannot update."},
+        store,
+        principal=beta,
+    )
+    stored = store.get(alpha_character["character_id"])
+
+    assert read_only["statusCode"] == 403
+    assert cross_tenant["statusCode"] == 404
+    assert stored is not None
+    assert stored.description == "A rogue airship captain with a dangerous reputation."
+
+
+def test_delete_character_requires_write_scope_and_matching_ownership() -> None:
+    store = InMemoryCharacterStore()
+    alpha = principal(tenant_id="tenant-alpha")
+    beta = principal(tenant_id="tenant-beta", user_id="user-beta")
+    alpha_character = response_body(create_character(valid_character_payload(), store, principal=alpha))
+
+    read_only = delete_character(alpha_character["character_id"], store, principal=principal(scopes={"characters:read"}))
+    cross_tenant = delete_character(alpha_character["character_id"], store, principal=beta)
+
+    assert read_only["statusCode"] == 403
+    assert cross_tenant["statusCode"] == 404
+    assert store.get(alpha_character["character_id"]) is not None
