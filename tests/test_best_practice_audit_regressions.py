@@ -19,6 +19,7 @@ def test_auth_required_for_production_api_routes() -> None:
     authorizer_tests = (ROOT / "tests" / "test_api_authorizer_infrastructure.py").read_text(
         encoding="utf-8"
     )
+    principal_tests = (ROOT / "tests" / "test_principal_extraction.py").read_text(encoding="utf-8")
 
     assert "test_unauthenticated_production_requests_are_rejected" in authorization_tests
     assert "test_invalid_bearer_tokens_are_rejected" in authorization_tests
@@ -27,6 +28,9 @@ def test_auth_required_for_production_api_routes() -> None:
     assert "test_sam_template_configures_cognito_authorizer_and_keeps_api_key_metering_only" in authorizer_tests
     assert "test_openapi_documents_bearer_jwt_auth_as_identity_and_api_key_as_metering_only" in authorizer_tests
     assert "Cognito/OIDC JWT bearer token" in authorizer_tests
+    assert "test_principal_from_event_normalizes_api_gateway_jwt_claims" in principal_tests
+    assert "test_lambda_handler_rejects_missing_principal_claims_in_production" in principal_tests
+    assert "test_lambda_handler_makes_typed_principal_available_to_route_handlers" in principal_tests
 
 
 def test_object_auth_prevents_cross_character_or_session_access() -> None:

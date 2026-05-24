@@ -16,6 +16,7 @@ from characterforge.handlers.characters import (
 )
 from characterforge.handlers.chat import chat_with_character
 from characterforge.handlers.sessions import clear_session_history, get_session_history
+from characterforge.security.principal import Principal, PrincipalError, principal_from_event
 from characterforge.services.bedrock_client import BedrockLLMClient
 from characterforge.services.character_store import CharacterStore, InMemoryCharacterStore
 from characterforge.services.dynamodb_store import DynamoDBCharacterStore, DynamoDBSessionStore
@@ -45,8 +46,11 @@ def handler(event: Mapping[str, Any], context: Any) -> JsonDict:
                 "unauthorized",
                 "Missing or invalid x-api-key header.",
             )
+        principal = principal_from_event(event)
         path_parameters = event.get("pathParameters") or {}
-        return _dispatch(method, path, path_parameters, event)
+        return _dispatch(method, path, path_parameters, event, principal)
+    except PrincipalError as error:
+        return _error_response(401, "unauthorized", str(error))
     except json.JSONDecodeError as error:
         return _error_response(400, "invalid_json", f"Request body is not valid JSON: {error.msg}")
     except ValueError as error:
@@ -58,24 +62,25 @@ def _dispatch(
     path: str,
     path_parameters: Mapping[str, Any],
     event: Mapping[str, Any],
+    principal: Principal,
 ) -> JsonDict:
     if method == "POST" and path == "/characters":
-        return create_character(_json_body(event), _character_store())
+        return create_character(_json_body(event), _character_store(), principal=principal)
 
     if method == "GET" and path == "/characters":
-        return list_characters(_character_store())
+        return list_characters(_character_store(), principal=principal)
 
     if method == "GET" and _matches(path, "/characters/{character_id}"):
         character_id = _path_value(path, path_parameters, "character_id", index=1)
-        return get_character(character_id, _character_store())
+        return get_character(character_id, _character_store(), principal=principal)
 
     if method == "PUT" and _matches(path, "/characters/{character_id}"):
         character_id = _path_value(path, path_parameters, "character_id", index=1)
-        return update_character(character_id, _json_body(event), _character_store())
+        return update_character(character_id, _json_body(event), _character_store(), principal=principal)
 
     if method == "DELETE" and _matches(path, "/characters/{character_id}"):
         character_id = _path_value(path, path_parameters, "character_id", index=1)
-        return delete_character(character_id, _character_store())
+        return delete_character(character_id, _character_store(), principal=principal)
 
     if method == "POST" and _matches(path, "/characters/{character_id}/chat"):
         character_id = _path_value(path, path_parameters, "character_id", index=1)
@@ -86,15 +91,16 @@ def _dispatch(
             _session_store(),
             _llm_client(),
             history_limit=_history_limit(),
+            principal=principal,
         )
 
     if method == "GET" and _matches(path, "/sessions/{session_id}"):
         session_id = _path_value(path, path_parameters, "session_id", index=1)
-        return get_session_history(session_id, _session_store(), limit=_optional_limit(event))
+        return get_session_history(session_id, _session_store(), limit=_optional_limit(event), principal=principal)
 
     if method == "DELETE" and _matches(path, "/sessions/{session_id}"):
         session_id = _path_value(path, path_parameters, "session_id", index=1)
-        return clear_session_history(session_id, _session_store())
+        return clear_session_history(session_id, _session_store(), principal=principal)
 
     return _error_response(404, "not_found", f"No route for {method} {path}.")
 

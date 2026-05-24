@@ -6,6 +6,7 @@ from typing import Any
 from pydantic import ValidationError
 
 from characterforge.models.character import CreateCharacterRequest, UpdateCharacterRequest
+from characterforge.security.principal import Principal
 from characterforge.services.character_store import CharacterStore
 
 JsonDict = dict[str, Any]
@@ -13,8 +14,9 @@ JsonDict = dict[str, Any]
 _JSON_HEADERS = {"Content-Type": "application/json"}
 
 
-def create_character(payload: JsonDict, store: CharacterStore) -> JsonDict:
+def create_character(payload: JsonDict, store: CharacterStore, *, principal: Principal | None = None) -> JsonDict:
     """Create a character profile from an API payload."""
+    del principal
     try:
         request = CreateCharacterRequest.model_validate(payload)
     except ValidationError as error:
@@ -24,22 +26,31 @@ def create_character(payload: JsonDict, store: CharacterStore) -> JsonDict:
     return _json_response(201, profile.model_dump(mode="json"))
 
 
-def list_characters(store: CharacterStore) -> JsonDict:
+def list_characters(store: CharacterStore, *, principal: Principal | None = None) -> JsonDict:
     """List character summaries."""
+    del principal
     summaries = [summary.model_dump(mode="json") for summary in store.list()]
     return _json_response(200, {"characters": summaries})
 
 
-def get_character(character_id: str, store: CharacterStore) -> JsonDict:
+def get_character(character_id: str, store: CharacterStore, *, principal: Principal | None = None) -> JsonDict:
     """Return one character profile by ID."""
+    del principal
     profile = store.get(character_id)
     if profile is None:
         return _not_found_response(character_id)
     return _json_response(200, profile.model_dump(mode="json"))
 
 
-def update_character(character_id: str, payload: JsonDict, store: CharacterStore) -> JsonDict:
+def update_character(
+    character_id: str,
+    payload: JsonDict,
+    store: CharacterStore,
+    *,
+    principal: Principal | None = None,
+) -> JsonDict:
     """Update an existing character profile from an API payload."""
+    del principal
     try:
         request = UpdateCharacterRequest.model_validate(payload)
     except ValidationError as error:
@@ -51,8 +62,9 @@ def update_character(character_id: str, payload: JsonDict, store: CharacterStore
     return _json_response(200, profile.model_dump(mode="json"))
 
 
-def delete_character(character_id: str, store: CharacterStore) -> JsonDict:
+def delete_character(character_id: str, store: CharacterStore, *, principal: Principal | None = None) -> JsonDict:
     """Delete one character profile by ID."""
+    del principal
     deleted = store.delete(character_id)
     if not deleted:
         return _not_found_response(character_id)

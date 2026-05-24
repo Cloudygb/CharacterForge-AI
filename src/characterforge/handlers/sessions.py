@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
+from characterforge.security.principal import Principal
 from characterforge.services.session_store import SessionStore
 
 JsonDict = dict[str, Any]
@@ -15,8 +16,10 @@ def get_session_history(
     store: SessionStore,
     *,
     limit: int | None = None,
+    principal: Principal | None = None,
 ) -> JsonDict:
     """Return serialized chat history for a session."""
+    del principal
     messages = [
         message.model_dump(mode="json")
         for message in store.get_recent_history(session_id, limit=limit)
@@ -24,8 +27,14 @@ def get_session_history(
     return _json_response(200, {"messages": messages})
 
 
-def clear_session_history(session_id: str, store: SessionStore) -> JsonDict:
+def clear_session_history(
+    session_id: str,
+    store: SessionStore,
+    *,
+    principal: Principal | None = None,
+) -> JsonDict:
     """Clear all stored chat history for a session."""
+    del principal
     cleared_count = store.clear_session(session_id)
     return _json_response(200, {"cleared_count": cleared_count})
 

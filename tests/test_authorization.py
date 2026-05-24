@@ -63,6 +63,7 @@ def reset_app_dependencies(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setenv("CHARACTERFORGE_RECENT_HISTORY_LIMIT", "10")
     monkeypatch.setenv("CHARACTERFORGE_AUTH_MODE", "production")
     monkeypatch.setenv("CHARACTERFORGE_AUTH_TEST_TOKENS", "true")
+    monkeypatch.delenv("CHARACTERFORGE_AUTH_LOCAL_DEV_MODE", raising=False)
     monkeypatch.delenv("CHARACTERFORGE_REQUIRE_LOCAL_API_KEY", raising=False)
     monkeypatch.delenv("CHARACTERFORGE_API_KEY", raising=False)
     reset = app.configure_dependencies_for_testing(
@@ -143,7 +144,6 @@ def create_session_for_token(token: str, character_id: str, *, session_id: str =
     assert response["statusCode"] == 200
 
 
-@pytest.mark.xfail(reason=AUTH_PENDING_REASON, strict=True)
 def test_unauthenticated_production_requests_are_rejected() -> None:
     from characterforge import app
 
@@ -153,7 +153,6 @@ def test_unauthenticated_production_requests_are_rejected() -> None:
     assert response_body(response)["error"]["code"] == "unauthorized"
 
 
-@pytest.mark.xfail(reason=AUTH_PENDING_REASON, strict=True)
 def test_invalid_bearer_tokens_are_rejected() -> None:
     from characterforge import app
 

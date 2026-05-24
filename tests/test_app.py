@@ -16,6 +16,7 @@ def reset_app_dependencies(monkeypatch: pytest.MonkeyPatch):
 
     monkeypatch.setenv("USE_MOCK_LLM", "true")
     monkeypatch.setenv("CHARACTERFORGE_RECENT_HISTORY_LIMIT", "10")
+    monkeypatch.setenv("CHARACTERFORGE_AUTH_LOCAL_DEV_MODE", "true")
     monkeypatch.delenv("CHARACTERFORGE_REQUIRE_LOCAL_API_KEY", raising=False)
     monkeypatch.delenv("CHARACTERFORGE_API_KEY", raising=False)
     reset = app.configure_dependencies_for_testing(

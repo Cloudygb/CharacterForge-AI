@@ -6,6 +6,7 @@ from typing import Any, Protocol
 from pydantic import ValidationError
 
 from characterforge.models.chat import ChatRequest
+from characterforge.security.principal import Principal
 from characterforge.services.character_store import CharacterStore
 from characterforge.services.prompt_builder import build_bedrock_prompt
 from characterforge.services.response_parser import LLMResponseParseError, parse_chat_response
@@ -31,8 +32,10 @@ def chat_with_character(
     llm_client: LLMClient,
     *,
     history_limit: int = _DEFAULT_HISTORY_LIMIT,
+    principal: Principal | None = None,
 ) -> JsonDict:
     """Run one character chat turn and persist the resulting conversation."""
+    del principal
     try:
         chat_request = ChatRequest.model_validate(payload)
     except ValidationError as error:

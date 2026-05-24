@@ -14,6 +14,7 @@ from characterforge.services.session_store import InMemorySessionStore
 def reset_lambda_dependencies(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setenv("USE_MOCK_LLM", "true")
     monkeypatch.setenv("CHARACTERFORGE_RECENT_HISTORY_LIMIT", "10")
+    monkeypatch.setenv("CHARACTERFORGE_AUTH_LOCAL_DEV_MODE", "true")
     reset = lambda_handler.configure_dependencies_for_testing(
         character_store=InMemoryCharacterStore(),
         session_store=InMemorySessionStore(),

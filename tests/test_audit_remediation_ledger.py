@@ -255,7 +255,7 @@ def test_step_16_evidence_records_authorization_regression_tests() -> None:
     assert "service tokens" in content
     assert "game/environment" in content
     assert "pytest tests/test_authorization.py -q" in content
-    assert "6 xfailed" in content
+    assert "4 xfailed" in content
     assert "No secrets" in content
 
 
@@ -278,6 +278,26 @@ def test_step_17_evidence_records_jwt_authorizer_infrastructure() -> None:
     assert "pytest tests/test_api_authorizer_infrastructure.py -q" in content
     assert "SAM/CloudFormation validation" in content
     assert "OpenAPI validation" in content
+    assert "No secrets" in content
+
+
+def test_step_18_evidence_records_request_principal_extraction() -> None:
+    assert LEDGER_PATH.exists(), f"Missing audit remediation ledger at {LEDGER_PATH.relative_to(REPO_ROOT)}"
+    content = LEDGER_PATH.read_text(encoding="utf-8")
+
+    assert "## Step 18 Request Principal Extraction" in content
+    assert "CF-AUDIT-1.1" in content
+    assert "src/characterforge/security/principal.py" in content
+    assert "tests/test_principal_extraction.py" in content
+    assert "Principal" in content
+    assert "tenant_id" in content
+    assert "game_id" in content
+    assert "environment_id" in content
+    assert "user_id" in content
+    assert "service_principal_id" in content
+    assert "scopes" in content
+    assert "local-dev test mode" in content
+    assert "pytest tests/test_principal_extraction.py -q" in content
     assert "No secrets" in content
 
 
