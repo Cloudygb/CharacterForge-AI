@@ -63,10 +63,17 @@ def test_object_auth_prevents_cross_character_or_session_access() -> None:
         assert "updated_by" in source
 
 
-@pytest.mark.xfail(reason=_pending_gate("no wildcard production CORS"))
 def test_no_wildcard_production_cors() -> None:
     """no wildcard production CORS: production responses/templates must not allow any origin."""
-    pytest.fail("Replace this placeholder with a production CORS regression test.")
+    infra_tests = (ROOT / "tests" / "test_infra_security.py").read_text(encoding="utf-8")
+    template = (ROOT / "infra" / "template.yaml").read_text(encoding="utf-8")
+
+    assert "test_production_cors_origins_are_parameterized_and_not_wildcard_by_default" in infra_tests
+    assert "test_dev_cors_wildcard_requires_explicit_dev_mode_parameter" in infra_tests
+    assert "test_cors_allowed_headers_do_not_advertise_authorization" in infra_tests
+    assert "AllowedCorsOrigins" in template
+    assert "UseDevCorsWildcard" in template
+    assert "AllowHeaders: \"'Content-Type,x-api-key'\"" in template
 
 
 def test_desktop_csp_non_null() -> None:

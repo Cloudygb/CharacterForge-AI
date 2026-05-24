@@ -30,6 +30,23 @@ Parameters:
     MaxValue: 100
     Description: Maximum number of recent session messages to load for prompt context.
 
+  AllowedCorsOrigins:
+    Type: String
+    Default: ''
+    Description: >
+      Comma-separated browser origins allowed by API Gateway CORS for deployed environments.
+      The production default is no browser origin; provide explicit HTTPS origins only when browser access is intended.
+
+  DevMode:
+    Type: String
+    Default: 'false'
+    AllowedValues:
+      - 'true'
+      - 'false'
+    Description: >
+      Enables local development CORS wildcard behavior only for local development stacks.
+      Not for production or shared deployed environments.
+
   AuthorizationMode:
     Type: String
     Default: cognito
@@ -57,6 +74,7 @@ Parameters:
 
 Conditions:
   UseCognitoAuthorizer: !Equals [!Ref AuthorizationMode, cognito]
+  UseDevCorsWildcard: !Equals [!Ref DevMode, 'true']
 
 Globals:
   Function:
@@ -90,8 +108,8 @@ Resources:
           DataTraceEnabled: false
       Cors:
         AllowMethods: "'GET,POST,PUT,DELETE,OPTIONS'"
-        AllowHeaders: "'Content-Type,Authorization,x-api-key'"
-        AllowOrigin: "'*'"
+        AllowHeaders: "'Content-Type,x-api-key'"
+        AllowOrigin: !If [UseDevCorsWildcard, "'*'", !Sub "'${AllowedCorsOrigins}'"]
       Auth:
         DefaultAuthorizer: CharacterForgeJwtAuthorizer
         Authorizers:

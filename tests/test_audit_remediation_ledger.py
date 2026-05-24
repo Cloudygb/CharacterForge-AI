@@ -141,7 +141,7 @@ def test_best_practice_audit_regression_index_lists_all_major_audit_gates() -> N
     for gate in EXPECTED_AUDIT_GATES:
         assert gate in content
 
-    implemented_gate_count = 13  # CSP non-null; auth/object authorization regression tests; IPC least privilege; installer signing required; updater real-or-disabled; downgrades blocked; prerequisite helper exit-code handling; prerequisite installer metadata pinning; installer scope and format; uninstall data cleanup; supply-chain artifacts; identity model documented
+    implemented_gate_count = 14  # CSP non-null; auth/object authorization regression tests; no wildcard production CORS; IPC least privilege; installer signing required; updater real-or-disabled; downgrades blocked; prerequisite helper exit-code handling; prerequisite installer metadata pinning; installer scope and format; uninstall data cleanup; supply-chain artifacts; identity model documented
     pending_or_implemented = content.count("@pytest.mark.xfail") + content.count("@pytest.mark.skip")
     assert pending_or_implemented >= len(EXPECTED_AUDIT_GATES) - implemented_gate_count
     assert "test_installer_release_verification.py" in content
@@ -348,6 +348,22 @@ def test_step_21_evidence_records_chat_session_authorization_enforcement() -> No
     assert "pytest tests/test_chat_handler.py tests/test_session_handlers.py tests/test_authorization.py -q" in content
     assert "No secrets" in content
 
+
+def test_step_22_evidence_records_production_cors_restriction() -> None:
+    assert LEDGER_PATH.exists(), f"Missing audit remediation ledger at {LEDGER_PATH.relative_to(REPO_ROOT)}"
+    content = LEDGER_PATH.read_text(encoding="utf-8")
+
+    assert "## Step 22 Production CORS Restriction" in content
+    assert "CF-AUDIT-1.4" in content
+    assert "AllowedCorsOrigins" in content
+    assert "DevMode" in content
+    assert "UseDevCorsWildcard" in content
+    assert "no browser origin" in content
+    assert "Authorization" in content
+    assert "Content-Type,x-api-key" in content
+    assert "pytest tests/test_infra_security.py -q" in content
+    assert "SAM validation" in content
+    assert "No secrets" in content
 
 def test_audit_remediation_ledger_does_not_commit_source_audit_or_secrets() -> None:
     assert LEDGER_PATH.exists(), f"Missing audit remediation ledger at {LEDGER_PATH.relative_to(REPO_ROOT)}"
