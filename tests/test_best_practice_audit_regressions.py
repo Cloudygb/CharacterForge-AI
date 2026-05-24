@@ -187,6 +187,22 @@ def test_supply_chain_sbom_and_provenance_artifacts_are_generated_for_release_bu
     assert "release-provenance.json" in build_script
 
 
+def test_structured_errors_include_request_ids_and_redaction() -> None:
+    """structured errors: API errors must include request IDs, retryability, and no raw sensitive input."""
+    error_tests = (ROOT / "tests" / "test_api_error_contract.py").read_text(encoding="utf-8")
+    app_source = (ROOT / "src" / "characterforge" / "app.py").read_text(encoding="utf-8")
+    openapi = (ROOT / "openapi.yaml").read_text(encoding="utf-8")
+
+    assert "test_error_responses_echo_supplied_x_request_id_and_use_standard_schema" in error_tests
+    assert "test_validation_errors_are_generic_and_do_not_echo_sensitive_input_values" in error_tests
+    assert "test_model_errors_are_retryable_redacted_and_include_retry_after_ms" in error_tests
+    assert "x-request-id" in app_source
+    assert "request_id" in app_source
+    assert "retryable" in app_source
+    assert "retry_after_ms" in app_source
+    assert "required: [code, message, request_id, retryable, retry_after_ms]" in openapi
+
+
 def test_production_identity_model_is_documented_before_auth_implementation() -> None:
     """identity model documented: production auth must define principals, scopes, and ownership first."""
     identity_tests = (ROOT / "tests" / "test_identity_model_documentation.py").read_text(encoding="utf-8")

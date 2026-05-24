@@ -22,6 +22,7 @@ EXPECTED_AUDIT_GATES = [
     "uninstall data cleanup",
     "supply-chain artifacts",
     "identity model documented",
+    "structured errors",
     "OpenAPI auth responses",
     "no API key persistence",
     "docs direct-key warning",
@@ -141,7 +142,7 @@ def test_best_practice_audit_regression_index_lists_all_major_audit_gates() -> N
     for gate in EXPECTED_AUDIT_GATES:
         assert gate in content
 
-    implemented_gate_count = 14  # CSP non-null; auth/object authorization regression tests; no wildcard production CORS; IPC least privilege; installer signing required; updater real-or-disabled; downgrades blocked; prerequisite helper exit-code handling; prerequisite installer metadata pinning; installer scope and format; uninstall data cleanup; supply-chain artifacts; identity model documented
+    implemented_gate_count = 15  # CSP non-null; auth/object authorization regression tests; no wildcard production CORS; IPC least privilege; installer signing required; updater real-or-disabled; downgrades blocked; prerequisite helper exit-code handling; prerequisite installer metadata pinning; installer scope and format; uninstall data cleanup; supply-chain artifacts; identity model documented; structured errors
     pending_or_implemented = content.count("@pytest.mark.xfail") + content.count("@pytest.mark.skip")
     assert pending_or_implemented >= len(EXPECTED_AUDIT_GATES) - implemented_gate_count
     assert "test_installer_release_verification.py" in content
@@ -384,3 +385,19 @@ def test_audit_remediation_ledger_does_not_commit_source_audit_or_secrets() -> N
             failures.append(f"line {line_number} matched {pattern.pattern}")
 
     assert failures == []
+
+def test_step_23_evidence_records_structured_error_contract() -> None:
+    assert LEDGER_PATH.exists(), f"Missing audit remediation ledger at {LEDGER_PATH.relative_to(REPO_ROOT)}"
+    content = LEDGER_PATH.read_text(encoding="utf-8")
+
+    assert "## Step 23 Request IDs and Structured Error Schema" in content
+    assert "CF-AUDIT-1.7" in content
+    assert "CF-AUDIT-8.1" in content
+    assert "x-request-id" in content
+    assert "request_id" in content
+    assert "retryable" in content
+    assert "retry_after_ms" in content
+    assert "Request validation failed." in content
+    assert "Model response could not be processed." in content
+    assert "pytest tests/test_api_error_contract.py -q" in content
+    assert "No secrets" in content

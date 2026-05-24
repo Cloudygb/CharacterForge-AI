@@ -4,6 +4,7 @@ import base64
 import hmac
 import json
 import os
+import uuid
 from collections.abc import Callable, Mapping
 from typing import Any
 
@@ -37,24 +38,34 @@ def handler(event: Mapping[str, Any], context: Any) -> JsonDict:
     """Route an API Gateway HTTP API event to the local CharacterForge handlers."""
     del context
 
+    request_id = _request_id(event)
+
     try:
         method = _event_method(event)
         path = _event_path(event)
         if not _local_api_key_authorized(event):
-            return _error_response(
-                401,
-                "unauthorized",
-                "Missing or invalid x-api-key header.",
+            return _finalize_response(
+                _error_response(
+                    401,
+                    "unauthorized",
+                    "Missing or invalid x-api-key header.",
+                ),
+                request_id,
             )
         principal = principal_from_event(event)
         path_parameters = event.get("pathParameters") or {}
-        return _dispatch(method, path, path_parameters, event, principal)
-    except PrincipalError as error:
-        return _error_response(401, "unauthorized", str(error))
-    except json.JSONDecodeError as error:
-        return _error_response(400, "invalid_json", f"Request body is not valid JSON: {error.msg}")
+        return _finalize_response(_dispatch(method, path, path_parameters, event, principal), request_id)
+    except PrincipalError:
+        return _finalize_response(_error_response(401, "unauthorized", "Authentication is required."), request_id)
+    except json.JSONDecodeError:
+        return _finalize_response(_error_response(400, "invalid_json", "Request body is not valid JSON."), request_id)
     except ValueError as error:
-        return _error_response(400, "bad_request", str(error))
+        return _finalize_response(_error_response(400, "bad_request", str(error)), request_id)
+    except Exception:
+        return _finalize_response(
+            _error_response(500, "internal_server_error", "An unexpected server error occurred."),
+            request_id,
+        )
 
 
 def _dispatch(
@@ -103,6 +114,99 @@ def _dispatch(
         return clear_session_history(session_id, _session_store(), principal=principal)
 
     return _error_response(404, "not_found", f"No route for {method} {path}.")
+
+
+def _request_id(event: Mapping[str, Any]) -> str:
+    supplied = _header_value(event, "x-request-id")
+    if supplied and _valid_request_id(supplied):
+        return supplied.strip()
+    request_context = event.get("requestContext") or {}
+    gateway_request_id = request_context.get("requestId") if isinstance(request_context, Mapping) else None
+    if isinstance(gateway_request_id, str) and _valid_request_id(gateway_request_id):
+        return gateway_request_id.strip()
+    return uuid.uuid4().hex
+
+
+def _valid_request_id(value: str) -> bool:
+    stripped = value.strip()
+    return bool(stripped) and len(stripped) <= 128 and "\n" not in stripped and "\r" not in stripped
+
+
+def _finalize_response(response: JsonDict, request_id: str) -> JsonDict:
+    finalized = dict(response)
+    headers = dict(finalized.get("headers") or {})
+    headers["x-request-id"] = request_id
+    finalized["headers"] = headers
+
+    body_text = finalized.get("body")
+    if not isinstance(body_text, str) or not body_text:
+        return finalized
+    try:
+        body = json.loads(body_text)
+    except json.JSONDecodeError:
+        return finalized
+    if not isinstance(body, dict) or not isinstance(body.get("error"), dict):
+        return finalized
+
+    finalized["body"] = json.dumps(_standard_error_body(body["error"], finalized.get("statusCode"), request_id))
+    return finalized
+
+
+def _standard_error_body(error: Mapping[str, Any], status_code: Any, request_id: str) -> JsonDict:
+    code = str(error.get("code") or "internal_server_error")
+    retryable, retry_after_ms = _retry_metadata(code, status_code)
+    body: JsonDict = {
+        "error": {
+            "code": code,
+            "message": _safe_error_message(code, error.get("message")),
+            "request_id": request_id,
+            "retryable": retryable,
+            "retry_after_ms": retry_after_ms,
+        }
+    }
+    if code == "validation_error":
+        details = _safe_validation_details(error.get("details"))
+        if details:
+            body["error"]["details"] = details
+    return body
+
+
+def _safe_error_message(code: str, fallback: Any) -> str:
+    messages = {
+        "validation_error": "Request validation failed.",
+        "llm_response_error": "Model response could not be processed.",
+        "internal_server_error": "An unexpected server error occurred.",
+        "unauthorized": "Authentication is required.",
+    }
+    if code in messages:
+        return messages[code]
+    return str(fallback) if isinstance(fallback, str) and fallback.strip() else "Request failed."
+
+
+def _safe_validation_details(details: Any) -> list[JsonDict]:
+    if not isinstance(details, list):
+        return []
+    safe_details: list[JsonDict] = []
+    for detail in details:
+        if not isinstance(detail, Mapping):
+            continue
+        safe_detail: JsonDict = {}
+        for key in ("type", "loc", "msg"):
+            if key in detail:
+                safe_detail[key] = detail[key]
+        if safe_detail:
+            safe_details.append(safe_detail)
+    return safe_details
+
+
+def _retry_metadata(code: str, status_code: Any) -> tuple[bool, int | None]:
+    try:
+        status = int(status_code)
+    except (TypeError, ValueError):
+        status = 500
+    if code == "llm_response_error" or status in {429, 500, 502, 503}:
+        return True, 1000
+    return False, None
 
 
 def _event_method(event: Mapping[str, Any]) -> str:

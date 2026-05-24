@@ -18,7 +18,7 @@ This ledger tracks remediation evidence for the internal CharacterForge AI best-
 | CF-AUDIT-1.4 | 1.4 Wildcard CORS is too permissive | P0/P1 | Implemented | Step 22 commit recorded in final task summary | `pytest tests/test_infra_security.py -q`; `pytest tests/test_best_practice_audit_regressions.py -q`; SAM validation; full suite | Production CORS origins are parameterized with `AllowedCorsOrigins`, default to no browser origin, and wildcard browser access is available only when the explicit local-development `DevMode` parameter enables `UseDevCorsWildcard`. CORS allowed headers are limited to `Content-Type,x-api-key`; `Authorization` is not advertised for browser requests until an intentional browser bearer-token flow is approved. |
 | CF-AUDIT-1.5 | 1.5 Input and resource limits are not strong enough | P1 | Planned | Pending | Pending targeted regression and existing suite coverage | Pending implementation evidence |
 | CF-AUDIT-1.6 | 1.6 LLM prompt-injection and action execution controls are incomplete | P1 | Planned | Pending | Pending targeted regression and existing suite coverage | Pending implementation evidence |
-| CF-AUDIT-1.7 | 1.7 Error responses may leak too much detail | P2/P1 | Planned | Pending | Pending targeted regression and existing suite coverage | Pending implementation evidence |
+| CF-AUDIT-1.7 | 1.7 Error responses may leak too much detail | P2/P1 | Implemented | Step 23 commit recorded in final task summary | `pytest tests/test_api_error_contract.py -q`; `pytest tests/test_best_practice_audit_regressions.py -q`; full suite | API adapter emits standard redacted error bodies with `code`, safe `message`, `request_id`, `retryable`, and `retry_after_ms`; validation and model errors do not echo sensitive input values. |
 | CF-AUDIT-2.1 | 2.1 IAM is broader than the selected model | P1 | Planned | Pending | Pending targeted regression and existing suite coverage | Pending implementation evidence |
 | CF-AUDIT-2.2 | 2.2 Missing preventive/detective production controls | P1/P2 | Planned | Pending | Pending targeted regression and existing suite coverage | Pending implementation evidence |
 | CF-AUDIT-2.3 | 2.3 Stack automation should emphasize safe reversibility | P1 | Planned | Pending | Pending targeted regression and existing suite coverage | Pending implementation evidence |
@@ -48,7 +48,7 @@ This ledger tracks remediation evidence for the internal CharacterForge AI best-
 | CF-AUDIT-7.5 | 7.5 No event/game-state ingestion model | P1 | Planned | Pending | Pending targeted regression and existing suite coverage | Pending implementation evidence |
 | CF-AUDIT-7.6 | 7.6 Docs inconsistency: `game_context` vs `context` | P1 | Planned | Pending | Pending targeted regression and existing suite coverage | Pending implementation evidence |
 | CF-AUDIT-7.7 | 7.7 No runnable sample game | P2/P1 | Planned | Pending | Pending targeted regression and existing suite coverage | Pending implementation evidence |
-| CF-AUDIT-8.1 | 8.1 OpenAPI should document auth and rate-limit behavior | P1 | Planned | Pending | Pending targeted regression and existing suite coverage | Pending implementation evidence |
+| CF-AUDIT-8.1 | 8.1 OpenAPI should document auth and rate-limit behavior | P1 | In progress | Step 23 commit recorded in final task summary | `pytest tests/test_api_error_contract.py -q`; `pytest tests/test_best_practice_audit_regressions.py -q`; full suite | OpenAPI error schema now documents `x-request-id`, `request_id`, `retryable`, and `retry_after_ms`; broader reusable auth/throttle response attachment remains tracked by the existing OpenAPI auth responses gate. |
 | CF-AUDIT-8.2 | 8.2 SDK is too loosely typed | P1 | Planned | Pending | Pending targeted regression and existing suite coverage | Pending implementation evidence |
 | CF-AUDIT-9.1 | 9.1 Local automated tests are strong but CI is missing | P2/P1 | Planned | Pending | Pending targeted regression and existing suite coverage | Pending implementation evidence |
 
@@ -351,3 +351,16 @@ Captured on branch `best-practice-audit-remediation` before feature remediation 
 | Regression tests | `tests/test_infra_security.py` verifies non-wildcard production defaults, explicit DevMode gating, CORS header restrictions, and absence of unconditional wildcard `AllowOrigin`. The central audit regression index now points to this coverage. |
 | Verification summary | `pytest tests/test_infra_security.py -q`, central audit regression tests, ledger tests, SAM validation, and full Python suite pass after implementation. Final verification commands are recorded in the Step 22 task summary. |
 | Safety scope | No secrets, credential values, API keys, live endpoints, generated release artifacts, or internal planning source artifacts were committed. |
+
+## Step 23 Request IDs and Structured Error Schema
+
+| Evidence | Summary |
+| --- | --- |
+| Audit coverage | `CF-AUDIT-1.7` and `CF-AUDIT-8.1`. |
+| Request correlation | API Gateway responses include an `x-request-id` response header. The service accepts a safe caller-supplied `x-request-id`, falls back to the gateway request ID, or generates a new correlation ID. |
+| Standard error schema | Error bodies now include `code`, safe `message`, `request_id`, `retryable`, and `retry_after_ms`. `retry_after_ms` is populated for retryable model/server errors and `null` for non-retryable client errors. |
+| Redacted diagnostics | Validation failures use `Request validation failed.` and remove raw `input` values from details. Model parse failures use `Model response could not be processed.` instead of returning raw model output. |
+| Client contract | `openapi.yaml` documents `x-request-id`, `request_id`, `retryable`, `retry_after_ms`, generic validation messages, and redacted validation examples. |
+| Regression tests | RED coverage added in `tests/test_api_error_contract.py`, central audit regression coverage, and this ledger evidence test. |
+| Verification | `pytest tests/test_api_error_contract.py -q`; `pytest tests/test_best_practice_audit_regressions.py -q`; `pytest tests/test_audit_remediation_ledger.py -q`; full suite and diff checks recorded in the final task summary. |
+| Safety scope | No secrets, credential values, API keys, live endpoints, generated artifacts, or internal planning source artifacts were committed. |
