@@ -92,6 +92,17 @@ def test_prerequisite_helpers_check_exit_codes() -> None:
     assert "optional prerequisite helper warning" in prerequisite_tests
 
 
+def test_prerequisite_installer_metadata_is_pinned() -> None:
+    """prerequisite installer metadata pinning: elevated downloads must be deterministic and auditable."""
+    prerequisite_tests = (ROOT / "tests" / "test_installer_prerequisite_installers.py").read_text(encoding="utf-8")
+
+    assert "test_prerequisite_installer_scripts_use_pinned_versions_hashes_publishers_and_update_notes" in prerequisite_tests
+    assert "$ExpectedSha256" in prerequisite_tests
+    assert "$ExpectedSignerPublisher" in prerequisite_tests
+    assert "latest/download" in prerequisite_tests
+    assert "fwlink" in prerequisite_tests
+
+
 @pytest.mark.xfail(reason=_pending_gate("OpenAPI auth responses"))
 def test_openapi_documents_auth_error_and_rate_limit_responses() -> None:
     """OpenAPI auth responses: API contract must document 401, 403, 429, and retry metadata."""

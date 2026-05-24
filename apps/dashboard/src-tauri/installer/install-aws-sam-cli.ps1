@@ -10,8 +10,13 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
 $ToolName = "aws-sam-cli"
-$DownloadUrl = "https://github.com/aws/aws-sam-cli/releases/latest/download/AWS_SAM_CLI_64_PY3.msi"
+$DownloadUrl = "https://github.com/aws/aws-sam-cli/releases/download/v1.161.0/AWS_SAM_CLI_64_PY3.msi"
 $InstallerFileName = "AWS_SAM_CLI_64_PY3.msi"
+$InstallerVersion = "1.161.0"
+$ExpectedSha256 = "32018ca659b39707c34dbbfe032dc67af96e65f7d2b66f2c5edbf56fd92c7ef0"
+$ExpectedSignerPublisher = "Amazon Web Services"
+$ExpectedSignerThumbprint = ""
+# Update procedure: choose an explicit upstream installer version, download it once, compute SHA-256, verify the Authenticode signer publisher/thumbprint where available, then update these pinned metadata values and dry-run tests in the same commit.
 
 $EXIT_SUCCESS = 0
 $EXIT_INVALID_ARGUMENTS = 2
@@ -53,6 +58,10 @@ function New-Result {
         exitCode = $ExitCode
         message = $Message
         downloadUrl = $DownloadUrl
+        installerVersion = $InstallerVersion
+        expectedSha256 = $ExpectedSha256
+        expectedSignerPublisher = $ExpectedSignerPublisher
+        expectedSignerThumbprint = $ExpectedSignerThumbprint
         logPath = $LogPath
         downloaded = $Downloaded
         installed = $Installed
@@ -91,20 +100,35 @@ function Test-DependencyInstalled {
     [ordered]@{ installed = $false; path = $null; version = $null }
 }
 
+function Assert-InstallerHash {
+    param([Parameter(Mandatory = $true)][string]$Path)
+    $actualSha256 = (Get-FileHash -Path $Path -Algorithm SHA256).Hash.ToLowerInvariant()
+    if ($actualSha256 -ne $ExpectedSha256.ToLowerInvariant()) {
+        throw "Expected SHA-256 $ExpectedSha256 for downloaded installer, but found $actualSha256"
+    }
+    Write-CharacterForgeAILog "Downloaded installer SHA-256 verified."
+}
+
 function Assert-InstallerSignature {
     param([Parameter(Mandatory = $true)][string]$Path)
     $signature = Get-AuthenticodeSignature -FilePath $Path
     if ($signature.Status -ne 'Valid') {
         throw "Signature verification failed for downloaded installer: $($signature.Status)"
     }
-    Write-CharacterForgeAILog "Downloaded installer signature verified."
+    if ($null -eq $signature.SignerCertificate -or $signature.SignerCertificate.Subject -notlike "*$ExpectedSignerPublisher*") {
+        throw "Signature verification failed for downloaded installer: expected publisher $ExpectedSignerPublisher."
+    }
+    if ($ExpectedSignerThumbprint -and $signature.SignerCertificate.Thumbprint -ne $ExpectedSignerThumbprint) {
+        throw "Signature verification failed for downloaded installer: unexpected signer thumbprint."
+    }
+    Write-CharacterForgeAILog "Downloaded installer signature verified for expected publisher."
 }
 
 try {
     Write-CharacterForgeAILog "Starting $ToolName installer helper. Dry-run: $([bool]$DryRun)."
 
     if ($DryRun) {
-        Write-CharacterForgeAILog "Dry-run mode: would download AWS SAM CLI from official AWS GitHub HTTPS release and run quiet MSI install."
+        Write-CharacterForgeAILog "Dry-run mode: would download pinned AWS SAM CLI 1.161.0 and run quiet MSI install."
         New-Result -ExitCode $EXIT_SUCCESS -Message "Dry-run completed; no download or install was performed." | ConvertTo-Json -Depth 6
         exit $EXIT_SUCCESS
     }
@@ -125,6 +149,7 @@ try {
     Write-CharacterForgeAILog "Downloading $ToolName from official HTTPS source."
     try {
         Invoke-WebRequest -Uri $DownloadUrl -OutFile $installerPath -UseBasicParsing -ErrorAction Stop
+        Assert-InstallerHash -Path $installerPath
         Assert-InstallerSignature -Path $installerPath
     } catch {
         Write-CharacterForgeAILog "Download failed for $ToolName."

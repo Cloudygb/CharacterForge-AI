@@ -16,10 +16,29 @@ INSTALL_SCRIPTS = {
 DOCKER_GUIDANCE = INSTALLER / "show-docker-guidance.ps1"
 
 OFFICIAL_URLS = {
-    "webview2": "https://go.microsoft.com/fwlink/p/?LinkId=2124703",
-    "aws_cli": "https://awscli.amazonaws.com/AWSCLIV2.msi",
-    "sam_cli": "https://github.com/aws/aws-sam-cli/releases/latest/download/AWS_SAM_CLI_64_PY3.msi",
+    "webview2": "https://msedge.sf.dl.delivery.mp.microsoft.com/filestreamingservice/files/0bbb66e3-8f09-497b-a082-aedbdee906e2/MicrosoftEdgeWebview2Setup.exe",
+    "aws_cli": "https://awscli.amazonaws.com/AWSCLIV2-2.34.53.msi",
+    "sam_cli": "https://github.com/aws/aws-sam-cli/releases/download/v1.161.0/AWS_SAM_CLI_64_PY3.msi",
     "docker_docs": "https://docs.docker.com/desktop/setup/install/windows-install/",
+}
+
+PINNED_INSTALLER_METADATA = {
+    "webview2": {
+        "version": "evergreen-bootstrapper-2026-05-23",
+        "sha256": "cb9b76a6dace90f5d4635f2d49cbb55a62f41e5e365a22cef4265c013af0bcdd",
+        "publisher": "Microsoft Corporation",
+        "thumbprint": "4028CAD637509D4744B17EC5B42AED8D7A31E6AF",
+    },
+    "aws_cli": {
+        "version": "2.34.53",
+        "sha256": "5121640ad936b07ed42d01bf4df78ff4f5286bf912f6a855f0a7be921801fc56",
+        "publisher": "Amazon Web Services",
+    },
+    "sam_cli": {
+        "version": "1.161.0",
+        "sha256": "32018ca659b39707c34dbbfe032dc67af96e65f7d2b66f2c5edbf56fd92c7ef0",
+        "publisher": "Amazon Web Services",
+    },
 }
 
 EXIT_CODES = {
@@ -81,6 +100,34 @@ def _run_dry_run(script: Path, log_path: Path) -> tuple[dict, Path]:
     assert completed.returncode == EXIT_CODES["success"], completed.stderr + completed.stdout
     assert completed.stderr.strip() == ""
     return json.loads(completed.stdout), actual_log_path
+
+
+def test_prerequisite_installer_scripts_use_pinned_versions_hashes_publishers_and_update_notes() -> None:
+    for name, script_path in INSTALL_SCRIPTS.items():
+        script = script_path.read_text(encoding="utf-8")
+        normalized = script.lower()
+        metadata = PINNED_INSTALLER_METADATA[name]
+
+        assert OFFICIAL_URLS[name] in script
+        assert "latest/download" not in normalized
+        assert "fwlink" not in normalized
+        assert "$InstallerVersion" in script
+        assert f'"{metadata["version"]}"' in script
+        assert "$ExpectedSha256" in script
+        assert metadata["sha256"] in script
+        assert "$ExpectedSignerPublisher" in script
+        assert metadata["publisher"].lower() in normalized
+        assert "$ExpectedSignerThumbprint" in script
+        assert "Assert-InstallerHash" in script
+        assert "Get-FileHash" in script
+        assert "Expected SHA-256" in script
+        assert "SignerCertificate.Subject" in script
+        assert "Update procedure:" in script
+        assert "downloadUrl" in script
+        assert "installerVersion" in script
+        assert "expectedSha256" in script
+        assert "expectedSignerPublisher" in script
+        assert "expectedSignerThumbprint" in script
 
 
 def test_prerequisite_installer_scripts_use_official_https_sources_and_stable_exit_codes() -> None:
@@ -202,6 +249,11 @@ def test_prerequisite_installer_dry_run_outputs_json_and_logs_without_downloads(
         assert output["dryRun"] is True
         assert output["exitCode"] == EXIT_CODES["success"]
         assert output["downloadUrl"] == OFFICIAL_URLS[name]
+        assert output["installerVersion"] == PINNED_INSTALLER_METADATA[name]["version"]
+        assert output["expectedSha256"] == PINNED_INSTALLER_METADATA[name]["sha256"]
+        assert output["expectedSignerPublisher"] == PINNED_INSTALLER_METADATA[name]["publisher"]
+        assert "expectedSignerThumbprint" in output
+        assert output["expectedSignerThumbprint"] == PINNED_INSTALLER_METADATA[name].get("thumbprint", "")
         if _powershell_exe() and _powershell_exe().startswith("/mnt/c/Windows/"):
             assert output["logPath"].endswith(actual_log_path.name)
         else:
