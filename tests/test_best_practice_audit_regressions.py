@@ -142,6 +142,21 @@ def test_supply_chain_sbom_and_provenance_artifacts_are_generated_for_release_bu
     assert "release-provenance.json" in build_script
 
 
+def test_production_identity_model_is_documented_before_auth_implementation() -> None:
+    """identity model documented: production auth must define principals, scopes, and ownership first."""
+    identity_tests = (ROOT / "tests" / "test_identity_model_documentation.py").read_text(encoding="utf-8")
+    auth_model = (ROOT / "docs" / "security" / "auth-model.md").read_text(encoding="utf-8")
+
+    assert "test_identity_model_defines_principals_claims_tokens_and_api_key_boundary" in identity_tests
+    assert "test_identity_model_maps_each_current_api_route_to_scope_and_ownership_rule" in identity_tests
+    assert "tenant_id" in auth_model
+    assert "service_principal_id" in auth_model
+    assert "API keys are metering only" in auth_model
+    assert "OWASP API1" in auth_model
+    assert "OWASP API2" in auth_model
+    assert "OWASP API5" in auth_model
+
+
 @pytest.mark.xfail(reason=_pending_gate("OpenAPI auth responses"))
 def test_openapi_documents_auth_error_and_rate_limit_responses() -> None:
     """OpenAPI auth responses: API contract must document 401, 403, 429, and retry metadata."""

@@ -12,9 +12,9 @@ This ledger tracks remediation evidence for the internal CharacterForge AI best-
 
 | Task ID | Audit Finding | Severity | Status | PR/Commit | Tests | Verification Evidence |
 | --- | --- | --- | --- | --- | --- | --- |
-| CF-AUDIT-1.1 | 1.1 API key only is not sufficient authentication | P0 | Planned | Pending | Pending targeted regression and existing suite coverage | Pending implementation evidence |
-| CF-AUDIT-1.2 | 1.2 Broken object-level authorization risk | P0 | Planned | Pending | Pending targeted regression and existing suite coverage | Pending implementation evidence |
-| CF-AUDIT-1.3 | 1.3 Client secret handling conflicts with game deployment reality | P0 | Planned | Pending | Pending targeted regression and existing suite coverage | Pending implementation evidence |
+| CF-AUDIT-1.1 | 1.1 API key only is not sufficient authentication | P0 | In progress | Step 15 commit recorded in final task summary | `pytest tests/test_identity_model_documentation.py -q`; `pytest tests/test_best_practice_audit_regressions.py -q` | Production identity model defines human and service principals, token types, scopes, and states that API keys are metering only; handler enforcement remains in later auth implementation steps. |
+| CF-AUDIT-1.2 | 1.2 Broken object-level authorization risk | P0 | In progress | Step 15 commit recorded in final task summary | `pytest tests/test_identity_model_documentation.py -q`; `pytest tests/test_best_practice_audit_regressions.py -q` | Production identity model defines tenant/game/environment ownership dimensions and route-level ownership rules; enforcement and negative cross-tenant tests remain in later implementation steps. |
+| CF-AUDIT-1.3 | 1.3 Client secret handling conflicts with game deployment reality | P0 | In progress | Step 15 commit recorded in final task summary | `pytest tests/test_identity_model_documentation.py -q`; `pytest tests/test_best_practice_audit_regressions.py -q` | Production identity model requires backend proxy/dedicated-server paths, short-lived tokens, PKCE for public clients, and local-development-only direct API-key use. |
 | CF-AUDIT-1.4 | 1.4 Wildcard CORS is too permissive | P0/P1 | Planned | Pending | Pending targeted regression and existing suite coverage | Pending implementation evidence |
 | CF-AUDIT-1.5 | 1.5 Input and resource limits are not strong enough | P1 | Planned | Pending | Pending targeted regression and existing suite coverage | Pending implementation evidence |
 | CF-AUDIT-1.6 | 1.6 LLM prompt-injection and action execution controls are incomplete | P1 | Planned | Pending | Pending targeted regression and existing suite coverage | Pending implementation evidence |
@@ -239,4 +239,18 @@ Captured on branch `best-practice-audit-remediation` before feature remediation 
 | Missing-artifact gate | `scripts/build-windows-installer.ps1` uses `Assert-ReleaseArtifact` after generation so release mode fails closed if any SBOM or provenance artifact is missing from the staged release evidence. |
 | Regression tests | `tests/test_release_sbom.py` verifies generated CycloneDX content for npm, Rust, and Python components, release script ordering after manifest generation, and missing-artifact checks. The central audit regression index exposes a passing supply-chain artifacts gate. |
 | Verification summary | `pytest tests/test_release_sbom.py -q`, central audit regression tests, ledger tests, local SBOM generator smoke, and full Python suite pass after implementation. Final verification commands are recorded in the Step 14 task summary. |
+| Safety scope | No secrets, credential values, API keys, live endpoints, generated release artifacts, or internal planning source artifacts were committed. |
+## Step 15 Production Identity Model
+
+| Evidence Item | Result |
+| --- | --- |
+| Audit coverage | CF-AUDIT-1.1 / API key only is not sufficient authentication; CF-AUDIT-1.2 / broken object-level authorization risk; CF-AUDIT-1.3 / client secret handling conflicts with game deployment reality. |
+| RED tests | `pytest tests/test_identity_model_documentation.py -q` failed before `docs/security/auth-model.md` existed. Ledger evidence test also failed until this section was added. |
+| Identity model document | `docs/security/auth-model.md` defines `tenant_id`, `game_id`, `environment_id`, `user_id`, `service_principal_id`, `player_id`, roles, scopes, token types, local development behavior, migration impact, threat model, and acceptance criteria. |
+| API-key boundary | API keys are metering only. Production authorization must come from normalized human or service principals; direct API-key use remains local-development only until replaced by JWT/service identity enforcement. |
+| Route authorization matrix | The model maps each current character/session API route to required scopes and ownership checks using tenant/game/environment dimensions plus object identifiers. |
+| Threat coverage | The threat model addresses OWASP API1/API2/API5 risks including leaked API keys, cross-tenant object access, public game client secret extraction, confused deputy behavior, and audit attribution gaps. |
+| Migration notes | The plan calls for tenant/game/environment keys, backfill of existing records, JWT authorizer introduction before scope enforcement, backend proxy or dedicated-server game integration, and negative cross-tenant/cross-game tests before production fail-closed enforcement. |
+| Regression tests | `tests/test_identity_model_documentation.py` verifies the public-safe identity model, route scope/ownership coverage, threat model, migration impact, and acceptance criteria. The central audit regression index exposes a passing identity model documented gate. |
+| Verification summary | `pytest tests/test_identity_model_documentation.py -q`, central audit regression tests, ledger tests, and full Python suite pass after implementation. Final verification commands are recorded in the Step 15 task summary. |
 | Safety scope | No secrets, credential values, API keys, live endpoints, generated release artifacts, or internal planning source artifacts were committed. |

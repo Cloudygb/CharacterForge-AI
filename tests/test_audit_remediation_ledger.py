@@ -21,6 +21,7 @@ EXPECTED_AUDIT_GATES = [
     "installer scope and format",
     "uninstall data cleanup",
     "supply-chain artifacts",
+    "identity model documented",
     "OpenAPI auth responses",
     "no API key persistence",
     "docs direct-key warning",
@@ -140,7 +141,7 @@ def test_best_practice_audit_regression_index_lists_all_major_audit_gates() -> N
     for gate in EXPECTED_AUDIT_GATES:
         assert gate in content
 
-    implemented_gate_count = 10  # CSP non-null; IPC least privilege; installer signing required; updater real-or-disabled; downgrades blocked; prerequisite helper exit-code handling; prerequisite installer metadata pinning; installer scope and format; uninstall data cleanup; supply-chain artifacts
+    implemented_gate_count = 11  # CSP non-null; IPC least privilege; installer signing required; updater real-or-disabled; downgrades blocked; prerequisite helper exit-code handling; prerequisite installer metadata pinning; installer scope and format; uninstall data cleanup; supply-chain artifacts; identity model documented
     pending_or_implemented = content.count("@pytest.mark.xfail") + content.count("@pytest.mark.skip")
     assert pending_or_implemented >= len(EXPECTED_AUDIT_GATES) - implemented_gate_count
     assert "test_installer_release_verification.py" in content
@@ -216,6 +217,25 @@ def test_step_14_evidence_records_sbom_and_provenance_artifacts() -> None:
     assert "release-provenance.json" in content
     assert "release-sbom" in content
     assert "pytest tests/test_release_sbom.py -q" in content
+    assert "No secrets" in content
+
+
+def test_step_15_evidence_records_production_identity_model() -> None:
+    assert LEDGER_PATH.exists(), f"Missing audit remediation ledger at {LEDGER_PATH.relative_to(REPO_ROOT)}"
+    content = LEDGER_PATH.read_text(encoding="utf-8")
+
+    assert "## Step 15 Production Identity Model" in content
+    assert "CF-AUDIT-1.1" in content
+    assert "CF-AUDIT-1.2" in content
+    assert "CF-AUDIT-1.3" in content
+    assert "docs/security/auth-model.md" in content
+    assert "tenant_id" in content
+    assert "game_id" in content
+    assert "environment_id" in content
+    assert "service_principal_id" in content
+    assert "API keys are metering only" in content
+    assert "OWASP API1/API2/API5" in content
+    assert "pytest tests/test_identity_model_documentation.py -q" in content
     assert "No secrets" in content
 
 
