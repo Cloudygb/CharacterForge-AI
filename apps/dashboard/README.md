@@ -74,7 +74,7 @@ Tauri writes Windows installer artifacts under:
 apps/dashboard/src-tauri/target/release/bundle/
 ```
 
-The Tauri config enables both `msi` and `nsis` bundle targets. The NSIS installer is the release path for `characterforgeai-installer.exe`; staging it does not deploy AWS resources or create cloud infrastructure.
+The Tauri config enables the NSIS bundle target as the supported Windows release installer. The NSIS installer is staged as `characterforgeai-installer.exe`; staging it does not deploy AWS resources or create cloud infrastructure.
 
 ## Local commands
 

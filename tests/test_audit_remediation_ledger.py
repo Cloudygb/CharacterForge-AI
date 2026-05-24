@@ -18,6 +18,7 @@ EXPECTED_AUDIT_GATES = [
     "downgrades blocked",
     "prerequisite helper exit-code handling",
     "prerequisite installer metadata pinning",
+    "installer scope and format",
     "OpenAPI auth responses",
     "no API key persistence",
     "docs direct-key warning",
@@ -137,7 +138,7 @@ def test_best_practice_audit_regression_index_lists_all_major_audit_gates() -> N
     for gate in EXPECTED_AUDIT_GATES:
         assert gate in content
 
-    implemented_gate_count = 7  # CSP non-null; IPC least privilege; installer signing required; updater real-or-disabled; downgrades blocked; prerequisite helper exit-code handling; prerequisite installer metadata pinning
+    implemented_gate_count = 8  # CSP non-null; IPC least privilege; installer signing required; updater real-or-disabled; downgrades blocked; prerequisite helper exit-code handling; prerequisite installer metadata pinning; installer scope and format
     pending_or_implemented = content.count("@pytest.mark.xfail") + content.count("@pytest.mark.skip")
     assert pending_or_implemented >= len(EXPECTED_AUDIT_GATES) - implemented_gate_count
     assert "test_installer_release_verification.py" in content
@@ -168,6 +169,20 @@ def test_step_11_evidence_records_prerequisite_installer_metadata_pinning() -> N
     assert "expected signer publisher" in content
     assert "Update procedure" in content
     assert "pytest tests/test_installer_prerequisite_installers.py -q" in content
+    assert "No secrets" in content
+
+
+def test_step_12_evidence_records_installer_scope_and_format_policy() -> None:
+    assert LEDGER_PATH.exists(), f"Missing audit remediation ledger at {LEDGER_PATH.relative_to(REPO_ROOT)}"
+    content = LEDGER_PATH.read_text(encoding="utf-8")
+
+    assert "## Step 12 Installer Scope and Format Policy" in content
+    assert "CF-AUDIT-4.4" in content
+    assert "current-user" in content
+    assert "NSIS-only" in content
+    assert "MSI release target removed" in content
+    assert "clean-machine checklist" in content
+    assert "pytest tests/test_dashboard_tauri_packaging.py -q" in content
     assert "No secrets" in content
 
 

@@ -34,8 +34,7 @@ def test_tauri_config_packages_existing_dashboard_build() -> None:
     assert config["build"]["beforeBuildCommand"] == "npm run build"
     assert config["build"]["beforeDevCommand"] == "npm run dev"
     assert config["build"]["devUrl"] == "http://localhost:5173"
-    assert "msi" in config["bundle"]["targets"]
-    assert "nsis" in config["bundle"]["targets"]
+    assert config["bundle"]["targets"] == ["nsis"]
     assert config["bundle"]["licenseFile"] == "../../../LICENSE"
     assert "icons/icon.ico" in config["bundle"]["icon"]
     assert "icons/icon.png" in config["bundle"]["icon"]
@@ -48,9 +47,34 @@ def test_tauri_config_packages_existing_dashboard_build() -> None:
     assert resources["../../../LICENSE"] == "deployment/LICENSE"
     windows = config["bundle"]["windows"]
     nsis = windows["nsis"]
-    assert nsis["installMode"] == "perMachine"
+    assert nsis["installMode"] == "currentUser"
     assert nsis["startMenuFolder"] == "CharacterForgeAI"
     assert nsis["installerHooks"] == "installer/characterforgeai.nsh"
+
+
+def test_windows_release_installer_policy_is_current_user_nsis_only_and_documented() -> None:
+    config = read_json(TAURI / "tauri.conf.json")
+    build_script = (ROOT / "scripts" / "build-windows-installer.ps1").read_text(encoding="utf-8").lower()
+    checklist = (ROOT / "scripts" / "windows-installer-clean-machine-checklist.md").read_text(
+        encoding="utf-8"
+    ).lower()
+    hook = (TAURI / "installer" / "characterforgeai.nsh").read_text(encoding="utf-8").lower()
+    dashboard_readme = (DASHBOARD / "README.md").read_text(encoding="utf-8").lower()
+
+    assert config["bundle"]["targets"] == ["nsis"]
+    assert config["bundle"]["windows"]["nsis"]["installMode"] == "currentUser"
+    assert "bundle\\nsis" in build_script
+    assert "bundle\\msi" not in build_script
+    assert "nsis-only" in checklist
+    assert "current-user" in checklist
+    assert "normal non-admin user" in checklist
+    assert "per-machine" not in checklist
+    assert "both msi and nsis" not in checklist
+    assert "program files app location" not in checklist
+    assert "requestexecutionlevel admin" not in hook
+    assert "setshellvarcontext all" not in hook
+    assert "nsis bundle target as the supported windows release installer" in dashboard_readme
+    assert "both `msi` and `nsis`" not in dashboard_readme
 
 
 def test_tauri_release_installers_block_normal_downgrades() -> None:
@@ -109,8 +133,7 @@ def test_custom_nsis_installer_hook_is_user_friendly_and_safe() -> None:
     assert "desktop shortcut" in normalized
     assert "start menu" in normalized
     assert "launch characterforgeai" in normalized
-    assert "requestexecutionlevel admin" in normalized
-    assert "setshellvarcontext all" in normalized
+    assert "current-user nsis installation" in normalized
     assert "install-webview2-runtime.ps1" in normalized
     assert "install-aws-cli-v2.ps1" in normalized
     assert "install-aws-sam-cli.ps1" in normalized
@@ -341,6 +364,7 @@ def test_clean_machine_installer_checklist_stays_out_of_public_docs() -> None:
 
     assert checklist_path.exists()
     assert not (ROOT / "docs" / "windows-installer-clean-machine-checklist.md").exists()
+    assert "release installer policy: nsis-only current-user" in normalized
     assert "clean-machine windows installer verification checklist" in normalized
     assert "scripts/verify-windows-installer.ps1" in normalized
     assert "dist/characterforgeai-installer.exe" in normalized

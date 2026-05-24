@@ -1,5 +1,7 @@
 # Clean-machine Windows installer verification checklist
 
+Release installer policy: NSIS-only current-user installation. CharacterForgeAI publishes the NSIS `.exe` installer as the supported Windows release artifact; MSI output is not built for release because the custom dependency pages and helper checks live in the NSIS flow.
+
 This checklist is for release QA on a fresh Windows machine or VM. Keep it with the installer scripts rather than public docs because it is an operational release checklist, not an end-user guide.
 
 ## Scope
@@ -7,7 +9,7 @@ This checklist is for release QA on a fresh Windows machine or VM. Keep it with 
 - Verify the staged installer at `dist/characterforgeai-installer.exe`.
 - Verify that the installed app creates the expected local artifacts, especially `CharacterForgeAI.exe`.
 - Confirm signer information when signature status is available on the machine.
-- Confirm the installer flow remains local-only: do not run SAM or CloudFormation during installer verification.
+- Confirm the supported release policy remains NSIS-only and current-user scoped.
 
 ## Before starting
 
@@ -40,7 +42,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\verify-windows-ins
 
 ## Install flow checks
 
-1. Run `dist/characterforgeai-installer.exe` as a normal non-admin user unless the release explicitly requires otherwise.
+1. Run `dist/characterforgeai-installer.exe` as a normal non-admin user.
 2. Confirm the installer shows CharacterForgeAI branding.
 3. Confirm the dependency validation page is understandable.
 4. Confirm optional prerequisite installer prompts are opt-in.
@@ -60,7 +62,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\verify-windows-ins
 
 Expected results:
 
-- `CharacterForgeAI.exe` exists in a current-user or Program Files app location.
+- `CharacterForgeAI.exe` exists in the current-user app install location.
 - Start Menu shortcut exists under the CharacterForgeAI folder.
 - Desktop shortcut is reported; it may be optional in future installer flows, but for this checklist pass it should be present when the checkbox was enabled.
 - The script reports signature status for the staged installer when Windows exposes Authenticode metadata.

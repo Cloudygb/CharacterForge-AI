@@ -103,6 +103,20 @@ def test_prerequisite_installer_metadata_is_pinned() -> None:
     assert "fwlink" in prerequisite_tests
 
 
+def test_installer_scope_and_format_is_implemented() -> None:
+    """installer scope and format: release builds use one current-user NSIS installer policy."""
+    packaging_tests = (ROOT / "tests" / "test_dashboard_tauri_packaging.py").read_text(encoding="utf-8")
+    tauri_config = (ROOT / "apps" / "dashboard" / "src-tauri" / "tauri.conf.json").read_text(
+        encoding="utf-8"
+    )
+
+    assert "test_windows_release_installer_policy_is_current_user_nsis_only_and_documented" in packaging_tests
+    assert '"targets": [\n      "nsis"\n    ]' in tauri_config
+    assert '"installMode": "currentUser"' in tauri_config
+    assert '"msi"' not in tauri_config
+    assert '"perMachine"' not in tauri_config
+
+
 @pytest.mark.xfail(reason=_pending_gate("OpenAPI auth responses"))
 def test_openapi_documents_auth_error_and_rate_limit_responses() -> None:
     """OpenAPI auth responses: API contract must document 401, 403, 429, and retry metadata."""

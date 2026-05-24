@@ -1,9 +1,10 @@
 ; CharacterForgeAI NSIS installer page flow and hooks.
 ; This file is product installer behavior, not an internal plan.
-; UAC/admin safety: Tauri is configured for per-machine installation so the
-; generated NSIS installer requests elevation. This is intentional because
-; WebView2, AWS CLI v2, and AWS SAM CLI installers can require Administrator
-; rights. Expected generated behavior: RequestExecutionLevel admin.
+; Tauri is configured for current-user NSIS installation so release installs do
+; not require machine-wide app placement. Optional prerequisite helpers may
+; require Administrator rights; when they cannot run, their signed/hash-pinned
+; helpers fail safely with actionable logs instead of changing the app install
+; scope.
 
 !include LogicLib.nsh
 !include nsDialogs.nsh
@@ -153,7 +154,6 @@ Page custom CFAI_CreateFinishPage CFAI_LeaveFinishPage
 !macroend
 
 !macro CFAI_ApplyShortcutChoices
-  SetShellVarContext all
 
   ${If} $CFAI_CreateStartMenuShortcut == "1"
     CreateDirectory "${CFAI_START_MENU_DIR}"
